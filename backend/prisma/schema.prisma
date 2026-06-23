@@ -1,0 +1,244 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CASHIER
+  SENIOR_CASHIER
+  ADMIN
+}
+
+enum OperationType {
+  BUY
+  SELL
+  EXCHANGE
+}
+
+enum ShiftStatus {
+  OPEN
+  CLOSED
+}
+
+enum RateStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TransferStatus {
+  PENDING
+  CONFIRMED
+  REJECTED
+}
+
+model Currency {
+  code      String   @id  // USD, EUR, PLN...
+  name      String        // Долар США
+  active    Boolean  @default(true)
+
+  pointCurrencies PointCurrency[]
+}
+
+model PointCurrency {
+  id              Int           @id @default(autoincrement())
+  exchangePoint   ExchangePoint @relation(fields: [exchangePointId], references: [id], onDelete: Cascade)
+  exchangePointId Int
+  currencyCode    String
+  currency        Currency      @relation(fields: [currencyCode], references: [code])
+
+  @@unique([exchangePointId, currencyCode])
+}
+
+model ExchangePoint {
+  id        Int        @id @default(autoincrement())
+  name      String
+  code      String     @unique // T1, T2, etc.
+  createdAt DateTime   @default(now())
+
+  cashDesks       CashDesk[]
+  users           User[]
+  rates           Rate[]
+  expenses        Expense[]
+  pointCurrencies PointCurrency[]
+}
+
+model User {
+  id              Int           @id @default(autoincrement())
+  name            String
+  login           String        @unique
+  passwordHash    String
+  role            Role          @default(CASHIER)
+  phone           String?
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+
+  exchangePoint   ExchangePoint? @relation(fields: [exchangePointId], references: [id])
+  exchangePointId Int?
+
+  shifts          Shift[]
+  operations      Operation[]
+  proposedRates   Rate[]        @relation("ProposedRates")
+  approvedRates   Rate[]        @relation("ApprovedRates")
+  sentTransfers   Transfer[]    @relation("SentTransfers")
+  receivedTransfers Transfer[]  @relation("ReceivedTransfers")
+  notifications   Notification[]
+  operationEdits  OperationEdit[] @relation("OperationEdits")
+}
+
+model CashDesk {
+  id              Int           @id @default(autoincrement())
+  name            String
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+
+  exchangePoint   ExchangePoint @relation(fields: [exchangePointId], references: [id])
+  exchangePointId Int
+
+  shifts          Shift[]
+  sentTransfers   Transfer[]    @relation("FromDesk")
+  receivedTransfers Transfer[]  @relation("ToDesk")
+}
+
+model Shift {
+  id              Int         @id @default(autoincrement())
+  number          String      @unique
+  status          ShiftStatus @default(OPEN)
+  openedAt        DateTime    @default(now())
+  closedAt        DateTime?
+
+  // Початкові залишки (JSON: { USD: 1000, EUR: 500, ... })
+  startBalance    Json        @default("{}")
+  // Фактичні залишки при закритті
+  endBalance      Json        @default("{}")
+  // Розрахункові залишки
+  calcBalance     Json        @default("{}")
+
+  profit          Decimal     @default(0) @db.Decimal(15, 2)
+  note            String?
+
+  cashDesk        CashDesk    @relation(fields: [cashDeskId], references: [id])
+  cashDeskId      Int
+
+  openedBy        User        @relation(fields: [openedById], references: [id])
+  openedById      Int
+
+  operations      Operation[]
+}
+
+model Operation {
+  id              Int           @id @default(autoincrement())
+  number          String        @unique
+  type            OperationType
+  currency        String        // USD, EUR, etc.
+  amount          Decimal       @db.Decimal(15, 2)
+  rate            Decimal       @db.Decimal(10, 4)
+  totalUah        Decimal       @db.Decimal(15, 2)
+  profit          Decimal       @db.Decimal(15, 2)
+  note            String?
+  createdAt       DateTime      @default(now())
+
+  // Крос-обмін: що клієнт дав (якщо не UAH)
+  payCurrency     String?
+  payAmount       Decimal?      @db.Decimal(15, 2)
+
+  shift           Shift         @relation(fields: [shiftId], references: [id])
+  shiftId         Int
+
+  cashier         User          @relation(fields: [cashierId], references: [id])
+  cashierId       Int
+
+  edits           OperationEdit[]
+}
+
+model OperationEdit {
+  id          Int       @id @default(autoincrement())
+  editedAt    DateTime  @default(now())
+  note        String?
+
+  prevAmount  Decimal   @db.Decimal(15, 2)
+  prevRate    Decimal   @db.Decimal(10, 4)
+  newAmount   Decimal   @db.Decimal(15, 2)
+  newRate     Decimal   @db.Decimal(10, 4)
+
+  operation   Operation @relation(fields: [operationId], references: [id])
+  operationId Int
+
+  editedBy    User      @relation("OperationEdits", fields: [editedById], references: [id])
+  editedById  Int
+}
+
+model Rate {
+  id              Int           @id @default(autoincrement())
+  currency        String
+  buy             Decimal       @db.Decimal(10, 4)
+  sell            Decimal       @db.Decimal(10, 4)
+  status          RateStatus    @default(ACTIVE)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  exchangePoint   ExchangePoint @relation(fields: [exchangePointId], references: [id])
+  exchangePointId Int
+
+  proposedBy      User          @relation("ProposedRates", fields: [proposedById], references: [id])
+  proposedById    Int
+
+  approvedBy      User?         @relation("ApprovedRates", fields: [approvedById], references: [id])
+  approvedById    Int?
+
+  // Only one ACTIVE rate per point+currency (enforced in service logic)
+}
+
+model Transfer {
+  id              Int            @id @default(autoincrement())
+  number          String         @unique
+  currency        String
+  amount          Decimal        @db.Decimal(15, 2)
+  status          TransferStatus @default(PENDING)
+  note            String?
+  createdAt       DateTime       @default(now())
+  confirmedAt     DateTime?
+
+  fromDesk        CashDesk       @relation("FromDesk", fields: [fromDeskId], references: [id])
+  fromDeskId      Int
+
+  toDesk          CashDesk       @relation("ToDesk", fields: [toDeskId], references: [id])
+  toDeskId        Int
+
+  sentBy          User           @relation("SentTransfers", fields: [sentById], references: [id])
+  sentById        Int
+
+  confirmedBy     User?          @relation("ReceivedTransfers", fields: [confirmedById], references: [id])
+  confirmedById   Int?
+
+  rejectNote      String?
+}
+
+model Expense {
+  id              Int           @id @default(autoincrement())
+  amount          Decimal       @db.Decimal(15, 2)
+  category        String
+  note            String?
+  date            DateTime      @default(now())
+
+  exchangePoint   ExchangePoint @relation(fields: [exchangePointId], references: [id])
+  exchangePointId Int
+}
+
+model Setting {
+  key   String @id
+  value String
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+}
