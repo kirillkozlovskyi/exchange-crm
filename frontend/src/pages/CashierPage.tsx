@@ -457,7 +457,7 @@ export default function CashierPage() {
       )}
 
       {/* ── Підшапка зміни ──────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-200 px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+      <div className="bg-white border-b border-gray-200 px-3 py-2 flex items-center gap-3 flex-wrap">
 
         {/* Перемикач форма/список — тільки на мобільному коли в Operations */}
         {tab === 'operations' && (
@@ -477,33 +477,32 @@ export default function CashierPage() {
           </div>
         )}
 
-        {/* Таби + Закрити зміну */}
-        <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Залишок в касі */}
-          <div className="flex flex-col items-start mr-6">
-            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1 hidden sm:block">Залишок в касі</span>
-          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
-            {currentBalance['UAH'] !== undefined && (
-              <div className="flex-shrink-0 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
-                <span className="font-bold text-lg text-blue-800">UAH: </span>
-                <span className="font-bold text-lg text-blue-800">{Number(currentBalance['UAH']).toFixed(0)}</span>
-              </div>
-            )}
-            {Object.entries(currentBalance).filter(([c]) => c !== 'UAH').map(([cur, amt]) => (
-              <div key={cur} className="flex-shrink-0 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
-                <span className="font-bold text-lg text-blue-800">{FLAG[cur] ?? ''} {cur}: </span>
-                <span className={`font-bold text-lg ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{Number(amt).toFixed(0)}</span>
-              </div>
-            ))}
-            {balanceEditEnabled && (
-              <button
-                onClick={() => setShowBalanceModal(true)}
-                className="flex-shrink-0 text-gray-400 hover:text-blue-600 transition text-lg px-1"
-                title="Коригувати залишок"
-              >✏️</button>
-            )}
-          </div>
-          </div>
+        {/* Залишок в касі — ліворуч, займає весь доступний простір */}
+        <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto scrollbar-none">
+          <span className="text-lg font-semibold text-gray-800 whitespace-nowrap flex-shrink-0 hidden sm:block">Залишок в касі:</span>
+          {currentBalance['UAH'] !== undefined && (
+            <div className="flex-shrink-0 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
+              <span className="font-bold text-lg text-blue-800">UAH: </span>
+              <span className="font-bold text-lg text-blue-800">{Number(currentBalance['UAH']).toFixed(0)}</span>
+            </div>
+          )}
+          {Object.entries(currentBalance).filter(([c]) => c !== 'UAH').map(([cur, amt]) => (
+            <div key={cur} className="flex-shrink-0 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
+              <span className="font-bold text-lg text-blue-800">{FLAG[cur] ?? ''} {cur}: </span>
+              <span className={`font-bold text-lg ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{Number(amt).toFixed(0)}</span>
+            </div>
+          ))}
+          {balanceEditEnabled && (
+            <button
+              onClick={() => setShowBalanceModal(true)}
+              className="flex-shrink-0 text-gray-400 hover:text-blue-600 transition text-lg px-1"
+              title="Коригувати залишок"
+            >✏️</button>
+          )}
+        </div>
+
+        {/* Таби + Закрити зміну — праворуч */}
+        <div className="flex items-center gap-2 flex-shrink-0 ml-auto">
           <button onClick={() => setTab('operations')}
             className={`px-4 py-1.5 rounded-lg font-medium text-lg transition ${tab === 'operations' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
             Операції
@@ -518,7 +517,7 @@ export default function CashierPage() {
             )}
           </button>
           <button onClick={() => setClosingShift(true)}
-            className="bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-lg font-medium ml-6">
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-lg font-medium ml-4">
             Закрити зміну
           </button>
         </div>

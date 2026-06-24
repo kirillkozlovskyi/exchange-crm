@@ -43,11 +43,11 @@ export default function Layout() {
         {/* Інфо активної зміни — по центру хедера */}
         {info && (
           <div className="hidden sm:flex flex-col items-center leading-tight">
-            <div className="font-semibold text-sm text-blue-100">
-              {info.pointName && <span className="text-blue-300 font-normal mr-1">{info.pointName} ·</span>}
+            <div className="font-bold text-lg text-white leading-tight">
+              {info.pointName && <span className="text-blue-200 font-normal mr-1">{info.pointName} ·</span>}
               {info.deskName}
             </div>
-            <div className="text-xs text-blue-300">
+            <div className="text-base text-blue-200">
               Зміна #{info.shiftNumber} · відкрита {format(new Date(info.openedAt), 'HH:mm dd.MM')}
             </div>
           </div>
