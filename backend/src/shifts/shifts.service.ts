@@ -47,13 +47,15 @@ export class ShiftsService {
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна вже закрита');
 
-    const profit = shift.operations.reduce(
+    const activeOps = shift.operations.filter(op => !op.cancelled);
+
+    const profit = activeOps.reduce(
       (sum, op) => sum + Number(op.profit), 0,
     );
 
-    // Розраховуємо розрахунковий залишок
+    // Розраховуємо розрахунковий залишок (скасовані операції не враховуються)
     const calcBalance = { ...shift.startBalance as object };
-    for (const op of shift.operations) {
+    for (const op of activeOps) {
       const cur = op.currency;
       const prev = calcBalance[cur] || 0;
       if (op.type === 'BUY') {
@@ -107,6 +109,35 @@ export class ShiftsService {
         openedBy: true,
         operations: { orderBy: { createdAt: 'desc' } },
       },
+    });
+  }
+
+  async adjustBalance(shiftId: number, newCurrentBalance: Record<string, number>) {
+    const shift = await this.prisma.shift.findUnique({
+      where: { id: shiftId },
+      include: { operations: true },
+    });
+    if (!shift) throw new NotFoundException('Зміну не знайдено');
+    if (shift.status === 'CLOSED') throw new BadRequestException('Зміна закрита');
+
+    // Обчислюємо дельту операцій: Σ(effectPerCurrency)
+    const opsDelta: Record<string, number> = {};
+    for (const op of shift.operations.filter((o) => !(o as any).cancelled)) {
+      const cur = op.currency;
+      opsDelta[cur] = (opsDelta[cur] ?? 0) + (op.type === 'BUY' ? Number(op.amount) : -Number(op.amount));
+      opsDelta['UAH'] = (opsDelta['UAH'] ?? 0) + (op.type === 'BUY' ? -Number(op.totalUah) : Number(op.totalUah));
+    }
+
+    // newStartBalance[cur] = newCurrentBalance[cur] - opsDelta[cur]
+    const startBalance = shift.startBalance as Record<string, number>;
+    const newStartBalance: Record<string, number> = { ...startBalance };
+    for (const [cur, newAmt] of Object.entries(newCurrentBalance)) {
+      newStartBalance[cur] = newAmt - (opsDelta[cur] ?? 0);
+    }
+
+    return this.prisma.shift.update({
+      where: { id: shiftId },
+      data: { startBalance: newStartBalance },
     });
   }
 

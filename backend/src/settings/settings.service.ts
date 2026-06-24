@@ -18,6 +18,15 @@ export class SettingsService {
     });
   }
 
+  async getStornoWindowMinutes(): Promise<number> {
+    const v = await this.get('storno_window_minutes');
+    return v !== null ? parseInt(v, 10) : 5;
+  }
+
+  async setStornoWindowMinutes(minutes: number): Promise<void> {
+    await this.set('storno_window_minutes', String(minutes));
+  }
+
   async getNbuRates(): Promise<{ buyPct: number; sellPct: number }> {
     const [buy, sell] = await Promise.all([
       this.get('nbu_buy_pct'),
@@ -34,5 +43,14 @@ export class SettingsService {
       this.set('nbu_buy_pct', String(buyPct)),
       this.set('nbu_sell_pct', String(sellPct)),
     ]);
+  }
+
+  async getBalanceEditEnabled(): Promise<boolean> {
+    const v = await this.get('cashier_can_edit_balance');
+    return v !== 'false'; // default true
+  }
+
+  async setBalanceEditEnabled(enabled: boolean): Promise<void> {
+    await this.set('cashier_can_edit_balance', String(enabled));
   }
 }

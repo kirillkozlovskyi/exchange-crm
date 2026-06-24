@@ -140,6 +140,8 @@ model Operation {
   profit          Decimal       @db.Decimal(15, 2)
   note            String?
   createdAt       DateTime      @default(now())
+  cancelled       Boolean       @default(false)
+  cancelNote      String?
 
   // Крос-обмін: що клієнт дав (якщо не UAH)
   payCurrency     String?

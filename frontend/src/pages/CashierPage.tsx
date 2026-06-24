@@ -47,6 +47,11 @@ export default function CashierPage() {
   const [tab, setTab] = useState<Tab>('operations');
   const [refreshOps, setRefreshOps] = useState(0);
   const [closingShift, setClosingShift] = useState(false);
+  const [mobileView, setMobileView] = useState<'form' | 'list'>('form');
+
+  // Редагування балансу
+  const [balanceEditEnabled, setBalanceEditEnabled] = useState(true);
+  const [showBalanceModal, setShowBalanceModal] = useState(false);
 
   // Передачі та сповіщення
   const [pendingCount, setPendingCount] = useState(0);
@@ -88,6 +93,9 @@ export default function CashierPage() {
 
     const init = async () => {
       try {
+        // Завантажуємо налаштування паралельно
+        api.get('/settings/balance-edit').then(({ data }) => setBalanceEditEnabled(data.enabled)).catch(() => {});
+
         // Спочатку перевіряємо — чи є у юзера вже відкрита зміна
         const myShiftRes = await api.get('/shifts/my').catch(() => null);
         const myShift = myShiftRes?.data;
@@ -219,6 +227,7 @@ export default function CashierPage() {
   const currentBalance = useMemo(() => {
     const bal: Record<string, number> = { ...(shift?.startBalance as Record<string, number> ?? {}) };
     for (const op of shift?.operations ?? []) {
+      if ((op as any).cancelled) continue; // скасовані операції не враховуються
       const cur = op.currency;
       if (op.type === 'BUY') {
         bal[cur] = (bal[cur] ?? 0) + Number(op.amount);
@@ -411,42 +420,65 @@ export default function CashierPage() {
       )}
 
       {/* ── Підшапка зміни ──────────────────────────────────────────────── */}
-      <div className="bg-white border-b border-gray-200 px-4 py-2 flex items-center gap-4 flex-wrap">
+      <div className="bg-white border-b border-gray-200 px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
+
         {/* Інфо зміни */}
-        <div className="flex items-center gap-3 flex-1 min-w-0">
-          <div>
-            <div className="font-bold text-base text-blue-700 leading-tight">
-              {selectedPointName && <span className="text-gray-500 font-normal text-sm mr-1">{selectedPointName} ·</span>}
-              {selectedDeskName}
-            </div>
-            <div className="text-xs text-gray-400">Зміна #{shift.number} · відкрита {format(new Date(shift.openedAt), 'HH:mm dd.MM')}</div>
+        <div className="min-w-0 flex-shrink-0">
+          <div className="font-bold text-sm sm:text-base text-blue-700 leading-tight truncate">
+            {selectedPointName && <span className="text-gray-500 font-normal text-xs sm:text-sm mr-1">{selectedPointName} ·</span>}
+            {selectedDeskName}
           </div>
+          <div className="text-xs text-gray-400 hidden sm:block">Зміна #{shift.number} · відкрита {format(new Date(shift.openedAt), 'HH:mm dd.MM')}</div>
         </div>
 
-        {/* Баланс каси компактно */}
-        <div className="flex items-center gap-2 flex-wrap">
-          {currentBalance['UAH'] !== undefined && (
-            <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-1 text-center">
-              <div className="text-xs text-blue-500">UAH</div>
-              <div className="font-bold text-sm text-blue-800">{Number(currentBalance['UAH']).toFixed(0)}</div>
-            </div>
-          )}
-          {Object.entries(currentBalance).filter(([c]) => c !== 'UAH').map(([cur, amt]) => (
-            <div key={cur} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-1 text-center">
-              <div className="text-xs text-gray-400">{FLAG[cur] ?? ''} {cur}</div>
-              <div className={`font-bold text-sm ${Number(amt) < 0 ? 'text-red-600' : 'text-gray-800'}`}>{Number(amt).toFixed(0)}</div>
-            </div>
-          ))}
-        </div>
+        {/* Перемикач форма/список — тільки на мобільному коли в Operations */}
+        {tab === 'operations' && (
+          <div className="flex lg:hidden items-center gap-1 bg-gray-100 rounded-lg p-0.5 flex-shrink-0">
+            <button
+              onClick={() => setMobileView('form')}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition ${mobileView === 'form' ? 'bg-white shadow text-blue-700' : 'text-gray-600'}`}
+            >
+              ✏️ Форма
+            </button>
+            <button
+              onClick={() => setMobileView('list')}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition ${mobileView === 'list' ? 'bg-white shadow text-blue-700' : 'text-gray-600'}`}
+            >
+              📋 Список
+            </button>
+          </div>
+        )}
 
-        {/* Таби */}
-        <div className="flex items-center gap-1">
+        {/* Таби + Закрити зміну */}
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {/* Баланс біля кнопки Операції */}
+          <div className="flex items-center gap-2 mr-6 overflow-x-auto scrollbar-none">
+            {currentBalance['UAH'] !== undefined && (
+              <div className="flex-shrink-0 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
+                <span className="font-bold text-lg text-blue-800">UAH: </span>
+                <span className="font-bold text-lg text-blue-800">{Number(currentBalance['UAH']).toFixed(0)}</span>
+              </div>
+            )}
+            {Object.entries(currentBalance).filter(([c]) => c !== 'UAH').map(([cur, amt]) => (
+              <div key={cur} className="flex-shrink-0 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
+                <span className="font-bold text-lg text-blue-800">{FLAG[cur] ?? ''} {cur}: </span>
+                <span className={`font-bold text-lg ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{Number(amt).toFixed(0)}</span>
+              </div>
+            ))}
+            {balanceEditEnabled && (
+              <button
+                onClick={() => setShowBalanceModal(true)}
+                className="flex-shrink-0 text-gray-400 hover:text-blue-600 transition text-lg px-1"
+                title="Коригувати залишок"
+              >✏️</button>
+            )}
+          </div>
           <button onClick={() => setTab('operations')}
-            className={`px-4 py-1.5 rounded-lg font-medium text-sm transition ${tab === 'operations' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+            className={`px-4 py-1.5 rounded-lg font-medium text-lg transition ${tab === 'operations' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
             Операції
           </button>
           <button onClick={() => setTab('transfers')}
-            className={`relative px-4 py-1.5 rounded-lg font-medium text-sm transition ${tab === 'transfers' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
+            className={`relative px-4 py-1.5 rounded-lg font-medium text-lg transition ${tab === 'transfers' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>
             Передачі
             {pendingCount > 0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-xs font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
@@ -454,42 +486,49 @@ export default function CashierPage() {
               </span>
             )}
           </button>
+          <button onClick={() => setClosingShift(true)}
+            className="bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-lg font-medium ml-6">
+            Закрити зміну
+          </button>
         </div>
-
-        <button onClick={() => setClosingShift(true)}
-          className="bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-sm font-medium ml-auto">
-          Закрити зміну
-        </button>
       </div>
 
       {/* ── Основний контент ────────────────────────────────────────────── */}
       {tab === 'operations' && (
         <div className="flex flex-1 min-h-0">
 
-          {/* Ліва колонка — список операцій (50%) */}
-          <div className="w-1/2 border-r border-gray-200 overflow-y-auto bg-white">
-            <OperationsList shiftId={shift.id} refresh={refreshOps} fullHeight rates={rates} onRefresh={() => loadShift(selectedDeskId!)} />
+          {/* Ліва колонка — список операцій: прихована на мобільному коли активна форма */}
+          <div className={`
+            lg:flex lg:w-1/2 lg:border-r lg:border-gray-200 lg:overflow-hidden lg:bg-white
+            ${mobileView === 'list' ? 'flex flex-1 overflow-hidden bg-white' : 'hidden'}
+          `}>
+            <div className="w-full h-full">
+              <OperationsList shiftId={shift.id} refresh={refreshOps} fullHeight rates={rates} onRefresh={() => loadShift(selectedDeskId!)} />
+            </div>
           </div>
 
-          {/* Права колонка — курси + нова операція (50%) */}
-          <div className="w-1/2 flex flex-col overflow-y-auto bg-gray-50">
+          {/* Права колонка — курси + нова операція: прихована на мобільному коли активний список */}
+          <div className={`
+            lg:flex lg:flex-col lg:w-1/2 lg:overflow-y-auto lg:bg-gray-50
+            ${mobileView === 'form' ? 'flex flex-col flex-1 overflow-y-auto bg-gray-50' : 'hidden'}
+          `}>
 
             {/* Блок курсів */}
-            <div className="bg-white border-b border-gray-200 p-4">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Курси валют</div>
-              <div className="space-y-1">
+            <div className="bg-white border-b border-gray-200 p-3 sm:p-4">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Курси валют</div>
+              <div className="space-y-0.5">
                 {rates.map((r) => (
-                  <div key={r.currency} className="flex items-center gap-3 py-0 border-b border-gray-100 last:border-0">
-                    <span className="text-lg w-8 text-center">{FLAG[r.currency] ?? '💱'}</span>
-                    <span className="font-bold text-lg w-12 text-gray-800">{r.currency}</span>
-                    <div className="flex gap-4 ml-auto">
+                  <div key={r.currency} className="flex items-center gap-2 sm:gap-3 py-0.5 border-b border-gray-100 last:border-0">
+                    <span className="text-base sm:text-lg w-6 sm:w-8 text-center">{FLAG[r.currency] ?? '💱'}</span>
+                    <span className="font-bold text-sm sm:text-lg w-10 sm:w-12 text-gray-800">{r.currency}</span>
+                    <div className="flex gap-3 sm:gap-4 ml-auto">
                       <div className="text-right">
-                        <div className="text-base text-gray-400">Купівля</div>
-                        <div className="text-2xl font-bold text-green-700">{Number(r.buy).toFixed(2)}</div>
+                        <div className="text-xs text-gray-400">Купівля</div>
+                        <div className="text-base sm:text-2xl font-bold text-green-700">{Number(r.buy).toFixed(2)}</div>
                       </div>
                       <div className="text-right">
-                        <div className="text-base text-gray-400">Продаж</div>
-                        <div className="text-2xl font-bold text-red-600">{Number(r.sell).toFixed(2)}</div>
+                        <div className="text-xs text-gray-400">Продаж</div>
+                        <div className="text-base sm:text-2xl font-bold text-red-600">{Number(r.sell).toFixed(2)}</div>
                       </div>
                     </div>
                   </div>
@@ -505,6 +544,7 @@ export default function CashierPage() {
               onCreated={() => {
                 setRefreshOps((n) => n + 1);
                 loadShift(selectedDeskId!);
+                setMobileView('list'); // після збереження — показати список
               }}
             />
           </div>
@@ -512,7 +552,7 @@ export default function CashierPage() {
       )}
 
       {tab === 'transfers' && (
-        <div className="p-4 flex-1 overflow-y-auto">
+        <div className="p-3 sm:p-4 flex-1 overflow-y-auto">
           <TransferPanel
             cashDeskId={selectedDeskId}
             balance={currentBalance}
@@ -521,6 +561,86 @@ export default function CashierPage() {
           />
         </div>
       )}
+
+      {/* ── Модалка редагування залишку ───────────────────────────────── */}
+      {showBalanceModal && (
+        <BalanceEditModal
+          currentBalance={currentBalance}
+          currencies={['UAH', ...rates.map((r: any) => r.currency)]}
+          flag={FLAG}
+          onClose={() => setShowBalanceModal(false)}
+          onSave={async (newBalance) => {
+            await api.patch(`/shifts/${shift.id}/adjust-balance`, { balance: newBalance });
+            await loadShift(selectedDeskId!);
+            setShowBalanceModal(false);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Модалка коригування залишку ──────────────────────────────────────────────
+function BalanceEditModal({
+  currentBalance, currencies, flag, onClose, onSave,
+}: {
+  currentBalance: Record<string, number>;
+  currencies: string[];
+  flag: Record<string, string>;
+  onClose: () => void;
+  onSave: (balance: Record<string, number>) => Promise<void>;
+}) {
+  const [values, setValues] = useState<Record<string, string>>(() =>
+    Object.fromEntries(currencies.map((c) => [c, (currentBalance[c] ?? 0).toFixed(0)]))
+  );
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const parsed: Record<string, number> = {};
+      for (const [cur, val] of Object.entries(values)) {
+        parsed[cur] = parseFloat(val) || 0;
+      }
+      await onSave(parsed);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6 space-y-5" onClick={(e) => e.stopPropagation()}>
+        <div className="text-center">
+          <div className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-1">Коригування залишків</div>
+          <p className="text-lg text-gray-500">Введіть фактичний залишок у кожній валюті</p>
+        </div>
+
+        <div className="space-y-3">
+          {currencies.map((cur) => (
+            <div key={cur} className="flex items-center gap-4">
+              <span className="text-2xl w-8 text-center">{flag[cur] ?? ''}</span>
+              <span className="w-14 font-bold text-gray-700 text-lg">{cur}</span>
+              <input
+                type="number"
+                step="1"
+                value={values[cur] ?? '0'}
+                onChange={(e) => setValues((prev) => ({ ...prev, [cur]: e.target.value }))}
+                className="flex-1 border border-gray-300 rounded-lg px-4 py-2.5 text-right font-bold text-lg focus:outline-none focus:ring-2 focus:ring-blue-400"
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex gap-3 pt-1">
+          <button onClick={onClose} className="flex-1 px-4 py-3 border border-gray-300 rounded-lg text-lg text-gray-600 hover:bg-gray-50 transition">
+            Скасувати
+          </button>
+          <button onClick={handleSave} disabled={saving} className="flex-1 px-4 py-3 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-lg font-bold disabled:opacity-50 transition">
+            {saving ? 'Збереження...' : 'Зберегти'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

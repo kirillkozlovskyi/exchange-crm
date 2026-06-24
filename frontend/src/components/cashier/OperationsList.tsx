@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import api from '../../api/axios';
 import { format } from 'date-fns';
+import { useAuth } from '../../context/AuthContext';
 import OperationEditModal from './OperationEditModal';
 
 type Op = {
@@ -15,6 +16,8 @@ type Op = {
   createdAt: string;
   payCurrency?: string;
   payAmount?: string | number;
+  cancelled?: boolean;
+  cancelNote?: string;
   _count?: { edits: number };
 };
 
@@ -26,27 +29,34 @@ function getMarketRate(op: Op, rates: Rate[]): number {
     const r = rates.find((x) => x.currency === cur);
     return r ? Number(r[side]) : 0;
   };
-  const isCross = op.type === 'EXCHANGE' && op.payCurrency;
+  const isCross = !!op.payCurrency && op.payCurrency !== 'UAH';
   if (isCross) {
     const buyR  = getR(op.payCurrency!, 'buy');
     const sellR = getR(op.currency, 'sell');
-    return buyR && sellR ? sellR / buyR : 0;
+    return buyR && sellR ? buyR / sellR : 0;
   }
   if (op.type === 'SELL') return getR(op.currency, 'sell');
   return getR(op.payCurrency ?? op.currency, 'buy');
 }
 
 function OpRow({
-  op, rates, onEdit,
+  op, rates, onEdit, onStorno, isLast, canEdit, stornoWindowMin, now,
 }: {
   op: Op; rates: Rate[]; onEdit: (op: Op) => void;
+  onStorno: (op: Op) => void; isLast: boolean; canEdit: boolean;
+  stornoWindowMin: number; now: number;
 }) {
-  const isCross     = op.type === 'EXCHANGE' && op.payCurrency;
-  const isClientBuy = op.type === 'SELL';
+  // Крос = є payCurrency (foreign). type = BUY/SELL (нові) або EXCHANGE (старі записи)
+  const isCross     = !!op.payCurrency && op.payCurrency !== 'UAH';
+  const isClientBuy = !isCross && op.type === 'SELL';
 
   const opRate     = Number(op.rate);
   const marketRate = getMarketRate(op, rates);
   const isCustom   = marketRate > 0 && Math.abs(opRate - marketRate) > 0.005;
+
+  // Сторно дозволено тільки якщо операція в межах вікна часу
+  const ageMin = (now - new Date(op.createdAt).getTime()) / 60_000;
+  const withinWindow = ageMin <= stornoWindowMin;
 
   const rateStr = isCross
     ? `${opRate.toFixed(2)} ${op.payCurrency}/${op.currency}`
@@ -55,87 +65,179 @@ function OpRow({
       : `${opRate.toFixed(2)} UAH/${op.payCurrency ?? op.currency}`;
 
   return (
-    <div className="flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0 group">
+    <div className={`flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0 group ${op.cancelled ? 'opacity-50' : ''}`}>
       <div className="flex-1 min-w-0">
-        {isCross ? (
-          <span className="font-bold text-base text-gray-800">
-            {Number(op.payAmount).toFixed(2)}
-            <span className="text-gray-400 font-normal text-sm ml-1">{op.payCurrency}</span>
-            <span className="text-gray-400 mx-1">→</span>
-            {Number(op.amount).toFixed(2)}
-            <span className="text-gray-400 font-normal text-sm ml-1">{op.currency}</span>
-          </span>
-        ) : isClientBuy ? (
-          <span className="font-bold text-base text-gray-800">
-            {Number(op.totalUah).toFixed(2)} ₴
-            <span className="text-gray-400 mx-1">→</span>
-            {Number(op.amount).toFixed(2)}
-            <span className="text-gray-400 font-normal text-sm ml-1">{op.currency}</span>
-          </span>
-        ) : (
-          <span className="font-bold text-base text-gray-800">
-            {Number(op.payAmount ?? op.amount).toFixed(2)}
-            <span className="text-gray-400 font-normal text-sm ml-1">{op.payCurrency ?? op.currency}</span>
-            <span className="text-gray-400 mx-1">→</span>
-            {Number(op.totalUah).toFixed(2)} ₴
-          </span>
+        {op.cancelled && (
+          <div className="text-lg text-red-500 font-semibold mb-0.5">СТОРНО{op.cancelNote ? ` · ${op.cancelNote}` : ''}</div>
         )}
+        <span className={`font-bold text-lg ${op.cancelled ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+          {isCross ? (
+            <>
+              {Number(op.payAmount).toFixed(2)}
+              <span className="text-gray-400 font-normal text-lg ml-1">{op.payCurrency}</span>
+              <span className="text-gray-400 mx-1">→</span>
+              {Number(op.amount).toFixed(2)}
+              <span className="text-gray-400 font-normal text-lg ml-1">{op.currency}</span>
+            </>
+          ) : isClientBuy ? (
+            <>
+              {Number(op.totalUah).toFixed(2)} ₴
+              <span className="text-gray-400 mx-1">→</span>
+              {Number(op.amount).toFixed(2)}
+              <span className="text-gray-400 font-normal text-lg ml-1">{op.currency}</span>
+            </>
+          ) : (
+            <>
+              {Number(op.payAmount ?? op.amount).toFixed(2)}
+              <span className="text-gray-400 font-normal text-lg ml-1">{op.payCurrency ?? op.currency}</span>
+              <span className="text-gray-400 mx-1">→</span>
+              {Number(op.totalUah).toFixed(2)} ₴
+            </>
+          )}
+        </span>
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0 ml-2">
         <div className="text-right">
           <div className="flex items-center justify-end gap-1.5">
-            <div className="text-sm text-gray-400">{format(new Date(op.createdAt), 'HH:mm')}</div>
+            <div className="text-lg text-gray-400">{format(new Date(op.createdAt), 'HH:mm')}</div>
             {(op._count?.edits ?? 0) > 0 && (
-              <span className="text-xs bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded" title="Операцію відредаговано">
+              <span className="text-lg bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded" title="Операцію відредаговано">
                 ред.
               </span>
             )}
           </div>
-          <div className={`text-xs font-medium ${isCustom ? 'text-orange-500' : 'text-gray-400'}`}>
+          <div className={`text-lg font-medium ${isCustom ? 'text-orange-500' : 'text-gray-400'}`}>
             {isCustom && <span className="mr-0.5">✱</span>}
             {rateStr}
           </div>
-          <div className="text-sm text-green-600 font-medium">+{Number(op.profit).toFixed(2)} ₴</div>
+          {!op.cancelled && (
+            <div className="text-lg text-green-600 font-medium">+{Number(op.profit).toFixed(2)} ₴</div>
+          )}
         </div>
 
-        <button
-          onClick={() => onEdit(op)}
-          className="p-2 rounded-lg text-gray-800 hover:text-blue-600 hover:bg-blue-50 transition text-lg leading-none"
-          title="Редагувати операцію"
-        >
-          ✎
-        </button>
+        {!op.cancelled && (
+          <div className="flex flex-col gap-1">
+            {canEdit && (
+              <button
+                onClick={() => onEdit(op)}
+                className="p-2 rounded-lg text-gray-700 hover:text-blue-600 hover:bg-blue-50 transition text-xl leading-none font-bold"
+                title="Редагувати операцію"
+              >
+                ✎
+              </button>
+            )}
+            {isLast && withinWindow && (
+              <button
+                onClick={() => onStorno(op)}
+                className="p-2 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition text-xl leading-none font-black"
+                title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
 function OpsBlock({
-  title, ops, colorClass, fullHeight, rates, onEdit,
+  title, ops, colorClass, fullHeight, rates, onEdit, onStorno, lastOpId, canEdit, stornoWindowMin, now,
 }: {
   title: string; ops: Op[]; colorClass: string; fullHeight?: boolean;
-  rates: Rate[]; onEdit: (op: Op) => void;
+  rates: Rate[]; onEdit: (op: Op) => void; onStorno: (op: Op) => void;
+  lastOpId: number | null; canEdit: boolean;
+  stornoWindowMin: number; now: number;
 }) {
-  const total = ops.reduce((s, o) => s + Number(o.profit || 0), 0);
+  const total = ops.filter(o => !o.cancelled).reduce((s, o) => s + Number(o.profit || 0), 0);
 
   return (
-    <div className={`flex flex-col ${fullHeight ? 'flex-1' : 'bg-white rounded-xl shadow p-4'}`}>
+    <div className={`flex flex-col ${fullHeight ? 'flex-1 min-h-0 overflow-hidden' : 'bg-white rounded-xl shadow p-4'}`}>
       <div className={`flex items-center justify-between ${fullHeight ? 'px-4 pt-3 pb-2 border-b border-gray-100' : 'mb-3'}`}>
-        <h3 className={`font-semibold text-base ${colorClass}`}>{title}</h3>
-        <span className="text-xs text-gray-500">
+        <h3 className={`font-semibold text-lg ${colorClass}`}>{title}</h3>
+        <span className="text-lg text-gray-500">
           Прибуток: <span className="text-green-600 font-medium">{total.toFixed(2)} ₴</span>
         </span>
       </div>
       <div className={`${fullHeight ? 'flex-1 overflow-y-auto px-4' : 'space-y-1.5 overflow-y-auto max-h-72 flex-1'}`}>
         {ops.length === 0 ? (
-          <p className="text-gray-400 text-sm text-center py-8">Немає</p>
+          <p className="text-gray-400 text-lg text-center py-8">Немає</p>
         ) : (
-          ops.map((op) => <OpRow key={op.id} op={op} rates={rates} onEdit={onEdit} />)
+          ops.map((op) => (
+            <OpRow
+              key={op.id} op={op} rates={rates}
+              onEdit={onEdit} onStorno={onStorno}
+              isLast={op.id === lastOpId}
+              canEdit={canEdit}
+              stornoWindowMin={stornoWindowMin}
+              now={now}
+            />
+          ))
         )}
       </div>
-      <div className={`${fullHeight ? 'px-4 py-2 border-t' : 'mt-2 pt-2 border-t'} text-xs text-gray-400 text-right`}>
+      <div className={`${fullHeight ? 'px-4 py-2 border-t' : 'mt-2 pt-2 border-t'} text-lg text-gray-400 text-right`}>
         {ops.length} операц{ops.length === 1 ? 'ія' : ops.length < 5 ? 'ії' : 'ій'}
+      </div>
+    </div>
+  );
+}
+
+// Модальне вікно підтвердження сторно
+function StornoModal({ op, onConfirm, onClose }: {
+  op: Op; onConfirm: (note: string) => void; onClose: () => void;
+}) {
+  const [note, setNote] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  const isCross     = !!op.payCurrency && op.payCurrency !== 'UAH';
+  const isClientBuy = !isCross && op.type === 'SELL';
+
+  const handleConfirm = async () => {
+    setLoading(true);
+    await onConfirm(note);
+    setLoading(false);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 space-y-4" onClick={e => e.stopPropagation()}>
+        <div className="text-center">
+          <div className="text-3xl mb-2">⚠️</div>
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Підтвердження сторно</div>
+          <div className="font-bold text-red-600 text-lg">Скасувати операцію #{op.number}?</div>
+        </div>
+
+        <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700 text-center">
+          {isCross ? (
+            <>{Number(op.payAmount).toFixed(2)} {op.payCurrency} → {Number(op.amount).toFixed(2)} {op.currency}</>
+          ) : isClientBuy ? (
+            <>{Number(op.totalUah).toFixed(2)} ₴ → {Number(op.amount).toFixed(2)} {op.currency}</>
+          ) : (
+            <>{Number(op.payAmount ?? op.amount).toFixed(2)} {op.payCurrency ?? op.currency} → {Number(op.totalUah).toFixed(2)} ₴</>
+          )}
+        </div>
+
+        <div>
+          <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Причина (необов'язково)</label>
+          <input
+            type="text" value={note} onChange={e => setNote(e.target.value)}
+            placeholder="Помилка касира, клієнт відмовився..."
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={onClose}
+            className="flex-1 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium text-sm hover:bg-gray-50 transition">
+            Скасувати
+          </button>
+          <button onClick={handleConfirm} disabled={loading}
+            className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold text-sm disabled:opacity-50 transition">
+            {loading ? 'Обробка...' : 'Сторно'}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -150,8 +252,15 @@ export default function OperationsList({
   rates?: Rate[];
   onRefresh?: () => void;
 }) {
+  const { user } = useAuth();
   const [ops, setOps] = useState<Op[]>([]);
   const [editingOp, setEditingOp] = useState<Op | null>(null);
+  const [stornoOp, setStornoOp] = useState<Op | null>(null);
+  const [filterCurs, setFilterCurs] = useState<string[]>([]);
+  const [stornoWindowMin, setStornoWindowMin] = useState<number>(5);
+  const [now, setNow] = useState<number>(Date.now());
+
+  const canEdit = user?.role === 'ADMIN';
 
   const load = () => {
     api.get(`/operations/shift/${shiftId}`).then(({ data }) => setOps(data));
@@ -159,17 +268,57 @@ export default function OperationsList({
 
   useEffect(() => { load(); }, [shiftId, refresh]);
 
+  // Завантажуємо вікно сторно один раз
+  useEffect(() => {
+    api.get('/settings/storno-window').then(({ data }) => setStornoWindowMin(data.minutes));
+  }, []);
+
+  // Оновлюємо `now` кожну хвилину щоб кнопка сторно зникала автоматично
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(id);
+  }, []);
+
   const handleSaved = () => {
     load();
     onRefresh?.();
   };
 
-  // Купівля = каса купує іноземну (backend BUY)
-  // Продаж  = каса продає іноземну (backend SELL / EXCHANGE)
-  const clientBuyOps  = ops.filter((o) => o.type === 'BUY');
-  const clientSellOps = ops.filter((o) => o.type === 'SELL' || o.type === 'EXCHANGE');
+  const handleStorno = async (note: string) => {
+    if (!stornoOp) return;
+    try {
+      await api.post(`/operations/${stornoOp.id}/storno`, { note });
+      setStornoOp(null);
+      load();
+      onRefresh?.();
+    } catch (e: any) {
+      alert(e.response?.data?.message || 'Помилка сторно');
+      setStornoOp(null);
+    }
+  };
 
-  const blockProps = { rates, onEdit: setEditingOp };
+  const allOps = ops;
+
+  // Унікальні валюти з усіх операцій зміни (для кнопок фільтру)
+  const usedCurrencies = Array.from(new Set(
+    allOps.flatMap((o) => [o.currency, o.payCurrency].filter(Boolean) as string[])
+  )).filter((c) => c !== 'UAH').sort();
+
+  // Остання НЕ скасована операція зміни (ops відсортовані desc)
+  const lastActiveOp = allOps.find(o => !o.cancelled);
+  // Сторно тільки якщо lastActiveOp є також НАЙНОВІШОЮ операцією взагалі
+  const stornoAllowed = lastActiveOp != null && allOps[0]?.id === lastActiveOp.id;
+  const lastOpId = stornoAllowed ? lastActiveOp.id : null;
+
+  // Мультіселект фільтр: показуємо якщо currency або payCurrency входить у вибрані
+  const filteredOps = filterCurs.length === 0
+    ? allOps
+    : allOps.filter((o) => filterCurs.includes(o.currency) || filterCurs.includes(o.payCurrency ?? ''));
+
+  const clientBuyOps  = filteredOps.filter((o) => o.type === 'BUY');
+  const clientSellOps = filteredOps.filter((o) => o.type === 'SELL' || o.type === 'EXCHANGE');
+
+  const blockProps = { rates, onEdit: setEditingOp, onStorno: setStornoOp, lastOpId, canEdit, stornoWindowMin, now };
 
   return (
     <>
@@ -180,19 +329,56 @@ export default function OperationsList({
           onSaved={handleSaved}
         />
       )}
+      {stornoOp && (
+        <StornoModal
+          op={stornoOp}
+          onConfirm={handleStorno}
+          onClose={() => setStornoOp(null)}
+        />
+      )}
 
       {fullHeight ? (
-        <div className="flex flex-col h-full">
-          <div className="px-4 py-3 border-b border-gray-100">
+        <div className="flex flex-col h-full overflow-hidden">
+          <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0">
             <h2 className="font-bold text-lg text-gray-800">Операції зміни</h2>
-            <div className="text-sm text-gray-400 mt-0.5">
+            <div className="text-lg text-gray-400 mt-0.5">
               Всього: {ops.length} · Прибуток:{' '}
               <span className="text-green-600 font-medium">
-                {ops.reduce((s, o) => s + Number(o.profit || 0), 0).toFixed(2)} ₴
+                {ops.filter(o => !o.cancelled).reduce((s, o) => s + Number(o.profit || 0), 0).toFixed(2)} ₴
               </span>
             </div>
+            {/* Фільтри */}
+            {usedCurrencies.length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-2">
+                <button
+                  onClick={() => setFilterCurs([])}
+                  className={`px-4 py-2 text-lg font-bold border transition ${
+                    filterCurs.length === 0
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                  }`}>
+                  Всі
+                </button>
+                {usedCurrencies.map((c) => {
+                  const active = filterCurs.includes(c);
+                  return (
+                    <button key={c}
+                      onClick={() => setFilterCurs((prev) =>
+                        active ? prev.filter((x) => x !== c) : [...prev, c]
+                      )}
+                      className={`px-4 py-2 text-lg font-bold border transition ${
+                        active
+                          ? 'bg-blue-600 text-white border-blue-600'
+                          : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+                      }`}>
+                      {c}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
-          <div className="flex flex-1 overflow-hidden divide-x divide-gray-100">
+          <div className="flex flex-1 min-h-0 divide-x divide-gray-100">
             <OpsBlock title="🟢 Купівля" ops={clientBuyOps} colorClass="text-green-700" fullHeight {...blockProps} />
             <OpsBlock title="🔴 Продаж"  ops={clientSellOps} colorClass="text-red-600"  fullHeight {...blockProps} />
           </div>

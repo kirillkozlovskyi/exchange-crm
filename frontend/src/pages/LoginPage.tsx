@@ -1,9 +1,9 @@
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 export default function LoginPage() {
-  const { login, user } = useAuth();
+  const { login, user, isLoading } = useAuth();
   const navigate = useNavigate();
   const [loginVal, setLoginVal] = useState('');
   const [password, setPassword] = useState('');
@@ -11,9 +11,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
 
-  if (user) {
-    navigate(user.role === 'ADMIN' ? '/admin' : '/cashier', { replace: true });
-  }
+  useEffect(() => {
+    if (!isLoading && user) {
+      navigate(user.role === 'ADMIN' ? '/admin' : '/cashier', { replace: true });
+    }
+  }, [user, isLoading, navigate]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

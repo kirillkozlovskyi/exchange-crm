@@ -1,10 +1,14 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 import { format } from 'date-fns';
 
 @Injectable()
 export class OperationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private settings: SettingsService,
+  ) {}
 
   private async generateNumber(pointCode: string) {
     const date = format(new Date(), 'yyyyMMdd');
@@ -14,14 +18,14 @@ export class OperationsService {
 
   async create(dto: {
     shiftId: number;
-    // getCurrency — що клієнт отримує
     currency: string;
     amount: number;
     rate: number;
-    // payCurrency — що клієнт дає (null = UAH)
     payCurrency?: string;
     payAmount?: number;
     note?: string;
+    // mode — вкладка касира; для крос визначає BUY/SELL замість EXCHANGE
+    mode?: 'BUY' | 'SELL';
   }, cashierId: number) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: dto.shiftId },
@@ -83,7 +87,8 @@ export class OperationsService {
         : 0;
     } else {
       // Крос-обмін: валюта → валюта
-      type = 'EXCHANGE';
+      // Використовуємо mode касира (BUY/SELL); fallback EXCHANGE для старих записів
+      type = (dto.mode as 'BUY' | 'SELL' | 'EXCHANGE') ?? 'EXCHANGE';
       const payUah = (dto.payAmount ?? 0) * getBuyRate(payCur);
       totalUah = payUah;
       // Прибуток = payAmount * sell_rate[payCur] - getAmount * buy_rate[getCur]
@@ -206,6 +211,39 @@ export class OperationsService {
     return this.prisma.operation.update({
       where: { id },
       data: { amount: dto.amount, rate: dto.rate, totalUah, profit },
+    });
+  }
+
+  async storno(id: number, userId: number, note?: string) {
+    const op = await this.prisma.operation.findUnique({
+      where: { id },
+      include: { shift: true },
+    });
+    if (!op) throw new NotFoundException('Операцію не знайдено');
+    if (op.shift.status === 'CLOSED')
+      throw new BadRequestException('Зміна закрита — сторно неможливе');
+    if (op.cancelled)
+      throw new BadRequestException('Операцію вже скасовано');
+
+    // Сторно дозволено тільки якщо операція є ОСТАННЬОЮ ВЗАГАЛІ в зміні
+    const overallLastOp = await this.prisma.operation.findFirst({
+      where: { shiftId: op.shiftId },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!overallLastOp || overallLastOp.id !== id)
+      throw new BadRequestException('Сторно дозволено тільки для останньої операції зміни');
+
+    // Перевірка часового вікна сторно
+    const windowMinutes = await this.settings.getStornoWindowMinutes();
+    const ageMs = Date.now() - new Date(op.createdAt).getTime();
+    if (ageMs > windowMinutes * 60 * 1000)
+      throw new BadRequestException(
+        `Сторно можливе лише протягом ${windowMinutes} хв після операції`,
+      );
+
+    return this.prisma.operation.update({
+      where: { id },
+      data: { cancelled: true, cancelNote: note ?? null },
     });
   }
 

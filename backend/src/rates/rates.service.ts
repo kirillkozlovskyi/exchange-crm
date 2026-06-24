@@ -6,8 +6,15 @@ export class RatesService {
   constructor(private prisma: PrismaService) {}
 
   async getByPoint(exchangePointId: number) {
+    // Повертаємо тільки валюти, які є в активному довіднику Currency
+    const activeCurrencies = await this.prisma.currency.findMany({
+      where: { active: true },
+      select: { code: true },
+    });
+    const codes = activeCurrencies.map((c) => c.code);
+
     return this.prisma.rate.findMany({
-      where: { exchangePointId, status: 'ACTIVE' },
+      where: { exchangePointId, status: 'ACTIVE', currency: { in: codes } },
       orderBy: { currency: 'asc' },
     });
   }

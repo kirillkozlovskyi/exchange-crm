@@ -33,6 +33,14 @@ export class ShiftsController {
     return this.shiftsService.getActiveShift(cashDeskId);
   }
 
+  @Patch(':id/adjust-balance')
+  adjustBalance(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { balance: Record<string, number> },
+  ) {
+    return this.shiftsService.adjustBalance(id, body.balance);
+  }
+
   @Get(':id')
   getById(@Param('id', ParseIntPipe) id: number) {
     return this.shiftsService.getShiftById(id);

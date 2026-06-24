@@ -22,6 +22,8 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Dev: перевизначаємо CMD з Dockerfile (build+prod) на watch-режим
+    command: sh -c "npx prisma migrate deploy && npm run start:dev"
     restart: always
     ports:
       - "4000:4000"
@@ -37,7 +39,7 @@ services:
   frontend:
     build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     restart: always
     ports:
       - "3000:3000"
