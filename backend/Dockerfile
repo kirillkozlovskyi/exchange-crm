@@ -10,4 +10,4 @@ RUN npm run build
 
 EXPOSE 4000
 
-CMD ["sh", "-c", "npx prisma migrate deploy; echo '=== STARTING NODE ==='; exec node dist/src/main.js"]
+CMD ["node", "dist/src/main.js"]
