@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { ShiftHeaderProvider } from './context/ShiftHeaderContext';
 import LoginPage from './pages/LoginPage';
 import CashierPage from './pages/CashierPage';
 import AdminPage from './pages/AdminPage';
@@ -24,25 +25,27 @@ function HomeRedirect() {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route index element={<HomeRedirect />} />
-            <Route path="cashier" element={
-              <ProtectedRoute roles={['CASHIER', 'SENIOR_CASHIER']}>
-                <CashierPage />
-              </ProtectedRoute>
-            } />
-            <Route path="admin/*" element={
-              <ProtectedRoute roles={['ADMIN']}>
-                <AdminPage />
-              </ProtectedRoute>
-            } />
-            <Route path="profile" element={<ProfilePage />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <ShiftHeaderProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+              <Route index element={<HomeRedirect />} />
+              <Route path="cashier" element={
+                <ProtectedRoute roles={['CASHIER', 'SENIOR_CASHIER']}>
+                  <CashierPage />
+                </ProtectedRoute>
+              } />
+              <Route path="admin/*" element={
+                <ProtectedRoute roles={['ADMIN']}>
+                  <AdminPage />
+                </ProtectedRoute>
+              } />
+              <Route path="profile" element={<ProfilePage />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </ShiftHeaderProvider>
     </AuthProvider>
   );
 }

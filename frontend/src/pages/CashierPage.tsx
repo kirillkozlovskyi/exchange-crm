@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useAuth } from '../context/AuthContext';
+import { useShiftHeader } from '../context/ShiftHeaderContext';
 import api from '../api/axios';
 import { format } from 'date-fns';
 import OperationForm from '../components/cashier/OperationForm';
@@ -26,6 +27,7 @@ type PointWithDesks = {
 
 export default function CashierPage() {
   const { user } = useAuth();
+  const { setInfo } = useShiftHeader();
 
   const fixedPointId = user?.exchangePointId ?? null;
 
@@ -261,6 +263,20 @@ export default function CashierPage() {
     return bal;
   }, [shift]);
 
+  // ── Синхронізація інфо зміни в хедер ─────────────────────────────────────
+  useEffect(() => {
+    if (shift && selectedDeskName) {
+      setInfo({
+        pointName: selectedPointName,
+        deskName: selectedDeskName,
+        shiftNumber: shift.number,
+        openedAt: shift.openedAt,
+      });
+    } else {
+      setInfo(null);
+    }
+  }, [shift, selectedPointName, selectedDeskName, setInfo]);
+
   // ── Мапи прапорів ─────────────────────────────────────────────────────────
   const FLAG: Record<string, string> = {
     USD: '🇺🇸', EUR: '🇪🇺', PLN: '🇵🇱', GBP: '🇬🇧',
@@ -443,15 +459,6 @@ export default function CashierPage() {
       {/* ── Підшапка зміни ──────────────────────────────────────────────── */}
       <div className="bg-white border-b border-gray-200 px-3 py-2 flex items-center justify-between gap-2 flex-wrap">
 
-        {/* Інфо зміни */}
-        <div className="min-w-0 flex-shrink-0">
-          <div className="font-bold text-sm sm:text-base text-blue-700 leading-tight truncate">
-            {selectedPointName && <span className="text-gray-500 font-normal text-xs sm:text-sm mr-1">{selectedPointName} ·</span>}
-            {selectedDeskName}
-          </div>
-          <div className="text-xs text-gray-400 hidden sm:block">Зміна #{shift.number} · відкрита {format(new Date(shift.openedAt), 'HH:mm dd.MM')}</div>
-        </div>
-
         {/* Перемикач форма/список — тільки на мобільному коли в Operations */}
         {tab === 'operations' && (
           <div className="flex lg:hidden items-center gap-1 bg-gray-100 rounded-lg p-0.5 flex-shrink-0">
@@ -472,8 +479,10 @@ export default function CashierPage() {
 
         {/* Таби + Закрити зміну */}
         <div className="flex items-center gap-2 flex-shrink-0">
-          {/* Баланс біля кнопки Операції */}
-          <div className="flex items-center gap-2 mr-6 overflow-x-auto scrollbar-none">
+          {/* Залишок в касі */}
+          <div className="flex flex-col items-start mr-6">
+            <span className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1 hidden sm:block">Залишок в касі</span>
+          <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
             {currentBalance['UAH'] !== undefined && (
               <div className="flex-shrink-0 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
                 <span className="font-bold text-lg text-blue-800">UAH: </span>
@@ -493,6 +502,7 @@ export default function CashierPage() {
                 title="Коригувати залишок"
               >✏️</button>
             )}
+          </div>
           </div>
           <button onClick={() => setTab('operations')}
             className={`px-4 py-1.5 rounded-lg font-medium text-lg transition ${tab === 'operations' ? 'bg-blue-700 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}>

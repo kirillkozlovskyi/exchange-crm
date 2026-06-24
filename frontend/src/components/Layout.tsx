@@ -1,9 +1,12 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { useShiftHeader } from '../context/ShiftHeaderContext';
+import { format } from 'date-fns';
 
 export default function Layout() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { info } = useShiftHeader();
 
   const handleLogout = () => {
     logout();
@@ -36,6 +39,20 @@ export default function Layout() {
             </NavLink>
           )}
         </div>
+
+        {/* Інфо активної зміни — по центру хедера */}
+        {info && (
+          <div className="hidden sm:flex flex-col items-center leading-tight">
+            <div className="font-semibold text-sm text-blue-100">
+              {info.pointName && <span className="text-blue-300 font-normal mr-1">{info.pointName} ·</span>}
+              {info.deskName}
+            </div>
+            <div className="text-xs text-blue-300">
+              Зміна #{info.shiftNumber} · відкрита {format(new Date(info.openedAt), 'HH:mm dd.MM')}
+            </div>
+          </div>
+        )}
+
         <div className="flex items-center gap-3 text-sm">
           <NavLink
             to="/profile"
