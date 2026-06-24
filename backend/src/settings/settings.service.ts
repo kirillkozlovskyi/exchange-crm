@@ -53,4 +53,24 @@ export class SettingsService {
   async setBalanceEditEnabled(enabled: boolean): Promise<void> {
     await this.set('cashier_can_edit_balance', String(enabled));
   }
+
+  async getCurrencyOrder(): Promise<string[]> {
+    const v = await this.get('currency_order');
+    if (!v) return [];
+    try { return JSON.parse(v); } catch { return []; }
+  }
+
+  async setCurrencyOrder(order: string[]): Promise<void> {
+    await this.set('currency_order', JSON.stringify(order));
+  }
+
+  async getQuickAmounts(): Promise<number[]> {
+    const v = await this.get('quick_amounts');
+    if (!v) return [10, 20, 50, 100, 500];
+    try { return JSON.parse(v); } catch { return [10, 20, 50, 100, 500]; }
+  }
+
+  async setQuickAmounts(amounts: number[]): Promise<void> {
+    await this.set('quick_amounts', JSON.stringify([...amounts].sort((a, b) => a - b)));
+  }
 }

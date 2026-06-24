@@ -1,13 +1,14 @@
-import { useState, useCallback, useRef, useMemo } from 'react';
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react';
+import api from '../api/axios';
 
 const STORAGE_KEY = 'currency_order';
 
-function loadOrder(): string[] {
+function loadLocalOrder(): string[] {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
   catch { return []; }
 }
 
-function saveOrder(codes: string[]) {
+function saveLocalOrder(codes: string[]) {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(codes));
 }
 
@@ -21,10 +22,26 @@ function applyOrder<T extends CurrencyLike>(list: T[], order: string[]): T[] {
 }
 
 export function useCurrencyOrder<T extends CurrencyLike>(currencies: T[]) {
-  const [order, setOrder] = useState<string[]>(loadOrder);
+  const [order, setOrder] = useState<string[]>(loadLocalOrder);
   const dragIdx = useRef<number | null>(null);
+  const pendingOrder = useRef<string[] | null>(null);
 
-  // Derive sorted list without useState (no infinite-loop risk)
+  // Завантажити порядок з БД при монтуванні; якщо БД пуста — синхронізувати з localStorage
+  useEffect(() => {
+    api.get('/settings/currency-order').then(({ data }) => {
+      if (Array.isArray(data) && data.length) {
+        setOrder(data);
+        saveLocalOrder(data);
+      } else {
+        // БД ще не має порядку — зберегти поточний (з localStorage) в БД
+        const local = loadLocalOrder();
+        if (local.length) {
+          api.put('/settings/currency-order', { order: local }).catch(() => {});
+        }
+      }
+    }).catch(() => { /* використовуємо localStorage як є */ });
+  }, []);
+
   const sorted = useMemo(() => applyOrder(currencies, order), [currencies, order]);
 
   const onDragStart = useCallback((idx: number) => {
@@ -43,7 +60,8 @@ export function useCurrencyOrder<T extends CurrencyLike>(currencies: T[]) {
         const [item] = next.splice(from, 1);
         next.splice(idx, 0, item);
         const newOrder = next.map((c) => c.code);
-        saveOrder(newOrder);
+        saveLocalOrder(newOrder);
+        pendingOrder.current = newOrder;
         dragIdx.current = idx;
         return newOrder;
       });
@@ -51,8 +69,13 @@ export function useCurrencyOrder<T extends CurrencyLike>(currencies: T[]) {
     [currencies],
   );
 
+  // Зберегти в БД тільки після завершення перетягування
   const onDragEnd = useCallback(() => {
     dragIdx.current = null;
+    if (pendingOrder.current) {
+      api.put('/settings/currency-order', { order: pendingOrder.current }).catch(() => {});
+      pendingOrder.current = null;
+    }
   }, []);
 
   return { sorted, onDragStart, onDragOver, onDragEnd };

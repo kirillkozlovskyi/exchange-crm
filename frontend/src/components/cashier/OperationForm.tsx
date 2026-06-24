@@ -25,11 +25,13 @@ function CurSelect({
 }
 
 export default function OperationForm({
-  shiftId, rates, balance, onCreated,
+  shiftId, rates, balance, quickAmounts = [], activeCur, onCreated,
 }: {
   shiftId: number;
   rates: any[];
   balance: Record<string, number>;
+  quickAmounts?: number[];
+  activeCur?: string;
   onCreated: () => void;
 }) {
   const foreignCurrencies = rates.map((r) => r.currency);
@@ -79,19 +81,22 @@ export default function OperationForm({
   }, [rates]);
 
   // Ринковий курс: "скільки rcvCur за 1 clientCur"
+  // Якщо rcvCur ще не обрано — UAH за замовчуванням (щоб курс підтягнувся одразу)
   const marketRate = useMemo(() => {
-    if (!clientCur || !rcvCur || clientCur === rcvCur) return 0;
+    if (!clientCur) return 0;
+    const effectiveRcv = rcvCur || 'UAH';
+    if (clientCur === effectiveRcv) return 0;
     if (mode === 'BUY') {
-      // Каса купує clientCur (foreign), дає rcvCur
-      if (rcvCur === 'UAH') return getBuyRate(clientCur);
+      // Каса купує clientCur (foreign), дає effectiveRcv
+      if (effectiveRcv === 'UAH') return getBuyRate(clientCur);
       // крос BUY
-      const r = getBuyRate(clientCur) / getSellRate(rcvCur);
+      const r = getBuyRate(clientCur) / getSellRate(effectiveRcv);
       return r || 0;
     } else {
-      // SELL: каса продає rcvCur (foreign), клієнт дає clientCur
-      if (clientCur === 'UAH') return getSellRate(rcvCur);
+      // SELL: каса продає effectiveRcv (foreign), клієнт дає clientCur
+      if (clientCur === 'UAH') return getSellRate(effectiveRcv);
       // крос SELL
-      const r = getBuyRate(clientCur) / getSellRate(rcvCur);
+      const r = getBuyRate(clientCur) / getSellRate(effectiveRcv);
       return r || 0;
     }
   }, [mode, clientCur, rcvCur, getBuyRate, getSellRate]);
@@ -189,6 +194,16 @@ export default function OperationForm({
     setQtyCur(cur);
     setRateManual(false); // refresh rate for new currency
   };
+
+  // Клік на валюту в блоці курсів → вставити в "Клієнт приніс"
+  useEffect(() => {
+    if (!activeCur) return;
+    const validCurs = mode === 'BUY' ? foreignCurrencies : allCurrencies;
+    if (validCurs.includes(activeCur)) {
+      handleClientCurChange(activeCur);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCur]);
 
   // Клієнт приніс: amount → auto-fills Сума (helper) + Кількість
   const handleClientAmtChange = (val: string) => {
@@ -368,8 +383,40 @@ export default function OperationForm({
         ))}
       </div>
 
-      {/* Row 1: Курс + Клієнт приніс */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-end">
+      {/* Row 1: Клієнт приніс + Курс */}
+      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-start">
+
+        {/* Клієнт приніс */}
+        <div className="flex-1 space-y-1">
+          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Клієнт приніс</div>
+          <div className="flex gap-1">
+            <CurSelect value={clientCur} onChange={handleClientCurChange} currencies={clientCurrencies} className="w-28 text-lg" />
+            <input
+              type="number" min="0" step="1" value={clientAmt}
+              onChange={(e) => handleClientAmtChange(e.target.value)}
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-right text-xl font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+              placeholder="0" autoFocus
+            />
+          </div>
+          {quickAmounts.length > 0 && (
+            <div className="flex flex-wrap gap-1 pt-0.5">
+              {quickAmounts.map((v) => (
+                <button
+                  key={v}
+                  type="button"
+                  onClick={() => handleClientAmtChange(String(v))}
+                  className={`px-3 py-1.5 rounded-lg text-lg font-semibold border transition ${
+                    Number(clientAmt) === v
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:text-blue-700'
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
 
         {/* Курс */}
         <div className="space-y-1">
@@ -394,20 +441,6 @@ export default function OperationForm({
                 ↺
               </button>
             )}
-          </div>
-        </div>
-
-        {/* Клієнт приніс */}
-        <div className="flex-1 space-y-1">
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Клієнт приніс</div>
-          <div className="flex gap-1">
-            <CurSelect value={clientCur} onChange={handleClientCurChange} currencies={clientCurrencies} className="w-28 text-lg" />
-            <input
-              type="number" min="0" step="1" value={clientAmt}
-              onChange={(e) => handleClientAmtChange(e.target.value)}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-right text-xl font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder="0" autoFocus
-            />
           </div>
         </div>
       </div>

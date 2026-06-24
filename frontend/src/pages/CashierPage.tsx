@@ -52,10 +52,32 @@ export default function CashierPage() {
   // Редагування балансу
   const [balanceEditEnabled, setBalanceEditEnabled] = useState(true);
   const [showBalanceModal, setShowBalanceModal] = useState(false);
+  const [quickAmounts, setQuickAmounts] = useState<number[]>([10, 20, 50, 100, 500]);
+  const [activeCur, setActiveCur] = useState<string | undefined>(undefined);
 
   // Передачі та сповіщення
   const [pendingCount, setPendingCount] = useState(0);
   const [notifications, setNotifications] = useState<{ id: number; message: string }[]>([]);
+
+  // ── Завантаження курсів з сортуванням по порядку з бази ──────────────────
+  const loadRates = useCallback(async (pointId: number) => {
+    const [ratesRes, orderRes] = await Promise.all([
+      api.get(`/rates/point/${pointId}`),
+      api.get('/settings/currency-order').catch(() => ({ data: [] })),
+    ]);
+    const order: string[] = orderRes.data ?? [];
+    const sorted = order.length
+      ? [...ratesRes.data].sort((a: any, b: any) => {
+          const ia = order.indexOf(a.currency);
+          const ib = order.indexOf(b.currency);
+          if (ia === -1 && ib === -1) return 0;
+          if (ia === -1) return 1;
+          if (ib === -1) return -1;
+          return ia - ib;
+        })
+      : ratesRes.data;
+    setRates(sorted);
+  }, []);
 
   // ── Завантаження списку кас (picker) ──────────────────────────────────────
   const loadDeskPicker = useCallback(async () => {
@@ -95,6 +117,7 @@ export default function CashierPage() {
       try {
         // Завантажуємо налаштування паралельно
         api.get('/settings/balance-edit').then(({ data }) => setBalanceEditEnabled(data.enabled)).catch(() => {});
+        api.get('/settings/quick-amounts').then(({ data }) => setQuickAmounts(data)).catch(() => {});
 
         // Спочатку перевіряємо — чи є у юзера вже відкрита зміна
         const myShiftRes = await api.get('/shifts/my').catch(() => null);
@@ -112,8 +135,7 @@ export default function CashierPage() {
           setSelectedPointName(point?.name ?? '');
 
           if (pointId) {
-            const { data: ratesData } = await api.get(`/rates/point/${pointId}`);
-            setRates(ratesData);
+            await loadRates(pointId);
           }
           return;
         }
@@ -137,8 +159,7 @@ export default function CashierPage() {
     setSelectedPointName(point.name);
 
     try {
-      const { data } = await api.get(`/rates/point/${point.id}`);
-      setRates(data);
+      await loadRates(point.id);
     } catch {
       setRates([]);
     }
@@ -518,9 +539,15 @@ export default function CashierPage() {
               <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Курси валют</div>
               <div className="space-y-0.5">
                 {rates.map((r) => (
-                  <div key={r.currency} className="flex items-center gap-2 sm:gap-3 py-0.5 border-b border-gray-100 last:border-0">
+                  <div
+                    key={r.currency}
+                    onClick={() => setActiveCur(r.currency)}
+                    className={`flex items-center gap-2 sm:gap-3 py-0.5 border-b border-gray-100 last:border-0 cursor-pointer rounded-lg px-1 transition ${
+                      activeCur === r.currency ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50'
+                    }`}
+                  >
                     <span className="text-base sm:text-lg w-6 sm:w-8 text-center">{FLAG[r.currency] ?? '💱'}</span>
-                    <span className="font-bold text-sm sm:text-lg w-10 sm:w-12 text-gray-800">{r.currency}</span>
+                    <span className={`font-bold text-sm sm:text-lg w-10 sm:w-12 ${activeCur === r.currency ? 'text-blue-700' : 'text-gray-800'}`}>{r.currency}</span>
                     <div className="flex gap-3 sm:gap-4 ml-auto">
                       <div className="text-right">
                         <div className="text-xs text-gray-400">Купівля</div>
@@ -541,6 +568,8 @@ export default function CashierPage() {
               shiftId={shift.id}
               rates={rates}
               balance={currentBalance}
+              quickAmounts={quickAmounts}
+              activeCur={activeCur}
               onCreated={() => {
                 setRefreshOps((n) => n + 1);
                 loadShift(selectedDeskId!);

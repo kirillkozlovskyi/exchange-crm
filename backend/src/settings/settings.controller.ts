@@ -44,4 +44,28 @@ export class SettingsController {
   setBalanceEdit(@Body() body: { enabled: boolean }) {
     return this.settingsService.setBalanceEditEnabled(body.enabled).then(() => ({ enabled: body.enabled }));
   }
+
+  @Get('currency-order')
+  getCurrencyOrder() {
+    return this.settingsService.getCurrencyOrder();
+  }
+
+  @Put('currency-order')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setCurrencyOrder(@Body() body: { order: string[] }) {
+    return this.settingsService.setCurrencyOrder(body.order).then(() => body.order);
+  }
+
+  @Get('quick-amounts')
+  getQuickAmounts() {
+    return this.settingsService.getQuickAmounts();
+  }
+
+  @Put('quick-amounts')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setQuickAmounts(@Body() body: { amounts: number[] }) {
+    return this.settingsService.setQuickAmounts(body.amounts).then(() => body.amounts);
+  }
 }

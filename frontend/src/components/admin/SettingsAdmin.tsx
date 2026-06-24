@@ -25,6 +25,67 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean
   );
 }
 
+function QuickAmountsSettings() {
+  const [amounts, setAmounts] = useState<number[]>([]);
+  const [newVal, setNewVal] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/quick-amounts').then(({ data }) => setAmounts(data)).catch(() => {});
+  }, []);
+
+  const save = async (next: number[]) => {
+    setSaving(true);
+    try {
+      await api.put('/settings/quick-amounts', { amounts: next });
+      setAmounts([...next].sort((a, b) => a - b));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally { setSaving(false); }
+  };
+
+  const handleAdd = () => {
+    const v = parseFloat(newVal);
+    if (!v || v <= 0 || amounts.includes(v)) { setNewVal(''); return; }
+    save([...amounts, v]);
+    setNewVal('');
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-4">
+      <div>
+        <h3 className="font-semibold text-gray-800 text-base">⚡ Швидкі суми</h3>
+        <p className="text-xs text-gray-400 mt-0.5">Кнопки швидкого вводу суми для касира</p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {amounts.map((v) => (
+          <div key={v} className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
+            <span className="font-semibold text-blue-800 text-sm">{v}</span>
+            <button onClick={() => save(amounts.filter((a) => a !== v))}
+              className="text-blue-300 hover:text-red-500 transition font-bold text-base leading-none ml-1">×</button>
+          </div>
+        ))}
+        {amounts.length === 0 && <span className="text-gray-400 text-sm italic">Список порожній</span>}
+      </div>
+
+      <div className="flex gap-2">
+        <input type="number" min="1" value={newVal}
+          onChange={(e) => setNewVal(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder="Нова сума"
+          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+        <button onClick={handleAdd} disabled={saving || !newVal}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
+          Додати
+        </button>
+      </div>
+      {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
+    </div>
+  );
+}
+
 function OperationsSettings() {
   const [minutes, setMinutes] = useState<number>(5);
   const [balanceEdit, setBalanceEdit] = useState<boolean>(true);
@@ -57,45 +118,49 @@ function OperationsSettings() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-5">
-      <h3 className="font-semibold text-gray-800 text-base">Налаштування операцій</h3>
+    <div className="space-y-6">
+      <QuickAmountsSettings />
 
-      {/* Вікно сторно */}
-      <div className="space-y-2">
-        <label className="text-sm font-medium text-gray-700">Вікно сторно (хвилин)</label>
-        <p className="text-xs text-gray-400">
-          Касир може скасувати останню операцію протягом вказаного часу після її підтвердження.
-        </p>
-        <div className="flex items-center gap-3">
-          <input
-            type="number" min="1" max="60" value={minutes}
-            onChange={(e) => setMinutes(Math.max(1, parseInt(e.target.value) || 1))}
-            className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-center text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
-          <span className="text-gray-500 text-sm">хвилин</span>
-        </div>
-      </div>
+      <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-5">
+        <h3 className="font-semibold text-gray-800 text-base">Налаштування операцій</h3>
 
-      <div className="border-t border-gray-100" />
-
-      {/* Редагування залишків */}
-      <div className="flex items-start justify-between gap-4">
-        <div className="space-y-1">
-          <p className="text-sm font-medium text-gray-700">Редагування залишків каси</p>
+        {/* Вікно сторно */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-700">Вікно сторно (хвилин)</label>
           <p className="text-xs text-gray-400">
-            Дозволити касиру коригувати фактичний залишок впродовж зміни.
+            Касир може скасувати останню операцію протягом вказаного часу після її підтвердження.
           </p>
+          <div className="flex items-center gap-3">
+            <input
+              type="number" min="1" max="60" value={minutes}
+              onChange={(e) => setMinutes(Math.max(1, parseInt(e.target.value) || 1))}
+              className="w-24 border border-gray-300 rounded-lg px-3 py-2 text-center text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <span className="text-gray-500 text-sm">хвилин</span>
+          </div>
         </div>
-        <Toggle enabled={balanceEdit} onChange={setBalanceEdit} />
-      </div>
 
-      <div className="flex items-center gap-3 pt-1">
-        <button
-          onClick={handleSave} disabled={loading}
-          className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition">
-          {loading ? 'Збереження...' : 'Зберегти'}
-        </button>
-        {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
+        <div className="border-t border-gray-100" />
+
+        {/* Редагування залишків */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-700">Редагування залишків каси</p>
+            <p className="text-xs text-gray-400">
+              Дозволити касиру коригувати фактичний залишок впродовж зміни.
+            </p>
+          </div>
+          <Toggle enabled={balanceEdit} onChange={setBalanceEdit} />
+        </div>
+
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            onClick={handleSave} disabled={loading}
+            className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition">
+            {loading ? 'Збереження...' : 'Зберегти'}
+          </button>
+          {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
+        </div>
       </div>
     </div>
   );
