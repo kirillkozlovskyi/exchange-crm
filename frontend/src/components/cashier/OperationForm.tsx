@@ -419,7 +419,7 @@ export default function OperationForm({
 
           {/* Сума */}
           <div className="flex-1 flex gap-1">
-            <CurSelect value={hSumCur} onChange={(c) => { setHSumCur(c); setHConvManual(false); }} currencies={clientCurrencies} className="w-24 text-sm" />
+            <CurSelect value={hSumCur} onChange={(c) => { setHSumCur(c); setHConvManual(false); }} currencies={allCurrencies} className="w-24 text-sm" />
             <input
               type="number" min="0" step="1" value={hSumAmt}
               onChange={(e) => handleHSumAmtChange(e.target.value)}
