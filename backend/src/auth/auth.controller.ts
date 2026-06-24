@@ -18,6 +18,16 @@ export class AuthController {
     return this.authService.login(dto.login, dto.password);
   }
 
+  @Get('setup-needed')
+  setupNeeded() {
+    return this.authService.isSetupNeeded().then((needed) => ({ needed }));
+  }
+
+  @Post('setup')
+  setup(@Body() dto: { name: string; login: string; password: string }) {
+    return this.authService.setupFirstAdmin(dto);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('me')
   getMe(@CurrentUser() user: any) {

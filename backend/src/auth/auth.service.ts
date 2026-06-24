@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
@@ -54,6 +54,26 @@ export class AuthService {
         exchangePoint: true,
       },
     });
+  }
+
+  async isSetupNeeded(): Promise<boolean> {
+    const count = await this.prisma.user.count();
+    return count === 0;
+  }
+
+  async setupFirstAdmin(dto: { name: string; login: string; password: string }) {
+    const count = await this.prisma.user.count();
+    if (count > 0) throw new ForbiddenException('Перший адмін вже створений');
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const user = await this.prisma.user.create({
+      data: { name: dto.name, login: dto.login, passwordHash, role: 'ADMIN' },
+      include: { exchangePoint: true },
+    });
+    const payload = { sub: user.id, login: user.login, role: user.role, name: user.name };
+    return {
+      access_token: this.jwt.sign(payload),
+      user: { id: user.id, name: user.name, login: user.login, role: user.role, exchangePoint: null },
+    };
   }
 
   async updateProfile(userId: number, dto: { name?: string; phone?: string }) {
