@@ -19,7 +19,7 @@ describe('computeOperationTotals', () => {
     expect(r.profit).toBeCloseTo(15); // 100 × (45.15 − 45.00)
   });
 
-  it('BUY: клієнт дає валюту → отримує UAH', () => {
+  it('BUY (старий формат): currency=UAH, валюта в payCurrency', () => {
     const r = computeOperationTotals(
       { currency: 'UAH', amount: 100, rate: 45.0, payCurrency: 'USD', payAmount: 100, mode: 'BUY' },
       lookup,
@@ -27,6 +27,24 @@ describe('computeOperationTotals', () => {
     expect(r.type).toBe('BUY');
     expect(r.totalUah).toBeCloseTo(4500); // 100 × 45.00
     expect(r.profit).toBeCloseTo(15); // 100 × (45.15 − 45.00)
+  });
+
+  it('BUY (новий формат): currency=валюта, тип за mode=BUY', () => {
+    const r = computeOperationTotals(
+      { currency: 'USD', amount: 100, rate: 45.0, mode: 'BUY' }, // payCurrency не задано (не крос)
+      lookup,
+    );
+    expect(r.type).toBe('BUY'); // не SELL, попри форму «currency=валюта»
+    expect(r.totalUah).toBeCloseTo(4500); // 100 × 45.00 (курс купівлі)
+    expect(r.profit).toBeCloseTo(15); // 100 × (45.15 − 45.00)
+  });
+
+  it('SELL: та сама форма (currency=валюта), але mode=SELL → SELL', () => {
+    const r = computeOperationTotals(
+      { currency: 'USD', amount: 100, rate: 45.15, mode: 'SELL' },
+      lookup,
+    );
+    expect(r.type).toBe('SELL');
   });
 
   describe('крос EUR → USD «через гривню» (бізнес-приклад)', () => {

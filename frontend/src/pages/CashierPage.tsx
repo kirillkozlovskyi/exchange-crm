@@ -8,7 +8,7 @@ import OperationsList from '../components/cashier/OperationsList';
 import TransferPanel from '../components/cashier/TransferPanel';
 import OpenShiftForm from '../components/cashier/OpenShiftForm';
 import CloseShiftForm from '../components/cashier/CloseShiftForm';
-import { flagOf } from '../data/currencyMeta';
+import Flag from '../components/Flag';
 import { computeCurrentBalance } from '../lib/balance';
 
 type Tab = 'operations' | 'transfers';
@@ -472,7 +472,7 @@ export default function CashierPage() {
           )}
           {Object.entries(currentBalance).filter(([c]) => c !== 'UAH').map(([cur, amt]) => (
             <div key={cur} className="flex-shrink-0 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
-              <span className="font-bold text-lg text-blue-800">{flagOf(cur)} {cur}: </span>
+              <span className="font-bold text-lg text-blue-800"><Flag currency={cur} className="mr-1" />{cur}: </span>
               <span className={`font-bold text-lg ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{Number(amt).toFixed(0)}</span>
             </div>
           ))}
@@ -539,7 +539,7 @@ export default function CashierPage() {
                       activeCur === r.currency ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50'
                     }`}
                   >
-                    <span className="text-base sm:text-lg w-6 sm:w-8 text-center">{flagOf(r.currency)}</span>
+                    <span className="text-base sm:text-lg w-6 sm:w-8 text-center"><Flag currency={r.currency} /></span>
                     <span className={`font-bold text-sm sm:text-lg w-10 sm:w-12 ${activeCur === r.currency ? 'text-blue-700' : 'text-gray-800'}`}>{r.currency}</span>
                     <div className="flex gap-3 sm:gap-4 ml-auto">
                       <div className="text-right">
@@ -639,7 +639,7 @@ function BalanceEditModal({
         <div className="space-y-3">
           {currencies.map((cur) => (
             <div key={cur} className="flex items-center gap-4">
-              <span className="text-2xl w-8 text-center">{flagOf(cur)}</span>
+              <span className="text-2xl w-8 text-center"><Flag currency={cur} /></span>
               <span className="w-14 font-bold text-gray-700 text-lg">{cur}</span>
               <input
                 type="number"

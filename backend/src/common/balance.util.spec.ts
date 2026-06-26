@@ -36,6 +36,21 @@ describe('balance.util', () => {
       });
     });
 
+    it('крос: +payCurrency (отримали), -currency (віддали), без UAH', () => {
+      // клієнт дав 1000 USD, отримав 850 EUR
+      const ops: BalanceOperation[] = [
+        { type: 'SELL', currency: 'EUR', amount: 850, totalUah: 44460, payCurrency: 'USD', payAmount: 1000 },
+      ];
+      expect(operationsDelta(ops)).toEqual({ USD: 1000, EUR: -850 });
+    });
+
+    it('старий формат BUY (currency=UAH, валюта в payCurrency): +валюта, -UAH', () => {
+      const ops: BalanceOperation[] = [
+        { type: 'BUY', currency: 'UAH', amount: 1000, totalUah: 44460, payCurrency: 'USD', payAmount: 1000 },
+      ];
+      expect(operationsDelta(ops)).toEqual({ USD: 1000, UAH: -44460 });
+    });
+
     it('ігнорує скасовані (cancelled) операції', () => {
       const ops: BalanceOperation[] = [
         { type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100 },

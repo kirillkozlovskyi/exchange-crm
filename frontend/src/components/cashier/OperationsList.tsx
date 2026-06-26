@@ -3,6 +3,7 @@ import api from '../../api/axios';
 import { format } from 'date-fns';
 import { useAuth } from '../../context/AuthContext';
 import OperationEditModal from './OperationEditModal';
+import Flag from '../Flag';
 
 type Op = {
   id: number;
@@ -29,7 +30,7 @@ function getMarketRate(op: Op, rates: Rate[]): number {
     const r = rates.find((x) => x.currency === cur);
     return r ? Number(r[side]) : 0;
   };
-  const isCross = !!op.payCurrency && op.payCurrency !== 'UAH';
+  const isCross = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
   if (isCross) {
     const buyR  = getR(op.payCurrency!, 'buy');
     const sellR = getR(op.currency, 'sell');
@@ -46,8 +47,8 @@ function OpRow({
   onStorno: (op: Op) => void; isLast: boolean; canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
-  // Крос = є payCurrency (foreign). type = BUY/SELL (нові) або EXCHANGE (старі записи)
-  const isCross     = !!op.payCurrency && op.payCurrency !== 'UAH';
+  // Крос = є payCurrency (foreign) І валюта операції теж іноземна (не класичний BUY/SELL)
+  const isCross     = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
   const isClientBuy = !isCross && op.type === 'SELL';
 
   const opRate     = Number(op.rate);
@@ -74,24 +75,26 @@ function OpRow({
           {isCross ? (
             <>
               {Number(op.payAmount).toFixed(2)}
-              <span className="text-gray-400 font-normal text-lg ml-1">{op.payCurrency}</span>
+              <Flag currency={op.payCurrency!} className="mx-1" />
               <span className="text-gray-400 mx-1">→</span>
               {Number(op.amount).toFixed(2)}
-              <span className="text-gray-400 font-normal text-lg ml-1">{op.currency}</span>
+              <Flag currency={op.currency} className="mx-1" />
             </>
           ) : isClientBuy ? (
             <>
-              {Number(op.totalUah).toFixed(2)} ₴
+              {Number(op.totalUah).toFixed(2)}
+              <Flag currency="UAH" className="mx-1" />
               <span className="text-gray-400 mx-1">→</span>
               {Number(op.amount).toFixed(2)}
-              <span className="text-gray-400 font-normal text-lg ml-1">{op.currency}</span>
+              <Flag currency={op.currency} className="mx-1" />
             </>
           ) : (
             <>
               {Number(op.payAmount ?? op.amount).toFixed(2)}
-              <span className="text-gray-400 font-normal text-lg ml-1">{op.payCurrency ?? op.currency}</span>
+              <Flag currency={op.payCurrency ?? op.currency} className="mx-1" />
               <span className="text-gray-400 mx-1">→</span>
-              {Number(op.totalUah).toFixed(2)} ₴
+              {Number(op.totalUah).toFixed(2)}
+              <Flag currency="UAH" className="mx-1" />
             </>
           )}
         </span>
@@ -111,9 +114,6 @@ function OpRow({
             {isCustom && <span className="mr-0.5">✱</span>}
             {rateStr}
           </div>
-          {!op.cancelled && (
-            <div className="text-lg text-green-600 font-medium">+{Number(op.profit).toFixed(2)} ₴</div>
-          )}
         </div>
 
         {!op.cancelled && (
@@ -151,15 +151,10 @@ function OpsBlock({
   lastOpId: number | null; canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
-  const total = ops.filter(o => !o.cancelled).reduce((s, o) => s + Number(o.profit || 0), 0);
-
   return (
     <div className={`flex flex-col ${fullHeight ? 'flex-1 min-h-0 overflow-hidden' : 'bg-white rounded-xl shadow p-4'}`}>
       <div className={`flex items-center justify-between ${fullHeight ? 'px-4 pt-3 pb-2 border-b border-gray-100' : 'mb-3'}`}>
         <h3 className={`font-semibold text-lg ${colorClass}`}>{title}</h3>
-        <span className="text-lg text-gray-500">
-          Прибуток: <span className="text-green-600 font-medium">{total.toFixed(2)} ₴</span>
-        </span>
       </div>
       <div className={`${fullHeight ? 'flex-1 overflow-y-auto px-4' : 'space-y-1.5 overflow-y-auto max-h-72 flex-1'}`}>
         {ops.length === 0 ? (
@@ -191,7 +186,7 @@ function StornoModal({ op, onConfirm, onClose }: {
   const [note, setNote] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const isCross     = !!op.payCurrency && op.payCurrency !== 'UAH';
+  const isCross     = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
   const isClientBuy = !isCross && op.type === 'SELL';
 
   const handleConfirm = async () => {
@@ -211,11 +206,11 @@ function StornoModal({ op, onConfirm, onClose }: {
 
         <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700 text-center">
           {isCross ? (
-            <>{Number(op.payAmount).toFixed(2)} {op.payCurrency} → {Number(op.amount).toFixed(2)} {op.currency}</>
+            <>{Number(op.payAmount).toFixed(2)} <Flag currency={op.payCurrency!} /> → {Number(op.amount).toFixed(2)} <Flag currency={op.currency} /></>
           ) : isClientBuy ? (
-            <>{Number(op.totalUah).toFixed(2)} ₴ → {Number(op.amount).toFixed(2)} {op.currency}</>
+            <>{Number(op.totalUah).toFixed(2)} <Flag currency="UAH" /> → {Number(op.amount).toFixed(2)} <Flag currency={op.currency} /></>
           ) : (
-            <>{Number(op.payAmount ?? op.amount).toFixed(2)} {op.payCurrency ?? op.currency} → {Number(op.totalUah).toFixed(2)} ₴</>
+            <>{Number(op.payAmount ?? op.amount).toFixed(2)} <Flag currency={op.payCurrency ?? op.currency} /> → {Number(op.totalUah).toFixed(2)} <Flag currency="UAH" /></>
           )}
         </div>
 
@@ -342,10 +337,7 @@ export default function OperationsList({
           <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0">
             <h2 className="font-bold text-lg text-gray-800">Операції зміни</h2>
             <div className="text-lg text-gray-400 mt-0.5">
-              Всього: {ops.length} · Прибуток:{' '}
-              <span className="text-green-600 font-medium">
-                {ops.filter(o => !o.cancelled).reduce((s, o) => s + Number(o.profit || 0), 0).toFixed(2)} ₴
-              </span>
+              Всього: {ops.length}
             </div>
             {/* Фільтри */}
             {usedCurrencies.length > 0 && (

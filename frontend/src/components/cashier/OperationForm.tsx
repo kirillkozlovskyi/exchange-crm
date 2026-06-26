@@ -51,18 +51,18 @@ export default function OperationForm({
   // ── Row 1: Курс + Клієнт приніс ───────────────────────────────────────────
   const [rateRaw, setRateRaw] = useState('');
   const [rateManual, setRateManual] = useState(false);
-  const [clientCur, setClientCur] = useState(foreignCurrencies[0] ?? 'USD');
+  const [clientCur, setClientCur] = useState(defForeign);
   const [clientAmt, setClientAmt] = useState('');
 
   // ── Row 2: Helpers ────────────────────────────────────────────────────────
-  const [hSumCur, setHSumCur] = useState(foreignCurrencies[0] ?? 'USD');
+  const [hSumCur, setHSumCur] = useState(defForeign);
   const [hSumAmt, setHSumAmt] = useState('');
   const [hConvCur, setHConvCur] = useState('UAH'); // BUY за замовч.: конвертація в гривні
   const [hConvAmt, setHConvAmt] = useState('');    // manually typed conv
   const [hConvManual, setHConvManual] = useState(false); // true = cashier typed in conv
 
   // ── Row 3: Кількість | Отримує | Решта ────────────────────────────────────
-  const [qtyCur, setQtyCur] = useState(foreignCurrencies[0] ?? 'USD');
+  const [qtyCur, setQtyCur] = useState(defForeign);
   const [qtyAmt, setQtyAmt] = useState('');
   const [rcvCur, setRcvCur] = useState('UAH');    // BUY за замовч.: отримує гривні
   const [rcvAmt, setRcvAmt] = useState('');
@@ -211,12 +211,13 @@ export default function OperationForm({
     setMode(m);
     setRateManual(false);
     setError('');
-    const defCur = m === 'BUY' ? (foreignCurrencies[0] ?? 'USD') : 'UAH';
+    const defCur = m === 'BUY' ? defForeign : 'UAH';
     setClientCur(defCur); setHSumCur(defCur); setQtyCur(defCur);
-    // BUY: клієнт за замовч. отримує гривні (і конвертація в UAH); SELL: валюту обирає касир
-    const rcvDefault = m === 'BUY' ? 'UAH' : '';
+    // BUY: клієнт отримує гривні. SELL: «Отримує» й «Конвертація» = долар за замовч.,
+    // щоб розрахунок ішов одразу при вводі «Клієнт приніс».
+    const rcvDefault = m === 'BUY' ? 'UAH' : defForeign;
     setClientAmt(''); setHSumAmt(''); setHConvAmt(''); setHConvManual(false);
-    setQtyAmt(''); setRcvAmt(''); setRcvCur(rcvDefault); setRcvCurSeeded(false);
+    setQtyAmt(''); setRcvAmt(''); setRcvCur(rcvDefault); setRcvCurSeeded(m === 'SELL');
     setHConvCur(rcvDefault);
     setRateRaw('');
   };
@@ -229,13 +230,22 @@ export default function OperationForm({
     setRateManual(false); // refresh rate for new currency
   };
 
-  // Клік на валюту в блоці курсів → вставити в "Клієнт приніс"
+  // SELL: вибір валюти, яку отримує клієнт — «Отримує» + «Конвертація» (другий рядок помічника)
+  const handleTargetCurChange = (cur: string) => {
+    setRcvCur(cur);
+    setHConvCur(cur);
+    setHConvManual(false);
+    setRateManual(false); // ринковий курс під нову валюту
+    setRcvAmt('');        // перерахується після оновлення rateRaw (effect)
+  };
+
+  // Клік на валюту в блоці курсів:
+  //  BUY  → міняє «Клієнт приніс» (валюту, яку клієнт здає);
+  //  SELL → міняє «Отримує»/«Конвертація» (валюту, яку клієнт купує).
   useEffect(() => {
-    if (!activeCur) return;
-    const validCurs = mode === 'BUY' ? foreignCurrencies : allCurrencies;
-    if (validCurs.includes(activeCur)) {
-      handleClientCurChange(activeCur);
-    }
+    if (!activeCur || !foreignCurrencies.includes(activeCur)) return;
+    if (mode === 'BUY') handleClientCurChange(activeCur);
+    else handleTargetCurChange(activeCur);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCur]);
 
@@ -268,9 +278,10 @@ export default function OperationForm({
     }
   };
 
-  // Кількість: currency
+  // Кількість: currency — та сама валюта, яку віддає клієнт, тож синхронізуємо з
+  // «Клієнт приніс»: скидаємо курс під нову валюту й перераховуємо «Отримує».
   const handleQtyCurChange = (cur: string) => {
-    setQtyCur(cur);
+    handleClientCurChange(cur);
   };
 
   // Курс: ручне редагування
@@ -369,9 +380,9 @@ export default function OperationForm({
         currency = rcvCur; amount = rcvAmtNum;
         payC = clientCur; payA = qtyNum;
       } else if (clientCur !== 'UAH') {
-        // BUY: foreign → UAH
-        currency = 'UAH'; amount = qtyNum;
-        payC = clientCur; payA = qtyNum;
+        // BUY: клієнт дає валюту, отримує UAH. Валюта операції = іноземна (симетрично
+        // з SELL), payCurrency не задаємо — тип BUY визначає mode на бекенді.
+        currency = clientCur; amount = qtyNum;
       } else {
         // SELL: UAH → foreign
         currency = rcvCur; amount = rcvAmtNum;
@@ -435,7 +446,7 @@ export default function OperationForm({
               placeholder="0" autoFocus
             />
           </div>
-          {mode === 'BUY' && quickAmounts.length > 0 && (
+          {quickAmounts.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5">
               {quickAmounts.map((v) => (
                 <button

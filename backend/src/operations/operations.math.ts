@@ -57,10 +57,12 @@ export function computeOperationTotals(
     return 0;
   };
 
-  // Класичний SELL: клієнт платить UAH, отримує валюту
+  // Одна іноземна валюта + UAH. Тип за mode касира: SELL (каса продає валюту,
+  // клієнт платить UAH) або BUY (каса купує валюту, видає UAH). Формули totalUah
+  // і profit однакові — різниться лише напрямок (тип), важливий для балансу.
   if (payCur === 'UAH' && getCur !== 'UAH') {
     return {
-      type: 'SELL',
+      type: input.mode === 'BUY' ? 'BUY' : 'SELL',
       totalUah: input.amount * input.rate,
       profit: getCurRate ? input.amount * (getCurRate.sell - getCurRate.buy) : 0,
     };
