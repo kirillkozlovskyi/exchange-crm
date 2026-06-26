@@ -1,6 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
+import { applyOperationsToBalance, operationsDelta } from '../common/balance.util';
 
 @Injectable()
 export class ShiftsService {
@@ -53,19 +54,11 @@ export class ShiftsService {
       (sum, op) => sum + Number(op.profit), 0,
     );
 
-    // Розраховуємо розрахунковий залишок (скасовані операції не враховуються)
-    const calcBalance = { ...shift.startBalance as object };
-    for (const op of activeOps) {
-      const cur = op.currency;
-      const prev = calcBalance[cur] || 0;
-      if (op.type === 'BUY') {
-        calcBalance[cur] = prev + Number(op.amount);
-        calcBalance['UAH'] = (calcBalance['UAH'] || 0) - Number(op.totalUah);
-      } else {
-        calcBalance[cur] = prev - Number(op.amount);
-        calcBalance['UAH'] = (calcBalance['UAH'] || 0) + Number(op.totalUah);
-      }
-    }
+    // Розрахунковий залишок (скасовані операції не враховуються — фільтрує util)
+    const calcBalance = applyOperationsToBalance(
+      shift.startBalance as Record<string, number>,
+      shift.operations,
+    );
 
     return this.prisma.shift.update({
       where: { id: shiftId },
@@ -121,12 +114,7 @@ export class ShiftsService {
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна закрита');
 
     // Обчислюємо дельту операцій: Σ(effectPerCurrency)
-    const opsDelta: Record<string, number> = {};
-    for (const op of shift.operations.filter((o) => !(o as any).cancelled)) {
-      const cur = op.currency;
-      opsDelta[cur] = (opsDelta[cur] ?? 0) + (op.type === 'BUY' ? Number(op.amount) : -Number(op.amount));
-      opsDelta['UAH'] = (opsDelta['UAH'] ?? 0) + (op.type === 'BUY' ? -Number(op.totalUah) : Number(op.totalUah));
-    }
+    const opsDelta = operationsDelta(shift.operations);
 
     // newStartBalance[cur] = newCurrentBalance[cur] - opsDelta[cur]
     const startBalance = shift.startBalance as Record<string, number>;

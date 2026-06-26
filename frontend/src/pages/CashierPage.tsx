@@ -8,6 +8,8 @@ import OperationsList from '../components/cashier/OperationsList';
 import TransferPanel from '../components/cashier/TransferPanel';
 import OpenShiftForm from '../components/cashier/OpenShiftForm';
 import CloseShiftForm from '../components/cashier/CloseShiftForm';
+import { flagOf } from '../data/currencyMeta';
+import { computeCurrentBalance } from '../lib/balance';
 
 type Tab = 'operations' | 'transfers';
 
@@ -247,21 +249,10 @@ export default function CashierPage() {
   };
 
   // ── Поточний баланс каси (хук ПЕРЕД будь-якими early return) ────────────
-  const currentBalance = useMemo(() => {
-    const bal: Record<string, number> = { ...(shift?.startBalance as Record<string, number> ?? {}) };
-    for (const op of shift?.operations ?? []) {
-      if ((op as any).cancelled) continue; // скасовані операції не враховуються
-      const cur = op.currency;
-      if (op.type === 'BUY') {
-        bal[cur] = (bal[cur] ?? 0) + Number(op.amount);
-        bal['UAH'] = (bal['UAH'] ?? 0) - Number(op.totalUah);
-      } else {
-        bal[cur] = (bal[cur] ?? 0) - Number(op.amount);
-        bal['UAH'] = (bal['UAH'] ?? 0) + Number(op.totalUah);
-      }
-    }
-    return bal;
-  }, [shift]);
+  const currentBalance = useMemo(
+    () => computeCurrentBalance(shift?.startBalance, shift?.operations),
+    [shift],
+  );
 
   // ── Синхронізація інфо зміни в хедер ─────────────────────────────────────
   useEffect(() => {
@@ -276,13 +267,6 @@ export default function CashierPage() {
       setInfo(null);
     }
   }, [shift, selectedPointName, selectedDeskName, setInfo]);
-
-  // ── Мапи прапорів ─────────────────────────────────────────────────────────
-  const FLAG: Record<string, string> = {
-    USD: '🇺🇸', EUR: '🇪🇺', PLN: '🇵🇱', GBP: '🇬🇧',
-    CHF: '🇨🇭', CAD: '🇨🇦', CZK: '🇨🇿', UAH: '🇺🇦',
-    HUF: '🇭🇺', RON: '🇷🇴', NOK: '🇳🇴', SEK: '🇸🇪',
-  };
 
   // ── Рендер ────────────────────────────────────────────────────────────────
 
@@ -488,7 +472,7 @@ export default function CashierPage() {
           )}
           {Object.entries(currentBalance).filter(([c]) => c !== 'UAH').map(([cur, amt]) => (
             <div key={cur} className="flex-shrink-0 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
-              <span className="font-bold text-lg text-blue-800">{FLAG[cur] ?? ''} {cur}: </span>
+              <span className="font-bold text-lg text-blue-800">{flagOf(cur)} {cur}: </span>
               <span className={`font-bold text-lg ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{Number(amt).toFixed(0)}</span>
             </div>
           ))}
@@ -555,7 +539,7 @@ export default function CashierPage() {
                       activeCur === r.currency ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50'
                     }`}
                   >
-                    <span className="text-base sm:text-lg w-6 sm:w-8 text-center">{FLAG[r.currency] ?? '💱'}</span>
+                    <span className="text-base sm:text-lg w-6 sm:w-8 text-center">{flagOf(r.currency)}</span>
                     <span className={`font-bold text-sm sm:text-lg w-10 sm:w-12 ${activeCur === r.currency ? 'text-blue-700' : 'text-gray-800'}`}>{r.currency}</span>
                     <div className="flex gap-3 sm:gap-4 ml-auto">
                       <div className="text-right">
@@ -605,7 +589,6 @@ export default function CashierPage() {
         <BalanceEditModal
           currentBalance={currentBalance}
           currencies={['UAH', ...rates.map((r: any) => r.currency)]}
-          flag={FLAG}
           onClose={() => setShowBalanceModal(false)}
           onSave={async (newBalance) => {
             await api.patch(`/shifts/${shift.id}/adjust-balance`, { balance: newBalance });
@@ -620,11 +603,10 @@ export default function CashierPage() {
 
 // ── Модалка коригування залишку ──────────────────────────────────────────────
 function BalanceEditModal({
-  currentBalance, currencies, flag, onClose, onSave,
+  currentBalance, currencies, onClose, onSave,
 }: {
   currentBalance: Record<string, number>;
   currencies: string[];
-  flag: Record<string, string>;
   onClose: () => void;
   onSave: (balance: Record<string, number>) => Promise<void>;
 }) {
@@ -657,7 +639,7 @@ function BalanceEditModal({
         <div className="space-y-3">
           {currencies.map((cur) => (
             <div key={cur} className="flex items-center gap-4">
-              <span className="text-2xl w-8 text-center">{flag[cur] ?? ''}</span>
+              <span className="text-2xl w-8 text-center">{flagOf(cur)}</span>
               <span className="w-14 font-bold text-gray-700 text-lg">{cur}</span>
               <input
                 type="number"

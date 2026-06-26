@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { format } from 'date-fns';
+import { computeCurrentBalance } from '../../lib/balance';
 
 type Operation = {
   id: number;
@@ -9,6 +10,7 @@ type Operation = {
   rate: string | number;
   totalUah: string | number;
   profit: string | number;
+  cancelled?: boolean;
   createdAt: string;
 };
 
@@ -31,20 +33,11 @@ export default function CloseShiftForm({
 }) {
   const startBal = (shift.startBalance as Record<string, number>) || {};
 
-  // ── Розрахунковий залишок (та сама логіка що на бекенді) ──────────────────
-  const calcBalance = useMemo(() => {
-    const bal: Record<string, number> = { UAH: 0, ...Object.fromEntries(Object.entries(startBal)) };
-    for (const op of shift.operations) {
-      if (op.type === 'BUY') {
-        bal[op.currency] = (bal[op.currency] || 0) + Number(op.amount);
-        bal['UAH'] = (bal['UAH'] || 0) - Number(op.totalUah);
-      } else {
-        bal[op.currency] = (bal[op.currency] || 0) - Number(op.amount);
-        bal['UAH'] = (bal['UAH'] || 0) + Number(op.totalUah);
-      }
-    }
-    return bal;
-  }, [shift]);
+  // ── Розрахунковий залишок (спільна логіка з бекендом, lib/balance) ─────────
+  const calcBalance = useMemo(
+    () => computeCurrentBalance({ UAH: 0, ...startBal }, shift.operations),
+    [shift],
+  );
 
   // Всі валюти: UAH + всі з балансу + всі з операцій
   const currencies = useMemo(() => {

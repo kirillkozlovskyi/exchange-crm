@@ -9,6 +9,9 @@ const FLAG: Record<string, string> = {
 
 type OpMode = 'BUY' | 'SELL';
 
+// Курси >=10 (валюта/UAH) — 2 знаки; крос-курси <10 (напр. 0.8561) — 4 знаки для точності
+const fmtRate = (r: number) => (r >= 10 ? r.toFixed(2) : r.toFixed(4));
+
 function CurSelect({
   value, onChange, currencies, placeholder = false, className = '',
 }: {
@@ -36,6 +39,8 @@ export default function OperationForm({
 }) {
   const foreignCurrencies = rates.map((r) => r.currency);
   const allCurrencies = ['UAH', ...foreignCurrencies];
+  // Валюта за замовчуванням — долар (якщо є серед курсів), інакше перша зі списку
+  const defForeign = foreignCurrencies.includes('USD') ? 'USD' : (foreignCurrencies[0] ?? 'USD');
 
   // ── Mode ──────────────────────────────────────────────────────────────────
   const [mode, setMode] = useState<OpMode>('BUY');
@@ -52,14 +57,14 @@ export default function OperationForm({
   // ── Row 2: Helpers ────────────────────────────────────────────────────────
   const [hSumCur, setHSumCur] = useState(foreignCurrencies[0] ?? 'USD');
   const [hSumAmt, setHSumAmt] = useState('');
-  const [hConvCur, setHConvCur] = useState('');
+  const [hConvCur, setHConvCur] = useState('UAH'); // BUY за замовч.: конвертація в гривні
   const [hConvAmt, setHConvAmt] = useState('');    // manually typed conv
   const [hConvManual, setHConvManual] = useState(false); // true = cashier typed in conv
 
   // ── Row 3: Кількість | Отримує | Решта ────────────────────────────────────
   const [qtyCur, setQtyCur] = useState(foreignCurrencies[0] ?? 'USD');
   const [qtyAmt, setQtyAmt] = useState('');
-  const [rcvCur, setRcvCur] = useState('');       // empty until set
+  const [rcvCur, setRcvCur] = useState('UAH');    // BUY за замовч.: отримує гривні
   const [rcvAmt, setRcvAmt] = useState('');
   const [rcvCurSeeded, setRcvCurSeeded] = useState(false); // set once from hConvCur
   const [chgCur, setChgCur] = useState('UAH');
@@ -79,6 +84,14 @@ export default function OperationForm({
     if (cur === 'UAH') return 1;
     return Number(rates.find((x) => x.currency === cur)?.sell ?? 0);
   }, [rates]);
+
+  // Курс для блоку «Допоміжний розрахунок»: один курс на валюту відповідно до
+  // режиму (BUY → купівля, SELL → продаж). Робить конвертацію оборотною й узгодженою
+  // з курсом операції (а не buy в один бік / sell в інший, як було).
+  const convRate = useCallback((cur: string) => {
+    if (cur === 'UAH') return 1;
+    return mode === 'BUY' ? getBuyRate(cur) : getSellRate(cur);
+  }, [mode, getBuyRate, getSellRate]);
 
   // Ринковий курс: "скільки rcvCur за 1 clientCur"
   // Якщо rcvCur ще не обрано — UAH за замовчуванням (щоб курс підтягнувся одразу)
@@ -106,7 +119,7 @@ export default function OperationForm({
   // При зміні marketRate → оновити рядок курсу (якщо не ручний)
   useEffect(() => {
     if (marketRate > 0 && !rateManual) {
-      setRateRaw(marketRate.toFixed(2));
+      setRateRaw(fmtRate(marketRate));
     }
   }, [marketRate, rateManual]);
 
@@ -132,37 +145,55 @@ export default function OperationForm({
   }, [qtyAmt, rateRaw, rcvCur, calcRcv]);
 
   // ── Helper конвертація (авто-розрахунок) ──────────────────────────────────
+  // Скільки `to` за 1 `from`. Якщо пара помічника збігається з парою операції —
+  // рахуємо за КУРСОМ ОПЕРАЦІЇ (включно з кастомним), щоб помічник і операція
+  // не розходились. Інакше: UAH↔валюта — оборотний робочий курс; крос — buy/sell.
+  const hConvFactor = useCallback((from: string, to: string): number => {
+    if (clientCur && rcvCur && rateNum > 0) {
+      const opRcvPerClient = clientCur === 'UAH' ? 1 / rateNum : rateNum;
+      if (from === clientCur && to === rcvCur) return opRcvPerClient;
+      if (from === rcvCur && to === clientCur) return 1 / opRcvPerClient;
+    }
+    const crossPair = from !== 'UAH' && to !== 'UAH';
+    const rFrom = crossPair ? getBuyRate(from) : convRate(from);
+    const rTo = crossPair ? getSellRate(to) : convRate(to);
+    return rFrom && rTo ? rFrom / rTo : 0;
+  }, [clientCur, rcvCur, rateNum, convRate, getBuyRate, getSellRate]);
+
   const hConvCalc = useMemo(() => {
     const sum = parseFloat(hSumAmt) || 0;
     if (!sum || !hConvCur || !hSumCur || hConvCur === hSumCur) return '';
-    if (hSumCur === 'UAH') {
-      const r = getSellRate(hConvCur);
-      return r ? (sum / r).toFixed(2) : '';
-    } else if (hConvCur === 'UAH') {
-      const r = getBuyRate(hSumCur);
-      return r ? (sum * r).toFixed(2) : '';
-    } else {
-      const r1 = getBuyRate(hSumCur), r2 = getSellRate(hConvCur);
-      return r1 && r2 ? (sum * r1 / r2).toFixed(2) : '';
-    }
-  }, [hSumAmt, hSumCur, hConvCur, getBuyRate, getSellRate]);
+    const factor = hConvFactor(hSumCur, hConvCur);
+    return factor ? (sum * factor).toFixed(2) : '';
+  }, [hSumAmt, hSumCur, hConvCur, hConvFactor]);
 
   // Відображення helper конвертації: ручне або авто
   const hConvDisplay = hConvManual ? hConvAmt : hConvCalc;
 
   // ── Решта ─────────────────────────────────────────────────────────────────
+  // Решта (здача) = недоотримане клієнтом, переведене у валюту здачі.
+  // Базується на КУРСІ ОПЕРАЦІЇ: повна конвертація «Кількості» дає рівно 0,
+  // а коли касир видає менше («Отримує» < повного) — залишок іде здачею.
   const changeAmt = useMemo(() => {
     const qty = parseFloat(qtyAmt) || 0;
     const rcv = parseFloat(rcvAmt) || 0;
-    if (!qty || !rcv || !qtyCur || !rcvCur) return null;
-    // Конвертуємо обидва в UAH, берем різницю, конвертуємо у chgCur
-    const qtyUAH = qtyCur === 'UAH' ? qty : qty * getBuyRate(qtyCur);
-    const rcvUAH = rcvCur === 'UAH' ? rcv : rcv * getSellRate(rcvCur);
-    const diffUAH = qtyUAH - rcvUAH;
-    if (chgCur === 'UAH') return diffUAH;
-    const r = getSellRate(chgCur);
-    return r ? diffUAH / r : null;
-  }, [qtyAmt, rcvAmt, qtyCur, rcvCur, chgCur, getBuyRate, getSellRate]);
+    if (!qty || !rcv || !qtyCur || !rcvCur || rateNum <= 0) return null;
+
+    // Скільки клієнт мав би отримати при повній конвертації за курсом операції
+    const fullRcv = parseFloat(calcRcv(qty, rateNum)) || 0;
+    const shortfall = fullRcv - rcv; // >0 → винні клієнту здачу (у валюті «Отримує»)
+    if (Math.abs(shortfall) < 0.005) return 0;
+
+    // Переводимо недоотримане у валюту здачі (каса продає валюту → курс продажу/операції)
+    const cross = clientCur !== 'UAH' && rcvCur !== 'UAH' && clientCur !== rcvCur;
+    const operFx = clientCur !== 'UAH' ? clientCur : rcvCur;
+    const sellRateOf = (cur: string) =>
+      cur === 'UAH' ? 1 : (!cross && cur === operFx && rateNum > 0 ? rateNum : getSellRate(cur));
+
+    const uah = shortfall * sellRateOf(rcvCur);
+    const chgRate = sellRateOf(chgCur);
+    return chgRate ? uah / chgRate : null;
+  }, [qtyAmt, rcvAmt, qtyCur, rcvCur, chgCur, clientCur, rateNum, calcRcv, getSellRate]);
 
   // ── Balance warning ───────────────────────────────────────────────────────
   const rcvAmtNum = parseFloat(rcvAmt) || 0;
@@ -182,8 +213,11 @@ export default function OperationForm({
     setError('');
     const defCur = m === 'BUY' ? (foreignCurrencies[0] ?? 'USD') : 'UAH';
     setClientCur(defCur); setHSumCur(defCur); setQtyCur(defCur);
+    // BUY: клієнт за замовч. отримує гривні (і конвертація в UAH); SELL: валюту обирає касир
+    const rcvDefault = m === 'BUY' ? 'UAH' : '';
     setClientAmt(''); setHSumAmt(''); setHConvAmt(''); setHConvManual(false);
-    setQtyAmt(''); setRcvAmt(''); setRcvCur(''); setRcvCurSeeded(false);
+    setQtyAmt(''); setRcvAmt(''); setRcvCur(rcvDefault); setRcvCurSeeded(false);
+    setHConvCur(rcvDefault);
     setRateRaw('');
   };
 
@@ -221,7 +255,8 @@ export default function OperationForm({
     }
   };
 
-  // Кількість: amount → перерахувати Отримує
+  // Кількість: amount → перераховуємо Отримує (зміна суми обміну балансує угоду,
+  // Решта = 0). Здача виникає лише коли касир далі вручну заокруглює «Отримує».
   const handleQtyAmtChange = (val: string) => {
     setQtyAmt(val);
     const qty = parseFloat(val) || 0;
@@ -252,7 +287,7 @@ export default function OperationForm({
   const handleRateReset = () => {
     setRateManual(false);
     if (marketRate > 0) {
-      setRateRaw(marketRate.toFixed(2));
+      setRateRaw(fmtRate(marketRate));
       const qty = parseFloat(qtyAmt) || 0;
       if (qty > 0 && rcvCur) setRcvAmt(calcRcv(qty, marketRate));
     }
@@ -300,23 +335,23 @@ export default function OperationForm({
     setHConvManual(true);
     const conv = parseFloat(val) || 0;
     if (!conv || !hConvCur || !hSumCur || hConvCur === hSumCur) return;
-    let sum = 0;
-    if (hSumCur === 'UAH') {
-      sum = conv * getSellRate(hConvCur);
-    } else if (hConvCur === 'UAH') {
-      const r = getBuyRate(hSumCur);
-      sum = r ? conv / r : 0;
-    } else {
-      const r1 = getBuyRate(hSumCur), r2 = getSellRate(hConvCur);
-      sum = r1 && r2 ? conv * r2 / r1 : 0;
-    }
-    if (sum) setHSumAmt(sum.toFixed(2));
+    // Інверс прямої: sum = conv / factor(from → to)
+    const factor = hConvFactor(hSumCur, hConvCur);
+    if (factor) setHSumAmt((conv / factor).toFixed(2));
   };
 
   // ── Submit ────────────────────────────────────────────────────────────────
   const qtyNum = parseFloat(qtyAmt) || 0;
   const isCross = clientCur !== 'UAH' && rcvCur !== 'UAH' && clientCur !== rcvCur;
   const isRateEdited = rateManual && Math.abs(rateNum - marketRate) > 0.005 && marketRate > 0;
+
+  // Фактичні суми операції для підсумку. У Продажу гривнева частина — це ВАРТІСТЬ
+  // обміну (Отримує × курс), а не готівка клієнта (яка може містити здачу).
+  const summary = isCross
+    ? { fromAmt: qtyNum, fromCur: clientCur, toAmt: rcvAmtNum, toCur: rcvCur }
+    : clientCur !== 'UAH'
+      ? { fromAmt: qtyNum, fromCur: qtyCur, toAmt: rcvAmtNum, toCur: rcvCur } // Купівля: валюта → UAH
+      : { fromAmt: rcvAmtNum * rateNum, fromCur: 'UAH', toAmt: rcvAmtNum, toCur: rcvCur }; // Продаж: вартість → валюта
 
   const handleSubmit = async () => {
     if (!qtyNum || !rcvAmtNum || !rcvCur || !!balanceWarning) return;
@@ -350,6 +385,8 @@ export default function OperationForm({
       setShowConfirm(false);
       setClientAmt(''); setHSumAmt(''); setHConvAmt(''); setHConvManual(false);
       setQtyAmt(''); setRcvAmt('');
+      // Кастомний курс діє лише на одну операцію → повертаємо до ринкового
+      setRateManual(false);
       setError('');
       onCreated();
     } catch (e: any) {
@@ -398,7 +435,7 @@ export default function OperationForm({
               placeholder="0" autoFocus
             />
           </div>
-          {quickAmounts.length > 0 && (
+          {mode === 'BUY' && quickAmounts.length > 0 && (
             <div className="flex flex-wrap gap-1 pt-0.5">
               {quickAmounts.map((v) => (
                 <button
@@ -526,25 +563,29 @@ export default function OperationForm({
           {balanceWarning && <p className="text-xs text-red-500 leading-tight">{balanceWarning}</p>}
         </div>
 
-        {/* Решта */}
-        <div className="flex-1 space-y-1">
-          <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Решта</div>
-          <div className="flex gap-1">
-            <CurSelect value={chgCur} onChange={setChgCur} currencies={allCurrencies} className="w-24 text-base" />
-            <div className={`flex-1 flex items-center justify-end rounded-lg px-3 py-2 font-bold text-xl border ${
-              changeAmt === null ? 'border-gray-200 bg-gray-50 text-gray-300' :
-              changeAmt < -0.005 ? 'border-red-300 bg-red-50 text-red-700' :
-              'border-green-200 bg-green-50 text-green-700'
-            }`}>
-              {changeAmt === null ? '—' :
-               changeAmt < -0.005 ? `⚠ ${Math.abs(changeAmt).toFixed(2)}` :
-               changeAmt.toFixed(2)}
+        {/* Решта — лише коли обрано валюту «Отримує» ≠ UAH (Продаж/Крос); у Купівлі виплата точна */}
+        {rcvCur && rcvCur !== 'UAH' ? (
+          <div className="flex-1 space-y-1">
+            <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Решта</div>
+            <div className="flex gap-1">
+              <CurSelect value={chgCur} onChange={setChgCur} currencies={allCurrencies} className="w-24 text-base" />
+              <div className={`flex-1 flex items-center justify-end rounded-lg px-3 py-2 font-bold text-xl border ${
+                changeAmt === null ? 'border-gray-200 bg-gray-50 text-gray-300' :
+                changeAmt < -0.005 ? 'border-red-300 bg-red-50 text-red-700' :
+                'border-green-200 bg-green-50 text-green-700'
+              }`}>
+                {changeAmt === null ? '—' :
+                 changeAmt < -0.005 ? `⚠ ${Math.abs(changeAmt).toFixed(2)}` :
+                 changeAmt.toFixed(2)}
+              </div>
             </div>
+            {changeAmt !== null && changeAmt < -0.005 && (
+              <p className="text-xs text-red-500 leading-tight">клієнт повинен</p>
+            )}
           </div>
-          {changeAmt !== null && changeAmt < -0.005 && (
-            <p className="text-xs text-red-500 leading-tight">клієнт повинен</p>
-          )}
-        </div>
+        ) : (
+          <div className="flex-1" />
+        )}
 
       </div>
 
@@ -556,7 +597,7 @@ export default function OperationForm({
         disabled={!qtyNum || !rcvAmtNum || !rcvCur || !!balanceWarning}
         className={`w-full font-semibold py-2.5 rounded-lg disabled:opacity-50 transition text-sm text-white ${submitColor}`}>
         {qtyNum && rcvAmtNum && rcvCur
-          ? `${mode === 'BUY' ? 'Купівля' : 'Продаж'}: ${qtyNum.toFixed(2)} ${qtyCur} → ${rcvAmtNum.toFixed(2)} ${rcvCur}`
+          ? `${mode === 'BUY' ? 'Купівля' : 'Продаж'}: ${summary.fromAmt.toFixed(2)} ${summary.fromCur} → ${summary.toAmt.toFixed(2)} ${summary.toCur}`
           : mode === 'BUY' ? 'Провести купівлю' : 'Провести продаж'
         }
       </button>
@@ -575,11 +616,11 @@ export default function OperationForm({
 
             <div className="bg-gray-50 rounded-xl p-4 text-center space-y-1">
               <div className="text-2xl font-bold text-gray-800">
-                {qtyNum.toFixed(2)} <span className="text-gray-500 text-lg">{qtyCur}</span>
+                {summary.fromAmt.toFixed(2)} <span className="text-gray-500 text-lg">{summary.fromCur}</span>
               </div>
               <div className="text-gray-400 text-lg">↓</div>
               <div className="text-2xl font-bold text-gray-800">
-                {rcvAmtNum.toFixed(2)} <span className="text-gray-500 text-lg">{rcvCur}</span>
+                {summary.toAmt.toFixed(2)} <span className="text-gray-500 text-lg">{summary.toCur}</span>
               </div>
             </div>
 
@@ -593,7 +634,7 @@ export default function OperationForm({
                   </span>
                 </div>
               )}
-              {changeAmt !== null && (
+              {changeAmt !== null && rcvCur !== 'UAH' && (
                 <div className="flex justify-between">
                   <span className="text-gray-500">Решта клієнту</span>
                   <span className={`font-semibold ${changeAmt < 0 ? 'text-red-600' : 'text-green-700'}`}>

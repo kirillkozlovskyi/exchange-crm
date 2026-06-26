@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { format } from 'date-fns';
+import { computeOperationTotals, RateLookup } from './operations.math';
 
 @Injectable()
 export class OperationsService {
@@ -14,6 +15,26 @@ export class OperationsService {
     const date = format(new Date(), 'yyyyMMdd');
     const count = await this.prisma.operation.count();
     return `${pointCode}-${date}-${String(count + 1).padStart(6, '0')}`;
+  }
+
+  /** Лукап активних курсів точки для валют, що беруть участь в операції. */
+  private async buildRateLookup(
+    exchangePointId: number,
+    currencies: (string | null | undefined)[],
+  ): Promise<RateLookup> {
+    const unique = [...new Set(currencies.filter((c): c is string => !!c && c !== 'UAH'))];
+    const rates = await Promise.all(
+      unique.map((currency) =>
+        this.prisma.rate.findFirst({
+          where: { exchangePointId, currency, status: 'ACTIVE' },
+        }),
+      ),
+    );
+    const map = new Map<string, { buy: number; sell: number }>();
+    rates.forEach((r, i) => {
+      if (r) map.set(unique[i], { buy: Number(r.buy), sell: Number(r.sell) });
+    });
+    return (currency: string) => map.get(currency) ?? null;
   }
 
   async create(dto: {
@@ -36,67 +57,10 @@ export class OperationsService {
 
     const exchangePointId = shift.cashDesk.exchangePointId;
 
-    // Отримуємо активні курси для обох валют
-    const getCurrencyRate = dto.currency !== 'UAH'
-      ? await this.prisma.rate.findFirst({
-          where: { exchangePointId, currency: dto.currency, status: 'ACTIVE' },
-        })
-      : null;
-
-    const payCurrencyRate = dto.payCurrency && dto.payCurrency !== 'UAH'
-      ? await this.prisma.rate.findFirst({
-          where: { exchangePointId, currency: dto.payCurrency, status: 'ACTIVE' },
-        })
-      : null;
-
-    // Допоміжні функції для rate
-    const getBuyRate = (cur: string) => {
-      if (cur === 'UAH') return 1;
-      if (cur === dto.currency && getCurrencyRate) return Number(getCurrencyRate.buy);
-      if (cur === dto.payCurrency && payCurrencyRate) return Number(payCurrencyRate.buy);
-      return 0;
-    };
-    const getSellRate = (cur: string) => {
-      if (cur === 'UAH') return 1;
-      if (cur === dto.currency && getCurrencyRate) return Number(getCurrencyRate.sell);
-      if (cur === dto.payCurrency && payCurrencyRate) return Number(payCurrencyRate.sell);
-      return 0;
-    };
+    const getRate = await this.buildRateLookup(exchangePointId, [dto.currency, dto.payCurrency]);
+    const { type, totalUah, profit } = computeOperationTotals(dto, getRate);
 
     const payCur = dto.payCurrency || 'UAH';
-    const getCur = dto.currency;
-
-    // Визначаємо тип та рахуємо totalUah і profit
-    let type: 'BUY' | 'SELL' | 'EXCHANGE';
-    let totalUah: number;
-    let profit: number;
-
-    if (payCur === 'UAH' && getCur !== 'UAH') {
-      // Класичний SELL: клієнт платить UAH, отримує валюту
-      type = 'SELL';
-      totalUah = dto.amount * dto.rate; // rate = sell rate of getCurrency
-      profit = getCurrencyRate
-        ? dto.amount * (Number(getCurrencyRate.sell) - Number(getCurrencyRate.buy))
-        : 0;
-    } else if (getCur === 'UAH' && payCur !== 'UAH') {
-      // Класичний BUY: клієнт дає валюту, отримує UAH
-      type = 'BUY';
-      totalUah = dto.amount * dto.rate; // rate = buy rate of payCurrency, amount = payAmount
-      profit = payCurrencyRate
-        ? dto.amount * (Number(payCurrencyRate.sell) - Number(payCurrencyRate.buy))
-        : 0;
-    } else {
-      // Крос-обмін: валюта → валюта
-      // Використовуємо mode касира (BUY/SELL); fallback EXCHANGE для старих записів
-      type = (dto.mode as 'BUY' | 'SELL' | 'EXCHANGE') ?? 'EXCHANGE';
-      const payUah = (dto.payAmount ?? 0) * getBuyRate(payCur);
-      totalUah = payUah;
-      // Прибуток = payAmount * sell_rate[payCur] - getAmount * buy_rate[getCur]
-      profit =
-        (dto.payAmount ?? 0) * getSellRate(payCur) -
-        dto.amount * getBuyRate(getCur);
-    }
-
     const number = await this.generateNumber(shift.cashDesk.exchangePoint.code);
 
     return this.prisma.operation.create({
@@ -160,18 +124,6 @@ export class OperationsService {
 
     const exchangePointId = op.shift.cashDesk.exchangePointId;
 
-    const getCurrencyRate = op.currency !== 'UAH'
-      ? await this.prisma.rate.findFirst({
-          where: { exchangePointId, currency: op.currency, status: 'ACTIVE' },
-        })
-      : null;
-
-    const payCurrencyRate = op.payCurrency && op.payCurrency !== 'UAH'
-      ? await this.prisma.rate.findFirst({
-          where: { exchangePointId, currency: op.payCurrency, status: 'ACTIVE' },
-        })
-      : null;
-
     // Зберігаємо запис про редагування
     await this.prisma.operationEdit.create({
       data: {
@@ -185,28 +137,20 @@ export class OperationsService {
       },
     });
 
-    // Перераховуємо totalUah та profit
-    let totalUah: number;
-    let profit: number;
-
-    if (op.type === 'SELL') {
-      totalUah = dto.amount * dto.rate;
-      profit = getCurrencyRate
-        ? dto.amount * (Number(getCurrencyRate.sell) - Number(getCurrencyRate.buy))
-        : 0;
-    } else if (op.type === 'BUY') {
-      totalUah = dto.amount * dto.rate;
-      profit = payCurrencyRate
-        ? dto.amount * (Number(payCurrencyRate.sell) - Number(payCurrencyRate.buy))
-        : 0;
-    } else {
-      // EXCHANGE: payAmount і payCurrency незмінні, перераховуємо на основі нового rate
-      const payUah = Number(op.payAmount ?? 0) * (payCurrencyRate ? Number(payCurrencyRate.buy) : 1);
-      totalUah = payUah;
-      profit =
-        Number(op.payAmount ?? 0) * (payCurrencyRate ? Number(payCurrencyRate.sell) : 1) -
-        dto.amount * (getCurrencyRate ? Number(getCurrencyRate.buy) : 1);
-    }
+    // Перераховуємо totalUah та profit тією ж логікою, що й при створенні.
+    // mode = op.type зберігає тип (важливо для крос-операцій, збережених як BUY/SELL).
+    const getRate = await this.buildRateLookup(exchangePointId, [op.currency, op.payCurrency]);
+    const { totalUah, profit } = computeOperationTotals(
+      {
+        currency: op.currency,
+        amount: dto.amount,
+        rate: dto.rate,
+        payCurrency: op.payCurrency,
+        payAmount: op.payAmount != null ? Number(op.payAmount) : null,
+        mode: op.type,
+      },
+      getRate,
+    );
 
     return this.prisma.operation.update({
       where: { id },

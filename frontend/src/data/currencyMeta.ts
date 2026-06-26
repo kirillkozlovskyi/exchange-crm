@@ -38,3 +38,13 @@ export const WORLD_CURRENCIES = [
   { code: 'IDR', name: 'Індонезійська рупія',       flag: '🇮🇩' },
   { code: 'MYR', name: 'Малайзійський рингіт',      flag: '🇲🇾' },
 ];
+
+const FLAG_BY_CODE: Record<string, string> = Object.fromEntries(
+  WORLD_CURRENCIES.map((c) => [c.code, c.flag]),
+);
+FLAG_BY_CODE.UAH ??= '🇺🇦';
+
+/** Емодзі-прапор для коду валюти ('💱' як фолбек). */
+export function flagOf(code: string): string {
+  return FLAG_BY_CODE[code] ?? '💱';
+}
