@@ -66,12 +66,13 @@ function OpRow({
       : `${opRate.toFixed(2)} UAH/${op.payCurrency ?? op.currency}`;
 
   return (
-    <div className={`flex items-center justify-between py-2.5 border-b border-gray-100 last:border-0 group ${op.cancelled ? 'opacity-50' : ''}`}>
+    <div className={`flex items-center justify-between py-1.5 border-b border-gray-100 last:border-0 group ${op.cancelled ? 'opacity-50' : ''}`}>
       <div className="flex-1 min-w-0">
         {op.cancelled && (
-          <div className="text-lg text-red-500 font-semibold mb-0.5">СТОРНО{op.cancelNote ? ` · ${op.cancelNote}` : ''}</div>
+          <div className="text-xs text-red-500 font-semibold mb-0.5">СТОРНО{op.cancelNote ? ` · ${op.cancelNote}` : ''}</div>
         )}
-        <span className={`font-bold text-lg ${op.cancelled ? 'line-through text-gray-400' : 'text-gray-800'}`}>
+        {/* Рядок 1: суми операції */}
+        <div className={`font-semibold text-sm ${op.cancelled ? 'line-through text-gray-400' : 'text-gray-800'}`}>
           {isCross ? (
             <>
               {Number(op.payAmount).toFixed(2)}
@@ -97,68 +98,65 @@ function OpRow({
               <Flag currency="UAH" className="mx-1" />
             </>
           )}
-        </span>
-      </div>
-
-      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-        <div className="text-right">
-          <div className="flex items-center justify-end gap-1.5">
-            <div className="text-lg text-gray-400">{format(new Date(op.createdAt), 'HH:mm')}</div>
-            {(op._count?.edits ?? 0) > 0 && (
-              <span className="text-lg bg-amber-100 text-amber-700 font-semibold px-1.5 py-0.5 rounded" title="Операцію відредаговано">
-                ред.
-              </span>
-            )}
-          </div>
-          <div className={`text-lg font-medium ${isCustom ? 'text-orange-500' : 'text-gray-400'}`}>
-            {isCustom && <span className="mr-0.5">✱</span>}
-            {rateStr}
-          </div>
         </div>
-
-        {!op.cancelled && (
-          <div className="flex flex-col gap-1">
-            {canEdit && (
-              <button
-                onClick={() => onEdit(op)}
-                className="p-2 rounded-lg text-gray-700 hover:text-blue-600 hover:bg-blue-50 transition text-xl leading-none font-bold"
-                title="Редагувати операцію"
-              >
-                ✎
-              </button>
-            )}
-            {isLast && withinWindow && (
-              <button
-                onClick={() => onStorno(op)}
-                className="p-2 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition text-xl leading-none font-black"
-                title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}
-              >
-                ✕
-              </button>
-            )}
-          </div>
-        )}
+        {/* Рядок 2: час + курс */}
+        <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
+          <span>{format(new Date(op.createdAt), 'HH:mm')}</span>
+          <span className={`font-medium ${isCustom ? 'text-orange-500' : ''}`}>
+            {isCustom && <span className="mr-0.5">✱</span>}{rateStr}
+          </span>
+          {(op._count?.edits ?? 0) > 0 && (
+            <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-1 py-0.5 rounded" title="Операцію відредаговано">
+              ред.
+            </span>
+          )}
+        </div>
       </div>
+
+      {!op.cancelled && (
+        <div className="flex flex-col gap-1 flex-shrink-0 ml-2">
+          {canEdit && (
+            <button
+              onClick={() => onEdit(op)}
+              className="p-2 rounded-lg text-gray-700 hover:text-blue-600 hover:bg-blue-50 transition text-xl leading-none font-bold"
+              title="Редагувати операцію"
+            >
+              ✎
+            </button>
+          )}
+          {isLast && withinWindow && (
+            <button
+              onClick={() => onStorno(op)}
+              className="p-2 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition text-xl leading-none font-black"
+              title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
 function OpsBlock({
-  title, ops, colorClass, fullHeight, rates, onEdit, onStorno, lastOpId, canEdit, stornoWindowMin, now,
+  title, ops, colorClass, fullHeight, hideTitle, rates, onEdit, onStorno, lastOpId, canEdit, stornoWindowMin, now,
 }: {
-  title: string; ops: Op[]; colorClass: string; fullHeight?: boolean;
+  title: string; ops: Op[]; colorClass: string; fullHeight?: boolean; hideTitle?: boolean;
   rates: Rate[]; onEdit: (op: Op) => void; onStorno: (op: Op) => void;
   lastOpId: number | null; canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
   return (
     <div className={`flex flex-col ${fullHeight ? 'flex-1 min-h-0 overflow-hidden' : 'bg-white rounded-xl shadow p-4'}`}>
-      <div className={`flex items-center justify-between ${fullHeight ? 'px-4 pt-3 pb-2 border-b border-gray-100' : 'mb-3'}`}>
-        <h3 className={`font-semibold text-lg ${colorClass}`}>{title}</h3>
-      </div>
-      <div className={`${fullHeight ? 'flex-1 overflow-y-auto px-4' : 'space-y-1.5 overflow-y-auto max-h-72 flex-1'}`}>
+      {!hideTitle && (
+        <div className={`flex items-center justify-between ${fullHeight ? 'px-3 pt-2 pb-1.5 border-b border-gray-100' : 'mb-3'}`}>
+          <h3 className={`font-semibold text-sm ${colorClass}`}>{title}</h3>
+        </div>
+      )}
+      <div className={`${fullHeight ? 'flex-1 overflow-y-auto px-3' : 'space-y-1.5 overflow-y-auto max-h-72 flex-1'}`}>
         {ops.length === 0 ? (
-          <p className="text-gray-400 text-lg text-center py-8">Немає</p>
+          <p className="text-gray-400 text-sm text-center py-6">Немає</p>
         ) : (
           ops.map((op) => (
             <OpRow
@@ -172,7 +170,7 @@ function OpsBlock({
           ))
         )}
       </div>
-      <div className={`${fullHeight ? 'px-4 py-2 border-t' : 'mt-2 pt-2 border-t'} text-lg text-gray-400 text-right`}>
+      <div className={`${fullHeight ? 'px-3 py-1.5 border-t' : 'mt-2 pt-2 border-t'} text-xs text-gray-400 text-right`}>
         {ops.length} операц{ops.length === 1 ? 'ія' : ops.length < 5 ? 'ії' : 'ій'}
       </div>
     </div>
@@ -254,6 +252,7 @@ export default function OperationsList({
   const [filterCurs, setFilterCurs] = useState<string[]>([]);
   const [stornoWindowMin, setStornoWindowMin] = useState<number>(5);
   const [now, setNow] = useState<number>(Date.now());
+  const [opTab, setOpTab] = useState<'buy' | 'sell'>('buy');
 
   const canEdit = user?.role === 'ADMIN';
 
@@ -334,17 +333,30 @@ export default function OperationsList({
 
       {fullHeight ? (
         <div className="flex flex-col h-full overflow-hidden">
-          <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0">
-            <h2 className="font-bold text-lg text-gray-800">Операції зміни</h2>
-            <div className="text-lg text-gray-400 mt-0.5">
-              Всього: {ops.length}
+          <div className="px-3 py-2 border-b border-gray-100 flex-shrink-0">
+            <div className="flex items-baseline gap-2">
+              <h2 className="font-bold text-sm text-gray-800">Операції зміни</h2>
+              <span className="text-xs text-gray-400">Всього: {ops.length}</span>
+            </div>
+            {/* Таби Купівля / Продаж */}
+            <div className="flex gap-1 mt-1.5 bg-gray-100 rounded-lg p-0.5">
+              <button
+                onClick={() => setOpTab('buy')}
+                className={`flex-1 py-1.5 rounded-md text-sm font-semibold transition ${opTab === 'buy' ? 'bg-white shadow text-green-700' : 'text-gray-500'}`}>
+                🟢 Купівля ({clientBuyOps.length})
+              </button>
+              <button
+                onClick={() => setOpTab('sell')}
+                className={`flex-1 py-1.5 rounded-md text-sm font-semibold transition ${opTab === 'sell' ? 'bg-white shadow text-red-600' : 'text-gray-500'}`}>
+                🔴 Продаж ({clientSellOps.length})
+              </button>
             </div>
             {/* Фільтри */}
             {usedCurrencies.length > 0 && (
-              <div className="flex flex-wrap gap-2 mt-2">
+              <div className="flex flex-wrap gap-1.5 mt-1.5">
                 <button
                   onClick={() => setFilterCurs([])}
-                  className={`px-4 py-2 text-lg font-bold border transition ${
+                  className={`px-2.5 py-1 text-xs font-bold rounded border transition ${
                     filterCurs.length === 0
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'border-gray-300 text-gray-600 hover:bg-gray-50'
@@ -358,7 +370,7 @@ export default function OperationsList({
                       onClick={() => setFilterCurs((prev) =>
                         active ? prev.filter((x) => x !== c) : [...prev, c]
                       )}
-                      className={`px-4 py-2 text-lg font-bold border transition ${
+                      className={`px-2.5 py-1 text-xs font-bold rounded border transition ${
                         active
                           ? 'bg-blue-600 text-white border-blue-600'
                           : 'border-gray-300 text-gray-600 hover:bg-gray-50'
@@ -370,9 +382,15 @@ export default function OperationsList({
               </div>
             )}
           </div>
-          <div className="flex flex-1 min-h-0 divide-x divide-gray-100">
-            <OpsBlock title="🟢 Купівля" ops={clientBuyOps} colorClass="text-green-700" fullHeight {...blockProps} />
-            <OpsBlock title="🔴 Продаж"  ops={clientSellOps} colorClass="text-red-600"  fullHeight {...blockProps} />
+          <div className="flex flex-1 min-h-0">
+            <OpsBlock
+              title=""
+              ops={opTab === 'buy' ? clientBuyOps : clientSellOps}
+              colorClass=""
+              fullHeight
+              hideTitle
+              {...blockProps}
+            />
           </div>
         </div>
       ) : (

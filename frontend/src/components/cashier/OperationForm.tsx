@@ -1,12 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import api from '../../api/axios';
 
-const FLAG: Record<string, string> = {
-  USD: '🇺🇸', EUR: '🇪🇺', PLN: '🇵🇱', GBP: '🇬🇧',
-  CHF: '🇨🇭', CAD: '🇨🇦', CZK: '🇨🇿', UAH: '🇺🇦',
-  HUF: '🇭🇺', RON: '🇷🇴', NOK: '🇳🇴', SEK: '🇸🇪',
-};
-
 type OpMode = 'BUY' | 'SELL';
 
 // Курси >=10 (валюта/UAH) — 2 знаки; крос-курси <10 (напр. 0.8561) — 4 знаки для точності
@@ -22,7 +16,7 @@ function CurSelect({
     <select value={value} onChange={(e) => onChange(e.target.value)}
       className={`border border-gray-300 rounded-lg px-2 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 ${className}`}>
       {placeholder && <option value="">—</option>}
-      {currencies.map((c) => <option key={c} value={c}>{FLAG[c] ?? ''} {c}</option>)}
+      {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
     </select>
   );
 }
@@ -414,14 +408,14 @@ export default function OperationForm({
 
   // ── Render ────────────────────────────────────────────────────────────────
   return (
-    <div className="bg-white shadow p-4 space-y-4">
+    <div className="bg-white shadow p-3 space-y-2.5">
       <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Нова операція</div>
 
       {/* Mode tabs */}
       <div className="flex gap-2">
         {(['BUY', 'SELL'] as OpMode[]).map((m) => (
           <button key={m} onClick={() => handleModeChange(m)}
-            className={`flex-1 py-2 rounded-lg text-lg font-semibold border transition ${
+            className={`flex-1 py-2.5 rounded-lg text-xl font-bold border transition ${
               mode === m
                 ? (m === 'BUY' ? 'bg-green-600 text-white border-green-600' : 'bg-red-600 text-white border-red-600')
                 : m === 'BUY' ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-700 hover:bg-red-50'
@@ -442,7 +436,7 @@ export default function OperationForm({
             <input
               type="number" min="0" step="1" value={clientAmt}
               onChange={(e) => handleClientAmtChange(e.target.value)}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-right text-xl font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-right text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"
               placeholder="0" autoFocus
             />
           </div>
@@ -478,7 +472,7 @@ export default function OperationForm({
             <input
               type="number" min="0" step="0.01" value={rateRaw}
               onChange={(e) => handleRateChange(e.target.value)}
-              className={`w-28 border rounded-lg px-3 py-2 text-right text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400 transition ${
+              className={`w-28 border rounded-lg px-3 py-2.5 text-right text-xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 transition ${
                 isRateEdited ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-gray-300'
               }`}
               placeholder="0.00"
@@ -547,11 +541,11 @@ export default function OperationForm({
         <div className="flex-1 space-y-1">
           <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Кількість</div>
           <div className="flex gap-1">
-            <CurSelect value={qtyCur} onChange={handleQtyCurChange} currencies={clientCurrencies} className="w-24 text-base" />
+            <CurSelect value={qtyCur} onChange={handleQtyCurChange} currencies={clientCurrencies} className="w-20 text-lg" />
             <input
               type="number" min="0" step="1" value={qtyAmt}
               onChange={(e) => handleQtyAmtChange(e.target.value)}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-right text-xl font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-right text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"
               placeholder="0"
             />
           </div>
@@ -561,12 +555,12 @@ export default function OperationForm({
         <div className="flex-1 space-y-1">
           <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Отримує</div>
           <div className="flex gap-1">
-            <CurSelect value={rcvCur} onChange={handleRcvCurChange} currencies={allCurrencies} placeholder className={`w-24 text-base ${balanceWarning ? 'border-red-400' : ''}`} />
+            <CurSelect value={rcvCur} onChange={handleRcvCurChange} currencies={allCurrencies} placeholder className={`w-20 text-lg ${balanceWarning ? 'border-red-400' : ''}`} />
             <div className={`flex-1 flex border rounded-lg ${balanceWarning ? 'border-red-400 bg-red-50' : 'border-dashed border-gray-300 bg-gray-50'}`}>
               <input
                 type="number" min="0" step="1" value={rcvAmt}
                 onChange={(e) => handleRcvAmtChange(e.target.value)}
-                className="flex-1 px-3 py-2 text-right text-xl font-semibold bg-transparent focus:outline-none rounded-lg"
+                className="flex-1 px-3 py-2.5 text-right text-2xl font-bold bg-transparent focus:outline-none rounded-lg"
                 placeholder="0"
               />
             </div>
@@ -579,8 +573,8 @@ export default function OperationForm({
           <div className="flex-1 space-y-1">
             <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Решта</div>
             <div className="flex gap-1">
-              <CurSelect value={chgCur} onChange={setChgCur} currencies={allCurrencies} className="w-24 text-base" />
-              <div className={`flex-1 flex items-center justify-end rounded-lg px-3 py-2 font-bold text-xl border ${
+              <CurSelect value={chgCur} onChange={setChgCur} currencies={allCurrencies} className="w-20 text-lg" />
+              <div className={`flex-1 flex items-center justify-end rounded-lg px-3 py-2.5 font-bold text-2xl border ${
                 changeAmt === null ? 'border-gray-200 bg-gray-50 text-gray-300' :
                 changeAmt < -0.005 ? 'border-red-300 bg-red-50 text-red-700' :
                 'border-green-200 bg-green-50 text-green-700'
@@ -606,7 +600,7 @@ export default function OperationForm({
       <button
         onClick={() => setShowConfirm(true)}
         disabled={!qtyNum || !rcvAmtNum || !rcvCur || !!balanceWarning}
-        className={`w-full font-semibold py-2.5 rounded-lg disabled:opacity-50 transition text-sm text-white ${submitColor}`}>
+        className={`w-full font-bold py-3 rounded-lg disabled:opacity-50 transition text-lg text-white ${submitColor}`}>
         {qtyNum && rcvAmtNum && rcvCur
           ? `${mode === 'BUY' ? 'Купівля' : 'Продаж'}: ${summary.fromAmt.toFixed(2)} ${summary.fromCur} → ${summary.toAmt.toFixed(2)} ${summary.toCur}`
           : mode === 'BUY' ? 'Провести купівлю' : 'Провести продаж'

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
+import { midRates, shiftProfit } from '../../lib/profit';
 
 type Operation = {
   id: number;
@@ -9,7 +10,8 @@ type Operation = {
   amount: string | number;
   rate: string | number;
   totalUah: string | number;
-  profit: string | number;
+  payCurrency?: string | null;
+  payAmount?: string | number | null;
   cancelled?: boolean;
   createdAt: string;
 };
@@ -22,12 +24,16 @@ type Shift = {
   operations: Operation[];
 };
 
+type Rate = { currency: string; buy: number | string; sell: number | string };
+
 export default function CloseShiftForm({
   shift,
+  rates = [],
   onClose,
   onCancel,
 }: {
   shift: Shift;
+  rates?: Rate[];
   onClose: (endBalance: Record<string, number>) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -55,7 +61,19 @@ export default function CloseShiftForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  const totalProfit = shift.operations.reduce((s, o) => s + Number(o.profit || 0), 0);
+  // ── Прибуток = приріст вартості каси за серединним курсом ───────────────────
+  const valuation = useMemo(() => midRates(rates), [rates]);
+  const startValued = useMemo(() => ({ UAH: 0, ...startBal }), [startBal]);
+  // Торговий — за розрахунковим залишком; фактичний — за введеним касиром
+  const tradingProfit = useMemo(
+    () => shiftProfit(startValued, calcBalance, valuation),
+    [startValued, calcBalance, valuation],
+  );
+  const endBalParsed = useMemo(
+    () => Object.fromEntries(Object.entries(endBal).map(([k, v]) => [k, parseFloat(v) || 0])),
+    [endBal],
+  );
+  const factualProfit = shiftProfit(startValued, endBalParsed, valuation);
 
   const handleSubmit = async () => {
     setSaving(true);
@@ -94,17 +112,31 @@ export default function CloseShiftForm({
         </button>
       </div>
 
-      {/* ── Підсумок прибутку ── */}
-      <div className="bg-white rounded-xl shadow p-4">
+      {/* ── Підсумок прибутку (приріст вартості каси за серединним курсом) ── */}
+      <div className="bg-white rounded-xl shadow p-4 space-y-2">
         <div className="flex items-center justify-between">
-          <span className="font-semibold text-gray-700">Прибуток за зміну</span>
-          <span className={`text-xl font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-            {totalProfit >= 0 ? '+' : ''}{totalProfit.toFixed(2)} ₴
+          <div>
+            <span className="font-semibold text-gray-700">Торговий прибуток</span>
+            <div className="text-xs text-gray-400">за розрахунковим залишком · {shift.operations.length} операцій</div>
+          </div>
+          <span className={`text-xl font-bold ${tradingProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {tradingProfit >= 0 ? '+' : ''}{tradingProfit.toFixed(2)} ₴
           </span>
         </div>
-        <div className="text-xs text-gray-400 mt-1">
-          {shift.operations.length} операцій
+        <div className="flex items-center justify-between border-t pt-2">
+          <div>
+            <span className="font-semibold text-gray-700">Фактичний результат</span>
+            <div className="text-xs text-gray-400">за введеним залишком (з нестачею/надлишком)</div>
+          </div>
+          <span className={`text-xl font-bold ${factualProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+            {factualProfit >= 0 ? '+' : ''}{factualProfit.toFixed(2)} ₴
+          </span>
         </div>
+        {Math.abs(factualProfit - tradingProfit) >= 0.01 && (
+          <div className="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-1.5">
+            Розбіжність каси: {(factualProfit - tradingProfit) >= 0 ? '+' : ''}{(factualProfit - tradingProfit).toFixed(2)} ₴
+          </div>
+        )}
       </div>
 
       {/* ── Баланс: залишок по валютах ── */}
@@ -179,7 +211,6 @@ export default function CloseShiftForm({
                   <th className="pb-2 text-right">Сума</th>
                   <th className="pb-2 text-right">Курс</th>
                   <th className="pb-2 text-right">UAH</th>
-                  <th className="pb-2 text-right">Прибуток</th>
                 </tr>
               </thead>
               <tbody>
@@ -204,18 +235,9 @@ export default function CloseShiftForm({
                     <td className="py-1.5 text-right">
                       {Number(op.totalUah).toFixed(2)} ₴
                     </td>
-                    <td className="py-1.5 text-right text-green-600 font-medium">
-                      +{Number(op.profit).toFixed(2)} ₴
-                    </td>
                   </tr>
                 ))}
               </tbody>
-              <tfoot>
-                <tr className="border-t-2 font-semibold text-sm">
-                  <td colSpan={5} className="pt-2 text-right text-gray-600">Загальний прибуток:</td>
-                  <td className="pt-2 text-right text-green-600">+{totalProfit.toFixed(2)} ₴</td>
-                </tr>
-              </tfoot>
             </table>
           </div>
         )}

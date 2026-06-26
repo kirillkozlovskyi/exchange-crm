@@ -2,6 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
 import { applyOperationsToBalance, operationsDelta } from '../common/balance.util';
+import { midRates, shiftProfit } from '../common/profit.util';
 
 @Injectable()
 export class ShiftsService {
@@ -43,24 +44,29 @@ export class ShiftsService {
   async closeShift(shiftId: number, endBalance?: object) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
-      include: { operations: true },
+      include: { operations: true, cashDesk: true },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна вже закрита');
 
-    const activeOps = shift.operations.filter(op => !op.cancelled);
-
-    const profit = activeOps.reduce(
-      (sum, op) => sum + Number(op.profit), 0,
-    );
+    const start = shift.startBalance as Record<string, number>;
 
     // Розрахунковий залишок (скасовані операції не враховуються — фільтрує util)
-    const calcBalance = applyOperationsToBalance(
-      shift.startBalance as Record<string, number>,
-      shift.operations,
-    );
+    const calcBalance = applyOperationsToBalance(start, shift.operations);
 
-    return this.prisma.shift.update({
+    // Прибуток = приріст вартості каси за серединним курсом точки на момент закриття
+    // (а не сума спредів по операціях, яка подвійно рахує спред).
+    const rates = await this.prisma.rate.findMany({
+      where: { exchangePointId: shift.cashDesk.exchangePointId, status: 'ACTIVE' },
+    });
+    const valuation = midRates(
+      rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
+    );
+    const profit = shiftProfit(start, calcBalance, valuation);
+    // Фактичний результат (з нестачею/надлишком касира) — за введеним залишком
+    const factualProfit = shiftProfit(start, (endBalance as Record<string, number>) ?? calcBalance, valuation);
+
+    const updated = await this.prisma.shift.update({
       where: { id: shiftId },
       data: {
         status: 'CLOSED',
@@ -70,6 +76,8 @@ export class ShiftsService {
         profit,
       },
     });
+    // factualProfit і valuationRates не зберігаються (без зміни схеми) — повертаємо для звіту
+    return { ...updated, factualProfit, valuationRates: valuation };
   }
 
   async getActiveShift(cashDeskId: number) {

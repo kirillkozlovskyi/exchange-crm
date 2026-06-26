@@ -417,6 +417,7 @@ export default function CashierPage() {
       <div className="p-6 max-w-3xl mx-auto mt-4">
         <CloseShiftForm
           shift={shift}
+          rates={rates}
           onClose={handleCloseShift}
           onCancel={() => setClosingShift(false)}
         />
@@ -463,17 +464,17 @@ export default function CashierPage() {
 
         {/* Залишок в касі — ліворуч, займає весь доступний простір */}
         <div className="flex items-center gap-2 flex-1 min-w-0 overflow-x-auto scrollbar-none">
-          <span className="text-lg font-semibold text-gray-800 whitespace-nowrap flex-shrink-0 hidden sm:block">Залишок в касі:</span>
+          <span className="text-sm font-semibold text-gray-500 whitespace-nowrap flex-shrink-0 hidden sm:block">Залишок в касі:</span>
           {currentBalance['UAH'] !== undefined && (
-            <div className="flex-shrink-0 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
-              <span className="font-bold text-lg text-blue-800">UAH: </span>
-              <span className="font-bold text-lg text-blue-800">{Number(currentBalance['UAH']).toFixed(0)}</span>
+            <div className="flex-shrink-0 bg-blue-50 border border-blue-200 rounded-lg px-2.5 py-1">
+              <span className="font-bold text-base text-blue-800">UAH </span>
+              <span className="font-bold text-base text-blue-800">{Number(currentBalance['UAH']).toFixed(0)}</span>
             </div>
           )}
           {Object.entries(currentBalance).filter(([c]) => c !== 'UAH').map(([cur, amt]) => (
-            <div key={cur} className="flex-shrink-0 bg-gray-50 border border-gray-200 rounded-lg px-3 py-1.5">
-              <span className="font-bold text-lg text-blue-800"><Flag currency={cur} className="mr-1" />{cur}: </span>
-              <span className={`font-bold text-lg ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{Number(amt).toFixed(0)}</span>
+            <div key={cur} className="flex-shrink-0 bg-gray-50 border border-gray-200 rounded-lg px-2.5 py-1 flex items-center gap-1">
+              <Flag currency={cur} /><span className="font-bold text-base text-blue-800">{cur} </span>
+              <span className={`font-bold text-base ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{Number(amt).toFixed(0)}</span>
             </div>
           ))}
           {balanceEditEnabled && (
@@ -511,9 +512,9 @@ export default function CashierPage() {
       {tab === 'operations' && (
         <div className="flex flex-1 min-h-0">
 
-          {/* Ліва колонка — список операцій: прихована на мобільному коли активна форма */}
+          {/* Ліва колонка — список операцій (другорядний): вужча, на мобільному прихована коли активна форма */}
           <div className={`
-            lg:flex lg:w-1/2 lg:border-r lg:border-gray-200 lg:overflow-hidden lg:bg-white
+            lg:flex lg:w-2/5 lg:border-r lg:border-gray-200 lg:overflow-hidden lg:bg-white
             ${mobileView === 'list' ? 'flex flex-1 overflow-hidden bg-white' : 'hidden'}
           `}>
             <div className="w-full h-full">
@@ -521,36 +522,32 @@ export default function CashierPage() {
             </div>
           </div>
 
-          {/* Права колонка — курси + нова операція: прихована на мобільному коли активний список */}
+          {/* Права колонка (головна) — курси + нова операція */}
           <div className={`
-            lg:flex lg:flex-col lg:w-1/2 lg:overflow-y-auto lg:bg-gray-50
+            lg:flex lg:flex-col lg:w-3/5 lg:overflow-y-auto lg:bg-gray-50
             ${mobileView === 'form' ? 'flex flex-col flex-1 overflow-y-auto bg-gray-50' : 'hidden'}
           `}>
 
-            {/* Блок курсів */}
-            <div className="bg-white border-b border-gray-200 p-3 sm:p-4">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Курси валют</div>
-              <div className="space-y-0.5">
+            {/* Блок курсів — головна інформація: підписи в шапці, компактні рядки, великі числа */}
+            <div className="bg-white border-b border-gray-200 px-3 py-2">
+              <div className="flex items-center text-xs font-semibold uppercase tracking-wider mb-1">
+                <span className="flex-1 text-gray-400">Курси валют</span>
+                <span className="w-24 text-right text-green-600">Купівля</span>
+                <span className="w-24 text-right text-red-500">Продаж</span>
+              </div>
+              <div className="divide-y divide-gray-100">
                 {rates.map((r) => (
                   <div
                     key={r.currency}
                     onClick={() => setActiveCur(r.currency)}
-                    className={`flex items-center gap-2 sm:gap-3 py-0.5 border-b border-gray-100 last:border-0 cursor-pointer rounded-lg px-1 transition ${
-                      activeCur === r.currency ? 'bg-blue-50 border-blue-200' : 'hover:bg-gray-50'
+                    className={`flex items-center py-1 cursor-pointer rounded-lg px-1 transition ${
+                      activeCur === r.currency ? 'bg-blue-50' : 'hover:bg-gray-50'
                     }`}
                   >
-                    <span className="text-base sm:text-lg w-6 sm:w-8 text-center"><Flag currency={r.currency} /></span>
-                    <span className={`font-bold text-sm sm:text-lg w-10 sm:w-12 ${activeCur === r.currency ? 'text-blue-700' : 'text-gray-800'}`}>{r.currency}</span>
-                    <div className="flex gap-3 sm:gap-4 ml-auto">
-                      <div className="text-right">
-                        <div className="text-xs text-gray-400">Купівля</div>
-                        <div className="text-base sm:text-2xl font-bold text-green-700">{Number(r.buy).toFixed(2)}</div>
-                      </div>
-                      <div className="text-right">
-                        <div className="text-xs text-gray-400">Продаж</div>
-                        <div className="text-base sm:text-2xl font-bold text-red-600">{Number(r.sell).toFixed(2)}</div>
-                      </div>
-                    </div>
+                    <span className="text-xl w-8 text-center"><Flag currency={r.currency} /></span>
+                    <span className={`font-bold text-xl flex-1 ${activeCur === r.currency ? 'text-blue-700' : 'text-gray-800'}`}>{r.currency}</span>
+                    <span className="w-24 text-right text-2xl font-bold text-green-700">{Number(r.buy).toFixed(2)}</span>
+                    <span className="w-24 text-right text-2xl font-bold text-red-600">{Number(r.sell).toFixed(2)}</span>
                   </div>
                 ))}
               </div>
