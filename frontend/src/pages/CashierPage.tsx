@@ -51,6 +51,7 @@ export default function CashierPage() {
   const [tab, setTab] = useState<Tab>('operations');
   const [refreshOps, setRefreshOps] = useState(0);
   const [closingShift, setClosingShift] = useState(false);
+  const [closeTransfers, setCloseTransfers] = useState<any[]>([]);
   const [mobileView, setMobileView] = useState<'form' | 'list'>('form');
 
   // Редагування балансу
@@ -189,6 +190,23 @@ export default function CashierPage() {
   const handleOpenShift = async (startBalance: Record<string, number>) => {
     await api.post('/shifts/open', { cashDeskId: selectedDeskId, startBalance });
     await loadShift(selectedDeskId!);
+  };
+
+  // Перехід до екрану закриття: підвантажуємо підтверджені передачі каси за зміну,
+  // щоб вилучити їх із прибутку (рух готівки між касами ≠ прибуток).
+  const startClosing = async () => {
+    setCloseTransfers([]);
+    setClosingShift(true);
+    if (selectedDeskId && shift?.openedAt) {
+      try {
+        const { data } = await api.get(
+          `/transfers/confirmed?deskId=${selectedDeskId}&since=${encodeURIComponent(shift.openedAt)}`,
+        );
+        setCloseTransfers(data);
+      } catch {
+        setCloseTransfers([]);
+      }
+    }
   };
 
   const handleCloseShift = async (endBalance: Record<string, number>) => {
@@ -414,10 +432,12 @@ export default function CashierPage() {
   // ── Закриття зміни ─────────────────────────────────────────────────────────
   if (closingShift) {
     return (
-      <div className="p-6 max-w-3xl mx-auto mt-4">
+      <div className="px-4 sm:px-6 py-4 w-full">
         <CloseShiftForm
           shift={shift}
           rates={rates}
+          deskId={selectedDeskId ?? shift.cashDeskId}
+          transfers={closeTransfers}
           onClose={handleCloseShift}
           onCancel={() => setClosingShift(false)}
         />
@@ -501,7 +521,7 @@ export default function CashierPage() {
               </span>
             )}
           </button>
-          <button onClick={() => setClosingShift(true)}
+          <button onClick={startClosing}
             className="bg-red-600 hover:bg-red-700 text-white px-4 py-1.5 rounded-lg text-lg font-medium ml-4">
             Закрити зміну
           </button>

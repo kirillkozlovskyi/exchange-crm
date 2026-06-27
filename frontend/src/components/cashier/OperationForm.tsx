@@ -173,8 +173,10 @@ export default function OperationForm({
     const rcv = parseFloat(rcvAmt) || 0;
     if (!qty || !rcv || !qtyCur || !rcvCur || rateNum <= 0) return null;
 
-    // Скільки клієнт мав би отримати при повній конвертації за курсом операції
-    const fullRcv = parseFloat(calcRcv(qty, rateNum)) || 0;
+    // Скільки клієнт мав би отримати при повній конвертації за курсом операції.
+    // Без проміжного округлення (.toFixed) — інакше втрата точності спотворює здачу:
+    // напр. 4520/45.10 = 100.2217 → округлення до 100.22 дає здачу 9.92 замість 10.00.
+    const fullRcv = clientCur === 'UAH' && rcvCur !== 'UAH' ? qty / rateNum : qty * rateNum;
     const shortfall = fullRcv - rcv; // >0 → винні клієнту здачу (у валюті «Отримує»)
     if (Math.abs(shortfall) < 0.005) return 0;
 
@@ -187,7 +189,7 @@ export default function OperationForm({
     const uah = shortfall * sellRateOf(rcvCur);
     const chgRate = sellRateOf(chgCur);
     return chgRate ? uah / chgRate : null;
-  }, [qtyAmt, rcvAmt, qtyCur, rcvCur, chgCur, clientCur, rateNum, calcRcv, getSellRate]);
+  }, [qtyAmt, rcvAmt, qtyCur, rcvCur, chgCur, clientCur, rateNum, getSellRate]);
 
   // ── Balance warning ───────────────────────────────────────────────────────
   const rcvAmtNum = parseFloat(rcvAmt) || 0;

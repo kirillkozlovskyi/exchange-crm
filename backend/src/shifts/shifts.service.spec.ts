@@ -23,6 +23,7 @@ describe('ShiftsService — закриття та коригування', () =>
         rate: {
           findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]), // mid 41.25
         },
+        transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
       const service = new ShiftsService(prisma as any);
 
@@ -44,6 +45,7 @@ describe('ShiftsService — закриття та коригування', () =>
       const prisma = {
         shift: { findUnique: jest.fn().mockResolvedValue(shift), update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })) },
         rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]) },
+        transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
       const service = new ShiftsService(prisma as any);
       // calc: USD 100, UAH 5900. Касир нарахував лише 90 USD (нестача 10).
@@ -51,6 +53,30 @@ describe('ShiftsService — закриття та коригування', () =>
       // торговий: (5900 + 100×41.25) − 10000 = 25 ; фактичний: (5900 + 90×41.25) − 10000 = -387.5
       expect(Number(res.profit)).toBeCloseTo(25);
       expect(Number(res.factualProfit)).toBeCloseTo(-387.5);
+    });
+
+    it('передачі між касами не входять у фактичний прибуток', async () => {
+      const shift = {
+        id: 1, status: 'OPEN', cashDeskId: 7, startBalance: { UAH: 10000 },
+        cashDesk: { exchangePointId: 1 },
+        operations: [{ type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, cancelled: false }],
+      };
+      const prisma = {
+        shift: { findUnique: jest.fn().mockResolvedValue(shift), update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })) },
+        rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]) }, // mid 41.25
+        // На касу 7 надійшла передача 200 USD → фізично в касі 300 USD, але це не прибуток.
+        transfer: { findMany: jest.fn().mockResolvedValue([
+          { currency: 'USD', amount: 200, fromDeskId: 9, toDeskId: 7 },
+        ]) },
+      };
+      const service = new ShiftsService(prisma as any);
+      // Касир нарахував 300 USD (100 від операції + 200 передача), UAH 5900.
+      const res: any = await service.closeShift(1, { UAH: 5900, USD: 300 });
+      // Торговий (передачі немає в calcBalance): (5900 + 100×41.25) − 10000 = 25
+      expect(Number(res.profit)).toBeCloseTo(25);
+      // Фактичний: вилучаємо 200 USD передачі → (5900 + (300−200)×41.25) − 10000 = 25 (без нестачі)
+      expect(Number(res.factualProfit)).toBeCloseTo(25);
+      expect(res.netTransfers).toEqual({ USD: 200 });
     });
 
     it('кидає BadRequestException, якщо зміна вже закрита', async () => {

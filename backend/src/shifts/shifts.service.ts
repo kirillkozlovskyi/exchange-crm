@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
 import { applyOperationsToBalance, operationsDelta } from '../common/balance.util';
 import { midRates, shiftProfit } from '../common/profit.util';
+import { netTransfers } from '../common/transfers.util';
 
 @Injectable()
 export class ShiftsService {
@@ -63,8 +64,37 @@ export class ShiftsService {
       rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
     );
     const profit = shiftProfit(start, calcBalance, valuation);
-    // Фактичний результат (з нестачею/надлишком касира) — за введеним залишком
-    const factualProfit = shiftProfit(start, (endBalance as Record<string, number>) ?? calcBalance, valuation);
+
+    // Передачі між касами/точками — це рух готівки, а не торговий прибуток.
+    // Вилучаємо їх із фактичного залишку, щоб отримана/відправлена валюта не
+    // спотворювала фактичний результат зміни.
+    const transfers = await this.prisma.transfer.findMany({
+      where: {
+        status: 'CONFIRMED',
+        confirmedAt: { gte: shift.openedAt },
+        OR: [{ fromDeskId: shift.cashDeskId }, { toDeskId: shift.cashDeskId }],
+      },
+      select: { currency: true, amount: true, fromDeskId: true, toDeskId: true },
+    });
+    const net = netTransfers(
+      transfers.map((t) => ({
+        currency: t.currency,
+        amount: Number(t.amount),
+        fromDeskId: t.fromDeskId,
+        toDeskId: t.toDeskId,
+      })),
+      shift.cashDeskId,
+    );
+
+    // Фактичний результат (з нестачею/надлишком касира) — за введеним залишком,
+    // мінус нетто-передачі (вони не належать до прибутку каси).
+    const factualEnd: Record<string, number> = {
+      ...((endBalance as Record<string, number>) ?? calcBalance),
+    };
+    for (const [cur, amt] of Object.entries(net)) {
+      factualEnd[cur] = (factualEnd[cur] ?? 0) - amt;
+    }
+    const factualProfit = shiftProfit(start, factualEnd, valuation);
 
     const updated = await this.prisma.shift.update({
       where: { id: shiftId },
@@ -76,8 +106,8 @@ export class ShiftsService {
         profit,
       },
     });
-    // factualProfit і valuationRates не зберігаються (без зміни схеми) — повертаємо для звіту
-    return { ...updated, factualProfit, valuationRates: valuation };
+    // factualProfit, valuationRates і netTransfers не зберігаються (без зміни схеми) — повертаємо для звіту
+    return { ...updated, factualProfit, valuationRates: valuation, netTransfers: net };
   }
 
   async getActiveShift(cashDeskId: number) {

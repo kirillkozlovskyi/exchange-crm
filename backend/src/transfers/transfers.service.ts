@@ -121,6 +121,19 @@ export class TransfersService {
     });
   }
 
+  // Підтверджені передачі каси (відправлені + отримані) від вказаного моменту.
+  // Використовується при закритті зміни, щоб вилучити їх із прибутку.
+  async getConfirmedForDesk(deskId: number, since?: Date) {
+    return this.prisma.transfer.findMany({
+      where: {
+        status: 'CONFIRMED',
+        OR: [{ fromDeskId: deskId }, { toDeskId: deskId }],
+        ...(since ? { confirmedAt: { gte: since } } : {}),
+      },
+      orderBy: { confirmedAt: 'desc' },
+    });
+  }
+
   async getAll() {
     return this.prisma.transfer.findMany({
       include: {

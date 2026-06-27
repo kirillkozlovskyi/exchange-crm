@@ -18,6 +18,14 @@ export class TransfersController {
     return this.service.getPending(deskId);
   }
 
+  @Get('confirmed')
+  getConfirmedForDesk(
+    @Query('deskId', ParseIntPipe) deskId: number,
+    @Query('since') since?: string,
+  ) {
+    return this.service.getConfirmedForDesk(deskId, since ? new Date(since) : undefined);
+  }
+
   @Post()
   create(@Body() dto: any, @CurrentUser() user: any) {
     return this.service.create(dto, user.sub);
