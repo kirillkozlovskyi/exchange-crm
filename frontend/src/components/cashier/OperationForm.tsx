@@ -87,26 +87,22 @@ export default function OperationForm({
     return mode === 'BUY' ? getBuyRate(cur) : getSellRate(cur);
   }, [mode, getBuyRate, getSellRate]);
 
-  // Ринковий курс: "скільки rcvCur за 1 clientCur"
-  // Якщо rcvCur ще не обрано — UAH за замовчуванням (щоб курс підтягнувся одразу)
+  // Ринковий курс операції: "скільки rcvCur за 1 qtyCur".
+  // qtyCur — валюта, що обмінюється: «Кількість» (Купівля) / «Сума продажу» (Продаж).
   const marketRate = useMemo(() => {
-    if (!clientCur) return 0;
-    const effectiveRcv = rcvCur || 'UAH';
-    if (clientCur === effectiveRcv) return 0;
+    const from = qtyCur;
+    const to = rcvCur || 'UAH';
+    if (!from || from === to) return 0;
     if (mode === 'BUY') {
-      // Каса купує clientCur (foreign), дає effectiveRcv
-      if (effectiveRcv === 'UAH') return getBuyRate(clientCur);
-      // крос BUY
-      const r = getBuyRate(clientCur) / getSellRate(effectiveRcv);
-      return r || 0;
+      // Каса купує іноземну `from`, видає `to`
+      if (to === 'UAH') return getBuyRate(from);
+      return getBuyRate(from) / getSellRate(to) || 0; // крос
     } else {
-      // SELL: каса продає effectiveRcv (foreign), клієнт дає clientCur
-      if (clientCur === 'UAH') return getSellRate(effectiveRcv);
-      // крос SELL
-      const r = getBuyRate(clientCur) / getSellRate(effectiveRcv);
-      return r || 0;
+      // Продаж: каса продає іноземну `from`, отримує `to` (курс продажу)
+      if (to === 'UAH') return getSellRate(from);
+      return getBuyRate(from) / getSellRate(to) || 0; // крос
     }
-  }, [mode, clientCur, rcvCur, getBuyRate, getSellRate]);
+  }, [mode, qtyCur, rcvCur, getBuyRate, getSellRate]);
 
   const rateNum = parseFloat(rateRaw) || 0;
 
@@ -169,8 +165,20 @@ export default function OperationForm({
   // Базується на КУРСІ ОПЕРАЦІЇ: повна конвертація «Кількості» дає рівно 0,
   // а коли касир видає менше («Отримує» < повного) — залишок іде здачею.
   const changeAmt = useMemo(() => {
-    const qty = parseFloat(qtyAmt) || 0;
     const rcv = parseFloat(rcvAmt) || 0;
+
+    // Продаж за гривні (Сума продажу = валюта, Отримує = UAH): клієнт платить
+    // готівкою (Клієнт приніс, UAH), решта = приніс − гривнева вартість угоди.
+    if (mode === 'SELL' && clientCur === 'UAH' && rcvCur === 'UAH' && qtyCur !== 'UAH') {
+      const paid = parseFloat(clientAmt) || 0;
+      if (!paid || !rcv) return null;
+      const diff = paid - rcv; // у гривні
+      if (Math.abs(diff) < 0.005) return 0;
+      const chgRate = chgCur === 'UAH' ? 1 : getSellRate(chgCur);
+      return chgRate ? diff / chgRate : null;
+    }
+
+    const qty = parseFloat(qtyAmt) || 0;
     if (!qty || !rcv || !qtyCur || !rcvCur || rateNum <= 0) return null;
 
     // Скільки клієнт мав би отримати при повній конвертації за курсом операції.
@@ -189,17 +197,22 @@ export default function OperationForm({
     const uah = shortfall * sellRateOf(rcvCur);
     const chgRate = sellRateOf(chgCur);
     return chgRate ? uah / chgRate : null;
-  }, [qtyAmt, rcvAmt, qtyCur, rcvCur, chgCur, clientCur, rateNum, getSellRate]);
+  }, [qtyAmt, rcvAmt, qtyCur, rcvCur, chgCur, clientCur, clientAmt, mode, rateNum, getSellRate]);
 
   // ── Balance warning ───────────────────────────────────────────────────────
   const rcvAmtNum = parseFloat(rcvAmt) || 0;
+  const qtyAmtNum = parseFloat(qtyAmt) || 0;
+  // Продаж за гривні: каса видає клієнту валюту «Сума продажу» (qtyCur), а не UAH.
+  const sellNewFx = mode === 'SELL' && clientCur === 'UAH' && rcvCur === 'UAH' && qtyCur !== 'UAH';
+  const payoutCur = sellNewFx ? qtyCur : rcvCur;
+  const payoutAmt = sellNewFx ? qtyAmtNum : rcvAmtNum;
   const balanceWarning = useMemo(() => {
-    if (!rcvAmtNum || !rcvCur) return '';
-    const have = balance[rcvCur] ?? 0;
-    return have < rcvAmtNum
-      ? `В касі ${have.toFixed(2)} ${rcvCur} · не вистачає ${(rcvAmtNum - have).toFixed(2)}`
+    if (!payoutAmt || !payoutCur) return '';
+    const have = balance[payoutCur] ?? 0;
+    return have < payoutAmt
+      ? `В касі ${have.toFixed(2)} ${payoutCur} · не вистачає ${(payoutAmt - have).toFixed(2)}`
       : '';
-  }, [rcvAmtNum, rcvCur, balance]);
+  }, [payoutAmt, payoutCur, balance]);
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -207,51 +220,46 @@ export default function OperationForm({
     setMode(m);
     setRateManual(false);
     setError('');
-    const defCur = m === 'BUY' ? defForeign : 'UAH';
-    setClientCur(defCur); setHSumCur(defCur); setQtyCur(defCur);
-    // BUY: клієнт отримує гривні. SELL: «Отримує» й «Конвертація» = долар за замовч.,
-    // щоб розрахунок ішов одразу при вводі «Клієнт приніс».
-    const rcvDefault = m === 'BUY' ? 'UAH' : defForeign;
+    // «Клієнт приніс»: Купівля → іноземна валюта; Продаж → гривні (клієнт платить UAH).
+    setClientCur(m === 'BUY' ? defForeign : 'UAH');
+    // «Кількість»/«Сума продажу» — завжди іноземна валюта операції (за замовч. долар).
+    setQtyCur(defForeign); setHSumCur(defForeign);
+    // «Отримує» — завжди гривні (Купівля: клієнт отримує UAH; Продаж: гривнева вартість).
+    setRcvCur('UAH'); setHConvCur('UAH'); setRcvCurSeeded(true);
     setClientAmt(''); setHSumAmt(''); setHConvAmt(''); setHConvManual(false);
-    setQtyAmt(''); setRcvAmt(''); setRcvCur(rcvDefault); setRcvCurSeeded(m === 'SELL');
-    setHConvCur(rcvDefault);
+    setQtyAmt(''); setRcvAmt(''); setChgCur('UAH');
     setRateRaw('');
   };
 
-  // Клієнт приніс: currency
+  // Клієнт приніс: currency. «Сума продажу»/«Кількість» — завжди іноземна, тож
+  // синхронізуємо лише коли клієнт приносить валюту (Купівля, крос), не UAH (Продаж).
   const handleClientCurChange = (cur: string) => {
     setClientCur(cur);
-    setHSumCur(cur);
-    setQtyCur(cur);
+    if (cur !== 'UAH') { setHSumCur(cur); setQtyCur(cur); }
     setRateManual(false); // refresh rate for new currency
   };
 
-  // SELL: вибір валюти, яку отримує клієнт — «Отримує» + «Конвертація» (другий рядок помічника)
-  const handleTargetCurChange = (cur: string) => {
-    setRcvCur(cur);
-    setHConvCur(cur);
-    setHConvManual(false);
-    setRateManual(false); // ринковий курс під нову валюту
-    setRcvAmt('');        // перерахується після оновлення rateRaw (effect)
-  };
-
-  // Клік на валюту в блоці курсів:
-  //  BUY  → міняє «Клієнт приніс» (валюту, яку клієнт здає);
-  //  SELL → міняє «Отримує»/«Конвертація» (валюту, яку клієнт купує).
+  // Клік на валюту в блоці курсів — обирає іноземну валюту операції:
+  //  BUY  → «Клієнт приніс» (валюта, яку клієнт здає);
+  //  SELL → «Сума продажу» (валюта, яку каса продає).
   useEffect(() => {
     if (!activeCur || !foreignCurrencies.includes(activeCur)) return;
     if (mode === 'BUY') handleClientCurChange(activeCur);
-    else handleTargetCurChange(activeCur);
+    else handleQtyCurChange(activeCur);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCur]);
 
-  // Клієнт приніс: amount → auto-fills Сума (helper) + Кількість
+  // Клієнт приніс: amount.
+  //  • Купівля/крос (Клієнт приніс = валюта операції) → синхронізує «Кількість» і
+  //    перераховує «Отримує».
+  //  • Продаж (Клієнт приніс = UAH готівка) → незалежне поле лише для розрахунку решти,
+  //    нічого не перераховує («Сума продажу» вводиться окремо).
   const handleClientAmtChange = (val: string) => {
     setClientAmt(val);
+    if (clientCur !== qtyCur) return; // Продаж за гривні: тільки готівка для решти
     setHSumAmt(val);
     setHConvManual(false); // reset conv to auto-calc
     setQtyAmt(val);
-    // Перерахувати Отримує
     const qty = parseFloat(val) || 0;
     const rate = parseFloat(rateRaw) || 0;
     if (qty > 0 && rate > 0 && rcvCur) {
@@ -274,10 +282,14 @@ export default function OperationForm({
     }
   };
 
-  // Кількість: currency — та сама валюта, яку віддає клієнт, тож синхронізуємо з
-  // «Клієнт приніс»: скидаємо курс під нову валюту й перераховуємо «Отримує».
+  // Кількість/Сума продажу: currency.
+  //  • Купівля — це валюта, яку приніс клієнт, тож синхронізуємо з «Клієнт приніс».
+  //  • Продаж — це валюта, яку каса продає (незалежна від UAH-готівки клієнта).
   const handleQtyCurChange = (cur: string) => {
-    handleClientCurChange(cur);
+    if (mode === 'BUY') { handleClientCurChange(cur); return; }
+    setQtyCur(cur); setHSumCur(cur);
+    setRateManual(false);
+    setQtyAmt(''); setRcvAmt('');
   };
 
   // Курс: ручне редагування
@@ -352,13 +364,11 @@ export default function OperationForm({
   const isCross = clientCur !== 'UAH' && rcvCur !== 'UAH' && clientCur !== rcvCur;
   const isRateEdited = rateManual && Math.abs(rateNum - marketRate) > 0.005 && marketRate > 0;
 
-  // Фактичні суми операції для підсумку. У Продажу гривнева частина — це ВАРТІСТЬ
-  // обміну (Отримує × курс), а не готівка клієнта (яка може містити здачу).
+  // Суми операції для підсумку: «з» = Сума продажу/Кількість (валюта), «у» = Отримує.
+  //  Купівля: USD → UAH;  Продаж: USD → UAH (гривнева вартість);  Крос: F1 → F2.
   const summary = isCross
     ? { fromAmt: qtyNum, fromCur: clientCur, toAmt: rcvAmtNum, toCur: rcvCur }
-    : clientCur !== 'UAH'
-      ? { fromAmt: qtyNum, fromCur: qtyCur, toAmt: rcvAmtNum, toCur: rcvCur } // Купівля: валюта → UAH
-      : { fromAmt: rcvAmtNum * rateNum, fromCur: 'UAH', toAmt: rcvAmtNum, toCur: rcvCur }; // Продаж: вартість → валюта
+    : { fromAmt: qtyNum, fromCur: qtyCur, toAmt: rcvAmtNum, toCur: rcvCur };
 
   const handleSubmit = async () => {
     if (!qtyNum || !rcvAmtNum || !rcvCur || !!balanceWarning) return;
@@ -375,13 +385,10 @@ export default function OperationForm({
         // Крос: clientCur → rcvCur
         currency = rcvCur; amount = rcvAmtNum;
         payC = clientCur; payA = qtyNum;
-      } else if (clientCur !== 'UAH') {
-        // BUY: клієнт дає валюту, отримує UAH. Валюта операції = іноземна (симетрично
-        // з SELL), payCurrency не задаємо — тип BUY визначає mode на бекенді.
-        currency = clientCur; amount = qtyNum;
       } else {
-        // SELL: UAH → foreign
-        currency = rcvCur; amount = rcvAmtNum;
+        // Купівля та Продаж: валюта операції = іноземна «Кількість»/«Сума продажу».
+        // Тип (BUY/SELL) визначає напрямок на бекенді; курс = операційний.
+        currency = qtyCur; amount = qtyNum;
       }
 
       const { data } = await api.post('/operations', {
@@ -405,10 +412,181 @@ export default function OperationForm({
 
   const modeColor = mode === 'BUY';
   const submitColor = modeColor ? 'bg-green-600 hover:bg-green-700' : 'bg-red-600 hover:bg-red-700';
-  const rateLabelCur = clientCur !== 'UAH' ? clientCur : rcvCur;
-  const rateValCur   = clientCur !== 'UAH' ? (rcvCur || 'UAH') : clientCur;
+  // Курс завжди "1 (валюта операції) = X (отримує)": qtyCur → rcvCur.
+  const rateLabelCur = qtyCur;
+  const rateValCur   = rcvCur || 'UAH';
+  // Чи показувати «Решту»: крос/Продаж за валюту (rcvCur≠UAH) або Продаж за гривні.
+  const showChange = (rcvCur && rcvCur !== 'UAH') || sellNewFx;
 
   // ── Render ────────────────────────────────────────────────────────────────
+  // Попередження балансу: у Продажі за гривні каса видає валюту (qtyCur) → підсвічуємо
+  // «Суму продажу»; інакше (Купівля/крос) каса видає «Отримує» (rcvCur).
+  const qtyWarn = sellNewFx ? balanceWarning : '';
+  const rcvWarn = sellNewFx ? '' : balanceWarning;
+
+  // Швидкі суми — заповнюють вказане поле
+  const quickKeys = (current: string, onPick: (v: string) => void) =>
+    quickAmounts.length > 0 ? (
+      <div className="flex flex-wrap gap-1 pt-0.5">
+        {quickAmounts.map((v) => (
+          <button
+            key={v}
+            type="button"
+            onClick={() => onPick(String(v))}
+            className={`px-3 py-1.5 rounded-lg text-lg font-semibold border transition ${
+              Number(current) === v
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:text-blue-700'
+            }`}
+          >
+            {v}
+          </button>
+        ))}
+      </div>
+    ) : null;
+
+  // ── Поля (фрагменти, переставляються залежно від режиму) ──
+  const clientField = (
+    <div className="flex-1 space-y-1">
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Клієнт приніс</div>
+      <div className="flex gap-1">
+        <CurSelect value={clientCur} onChange={handleClientCurChange} currencies={clientCurrencies} className="w-28 text-lg" />
+        <input
+          type="number" min="0" step="1" value={clientAmt}
+          onChange={(e) => handleClientAmtChange(e.target.value)}
+          className="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-right text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"
+          placeholder="0" autoFocus={mode === 'BUY'}
+        />
+      </div>
+      {mode === 'BUY' && quickKeys(clientAmt, handleClientAmtChange)}
+    </div>
+  );
+
+  const rateField = (
+    <div className="space-y-1">
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Курс</div>
+      <div className="flex items-center gap-1.5">
+        {rateLabelCur && (
+          <span className="text-sm font-semibold text-gray-600 whitespace-nowrap">1 {rateLabelCur} =</span>
+        )}
+        <input
+          type="number" min="0" step="0.01" value={rateRaw}
+          onChange={(e) => handleRateChange(e.target.value)}
+          className={`w-28 border rounded-lg px-3 py-2.5 text-right text-xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 transition ${
+            isRateEdited ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-gray-300'
+          }`}
+          placeholder="0.00"
+        />
+        {rateValCur && <span className="text-sm text-gray-500">{rateValCur}</span>}
+        {isRateEdited && (
+          <button onClick={handleRateReset} className="text-xs text-blue-500 hover:underline whitespace-nowrap" title="Скинути до ринкового">↺</button>
+        )}
+      </div>
+    </div>
+  );
+
+  const qtyField = (
+    <div className="flex-1 space-y-1">
+      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+        {mode === 'SELL' ? 'Сума продажу' : 'Кількість'}
+      </div>
+      <div className="flex gap-1">
+        <CurSelect value={qtyCur} onChange={handleQtyCurChange} currencies={foreignCurrencies} className={`w-20 text-lg ${qtyWarn ? 'border-red-400' : ''}`} />
+        <input
+          type="number" min="0" step="1" value={qtyAmt}
+          onChange={(e) => handleQtyAmtChange(e.target.value)}
+          className={`flex-1 border rounded-lg px-3 py-2.5 text-right text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 ${qtyWarn ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
+          placeholder="0" autoFocus={mode === 'SELL'}
+        />
+      </div>
+      {qtyWarn && <p className="text-xs text-red-500 leading-tight">{qtyWarn}</p>}
+    </div>
+  );
+
+  const rcvField = (
+    <div className="flex-1 space-y-1">
+      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Отримує</div>
+      <div className="flex gap-1">
+        <CurSelect value={rcvCur} onChange={handleRcvCurChange} currencies={allCurrencies} placeholder className={`w-20 text-lg ${rcvWarn ? 'border-red-400' : ''}`} />
+        <div className={`flex-1 flex border rounded-lg ${rcvWarn ? 'border-red-400 bg-red-50' : 'border-dashed border-gray-300 bg-gray-50'}`}>
+          <input
+            type="number" min="0" step="1" value={rcvAmt}
+            onChange={(e) => handleRcvAmtChange(e.target.value)}
+            className="flex-1 px-3 py-2.5 text-right text-2xl font-bold bg-transparent focus:outline-none rounded-lg"
+            placeholder="0"
+          />
+        </div>
+      </div>
+      {rcvWarn && <p className="text-xs text-red-500 leading-tight">{rcvWarn}</p>}
+    </div>
+  );
+
+  const changeField = showChange ? (
+    <div className="flex-1 space-y-1">
+      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Решта</div>
+      <div className="flex gap-1">
+        <CurSelect value={chgCur} onChange={setChgCur} currencies={allCurrencies} className="w-20 text-lg" />
+        <div className={`flex-1 flex items-center justify-end rounded-lg px-3 py-2.5 font-bold text-2xl border ${
+          changeAmt === null ? 'border-gray-200 bg-gray-50 text-gray-300' :
+          changeAmt < -0.005 ? 'border-red-300 bg-red-50 text-red-700' :
+          'border-green-200 bg-green-50 text-green-700'
+        }`}>
+          {changeAmt === null ? '—' :
+           changeAmt < -0.005 ? `⚠ ${Math.abs(changeAmt).toFixed(2)}` :
+           changeAmt.toFixed(2)}
+        </div>
+      </div>
+      {changeAmt !== null && changeAmt < -0.005 && (
+        <p className="text-xs text-red-500 leading-tight">клієнт повинен</p>
+      )}
+    </div>
+  ) : (
+    <div className="flex-1" />
+  );
+
+  const helpersBlock = (
+    <div className="bg-gray-50 rounded-xl p-3 space-y-2">
+      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Допоміжний розрахунок</div>
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex-1 flex gap-1">
+          <CurSelect value={hSumCur} onChange={(c) => { setHSumCur(c); setHConvManual(false); }} currencies={allCurrencies} className="w-24 text-sm" />
+          <input
+            type="number" min="0" step="1" value={hSumAmt}
+            onChange={(e) => handleHSumAmtChange(e.target.value)}
+            className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-right text-sm font-semibold bg-white focus:outline-none"
+            placeholder="Сума"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => {
+            const prevSumCur = hSumCur;
+            const prevSumAmt = hSumAmt;
+            const prevConvCur = hConvCur;
+            const prevConvAmt = hConvDisplay;
+            setHSumCur(prevConvCur);
+            setHSumAmt(prevConvAmt);
+            setHConvCur(prevSumCur);
+            setHConvAmt(prevSumAmt);
+            setHConvManual(!!prevSumAmt);
+          }}
+          className="text-black font-black text-2xl px-2 hover:text-blue-700 transition leading-none"
+          title="Змінити напрямок конвертації"
+        >⇄</button>
+        <div className="flex-1 flex gap-1">
+          <CurSelect value={hConvCur} onChange={handleHConvCurChange} currencies={allCurrencies} placeholder className="w-24 text-sm" />
+          <input
+            type="number" min="0" step="1"
+            value={hConvDisplay}
+            onChange={(e) => handleHConvAmtChange(e.target.value)}
+            className="flex-1 border border-dashed border-gray-300 rounded-lg px-3 py-1.5 text-right text-sm font-semibold bg-gray-50 focus:outline-none focus:bg-white"
+            placeholder="Конвертація"
+          />
+        </div>
+      </div>
+    </div>
+  );
+
   return (
     <div className="bg-white shadow p-3 space-y-2.5">
       <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Нова операція</div>
@@ -427,174 +605,48 @@ export default function OperationForm({
         ))}
       </div>
 
-      {/* Row 1: Клієнт приніс + Курс */}
-      <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-start">
-
-        {/* Клієнт приніс */}
-        <div className="flex-1 space-y-1">
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Клієнт приніс</div>
-          <div className="flex gap-1">
-            <CurSelect value={clientCur} onChange={handleClientCurChange} currencies={clientCurrencies} className="w-28 text-lg" />
-            <input
-              type="number" min="0" step="1" value={clientAmt}
-              onChange={(e) => handleClientAmtChange(e.target.value)}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-right text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder="0" autoFocus
-            />
-          </div>
-          {quickAmounts.length > 0 && (
-            <div className="flex flex-wrap gap-1 pt-0.5">
-              {quickAmounts.map((v) => (
-                <button
-                  key={v}
-                  type="button"
-                  onClick={() => handleClientAmtChange(String(v))}
-                  className={`px-3 py-1.5 rounded-lg text-lg font-semibold border transition ${
-                    Number(clientAmt) === v
-                      ? 'bg-blue-600 text-white border-blue-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:text-blue-700'
-                  }`}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Курс */}
-        <div className="space-y-1">
-          <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Курс</div>
-          <div className="flex items-center gap-1.5">
-            {rateLabelCur && (
-              <span className="text-sm font-semibold text-gray-600 whitespace-nowrap">
-                1 {rateLabelCur} =
-              </span>
-            )}
-            <input
-              type="number" min="0" step="0.01" value={rateRaw}
-              onChange={(e) => handleRateChange(e.target.value)}
-              className={`w-28 border rounded-lg px-3 py-2.5 text-right text-xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 transition ${
-                isRateEdited ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-gray-300'
-              }`}
-              placeholder="0.00"
-            />
-            {rateValCur && <span className="text-sm text-gray-500">{rateValCur}</span>}
-            {isRateEdited && (
-              <button onClick={handleRateReset} className="text-xs text-blue-500 hover:underline whitespace-nowrap" title="Скинути до ринкового">
-                ↺
-              </button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Row 2: Helpers */}
-      <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Допоміжний розрахунок</div>
-        <div className="flex flex-wrap items-center gap-2">
-
-          {/* Сума */}
-          <div className="flex-1 flex gap-1">
-            <CurSelect value={hSumCur} onChange={(c) => { setHSumCur(c); setHConvManual(false); }} currencies={allCurrencies} className="w-24 text-sm" />
-            <input
-              type="number" min="0" step="1" value={hSumAmt}
-              onChange={(e) => handleHSumAmtChange(e.target.value)}
-              className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-right text-sm font-semibold bg-white focus:outline-none"
-              placeholder="Сума"
-            />
+      {mode === 'SELL' ? (
+        /* ── ПРОДАЖ ── */
+        <>
+          {/* Ряд 1: Сума продажу | Отримує */}
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start">
+            {qtyField}
+            {rcvField}
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              const prevSumCur = hSumCur;
-              const prevSumAmt = hSumAmt;
-              const prevConvCur = hConvCur;
-              const prevConvAmt = hConvDisplay;
-              setHSumCur(prevConvCur);
-              setHSumAmt(prevConvAmt);
-              setHConvCur(prevSumCur);
-              setHConvAmt(prevSumAmt);
-              setHConvManual(!!prevSumAmt);
-            }}
-            className="text-black font-black text-2xl px-2 hover:text-blue-700 transition leading-none"
-            title="Змінити напрямок конвертації"
-          >⇄</button>
+          {/* Ряд 2: швидкі суми → заповнюють «Сума продажу» */}
+          {quickKeys(qtyAmt, handleQtyAmtChange)}
 
-          {/* Конвертація */}
-          <div className="flex-1 flex gap-1">
-            <CurSelect value={hConvCur} onChange={handleHConvCurChange} currencies={allCurrencies} placeholder className="w-24 text-sm" />
-            <input
-              type="number" min="0" step="1"
-              value={hConvDisplay}
-              onChange={(e) => handleHConvAmtChange(e.target.value)}
-              className="flex-1 border border-dashed border-gray-300 rounded-lg px-3 py-1.5 text-right text-sm font-semibold bg-gray-50 focus:outline-none focus:bg-white"
-              placeholder="Конвертація"
-            />
+          {/* Ряд 3: Курс | Клієнт приніс | Решта */}
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start">
+            {rateField}
+            {clientField}
+            {changeField}
           </div>
-        </div>
-      </div>
 
-      {/* Row 3: Кількість | Отримує | Решта */}
-      <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start">
-
-        {/* Кількість */}
-        <div className="flex-1 space-y-1">
-          <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Кількість</div>
-          <div className="flex gap-1">
-            <CurSelect value={qtyCur} onChange={handleQtyCurChange} currencies={clientCurrencies} className="w-20 text-lg" />
-            <input
-              type="number" min="0" step="1" value={qtyAmt}
-              onChange={(e) => handleQtyAmtChange(e.target.value)}
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-right text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder="0"
-            />
+          {/* Допоміжний розрахунок — приховано (display:none) */}
+          <div className="hidden">{helpersBlock}</div>
+        </>
+      ) : (
+        /* ── КУПІВЛЯ ── */
+        <>
+          {/* Ряд 1: Клієнт приніс + Курс */}
+          <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-start">
+            {clientField}
+            {rateField}
           </div>
-        </div>
 
-        {/* Отримує */}
-        <div className="flex-1 space-y-1">
-          <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Отримує</div>
-          <div className="flex gap-1">
-            <CurSelect value={rcvCur} onChange={handleRcvCurChange} currencies={allCurrencies} placeholder className={`w-20 text-lg ${balanceWarning ? 'border-red-400' : ''}`} />
-            <div className={`flex-1 flex border rounded-lg ${balanceWarning ? 'border-red-400 bg-red-50' : 'border-dashed border-gray-300 bg-gray-50'}`}>
-              <input
-                type="number" min="0" step="1" value={rcvAmt}
-                onChange={(e) => handleRcvAmtChange(e.target.value)}
-                className="flex-1 px-3 py-2.5 text-right text-2xl font-bold bg-transparent focus:outline-none rounded-lg"
-                placeholder="0"
-              />
-            </div>
+          {/* Ряд 2: Допоміжний розрахунок */}
+          {helpersBlock}
+
+          {/* Ряд 3: Кількість | Отримує | Решта */}
+          <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start">
+            {qtyField}
+            {rcvField}
+            {changeField}
           </div>
-          {balanceWarning && <p className="text-xs text-red-500 leading-tight">{balanceWarning}</p>}
-        </div>
-
-        {/* Решта — лише коли обрано валюту «Отримує» ≠ UAH (Продаж/Крос); у Купівлі виплата точна */}
-        {rcvCur && rcvCur !== 'UAH' ? (
-          <div className="flex-1 space-y-1">
-            <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Решта</div>
-            <div className="flex gap-1">
-              <CurSelect value={chgCur} onChange={setChgCur} currencies={allCurrencies} className="w-20 text-lg" />
-              <div className={`flex-1 flex items-center justify-end rounded-lg px-3 py-2.5 font-bold text-2xl border ${
-                changeAmt === null ? 'border-gray-200 bg-gray-50 text-gray-300' :
-                changeAmt < -0.005 ? 'border-red-300 bg-red-50 text-red-700' :
-                'border-green-200 bg-green-50 text-green-700'
-              }`}>
-                {changeAmt === null ? '—' :
-                 changeAmt < -0.005 ? `⚠ ${Math.abs(changeAmt).toFixed(2)}` :
-                 changeAmt.toFixed(2)}
-              </div>
-            </div>
-            {changeAmt !== null && changeAmt < -0.005 && (
-              <p className="text-xs text-red-500 leading-tight">клієнт повинен</p>
-            )}
-          </div>
-        ) : (
-          <div className="flex-1" />
-        )}
-
-      </div>
+        </>
+      )}
 
       {error && <p className="text-red-500 text-sm">{error}</p>}
 
@@ -641,7 +693,7 @@ export default function OperationForm({
                   </span>
                 </div>
               )}
-              {changeAmt !== null && rcvCur !== 'UAH' && (
+              {changeAmt !== null && showChange && (
                 <div className="flex justify-between">
                   <span className="text-gray-500">Решта клієнту</span>
                   <span className={`font-semibold ${changeAmt < 0 ? 'text-red-600' : 'text-green-700'}`}>
