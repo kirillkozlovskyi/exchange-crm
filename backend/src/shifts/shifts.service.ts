@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { applyOperationsToBalance, operationsDelta } from '../common/balance.util';
 import { midRates, shiftProfit } from '../common/profit.util';
 import { netTransfers } from '../common/transfers.util';
+import { cashMovementsDelta } from '../common/cash-movements.util';
 
 @Injectable()
 export class ShiftsService {
@@ -45,25 +46,35 @@ export class ShiftsService {
   async closeShift(shiftId: number, endBalance?: object) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
-      include: { operations: true, cashDesk: true },
+      include: { operations: true, cashMovements: true, cashDesk: true },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна вже закрита');
 
     const start = shift.startBalance as Record<string, number>;
 
-    // Розрахунковий залишок (скасовані операції не враховуються — фільтрує util)
-    const calcBalance = applyOperationsToBalance(start, shift.operations);
+    // Залишок до руху готівки (лише початок + операції) — база для прибутку.
+    const opsBalance = applyOperationsToBalance(start, shift.operations);
+
+    // Підкріплення/інкасації змінюють готівку каси, але це не торговий результат.
+    const moveDelta = cashMovementsDelta(shift.cashMovements ?? []);
+
+    // Розрахунковий залишок, який має бути фізично в касі = операції + рух готівки.
+    const calcBalance: Record<string, number> = { ...opsBalance };
+    for (const [cur, d] of Object.entries(moveDelta)) {
+      calcBalance[cur] = (calcBalance[cur] ?? 0) + d;
+    }
 
     // Прибуток = приріст вартості каси за серединним курсом точки на момент закриття
-    // (а не сума спредів по операціях, яка подвійно рахує спред).
+    // (а не сума спредів по операціях, яка подвійно рахує спред). Рахуємо за
+    // балансом ДО руху готівки — підкріплення/інкасації не є результатом зміни.
     const rates = await this.prisma.rate.findMany({
       where: { exchangePointId: shift.cashDesk.exchangePointId, status: 'ACTIVE' },
     });
     const valuation = midRates(
       rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
     );
-    const profit = shiftProfit(start, calcBalance, valuation);
+    const profit = shiftProfit(start, opsBalance, valuation);
 
     // Передачі між касами/точками — це рух готівки, а не торговий прибуток.
     // Вилучаємо їх із фактичного залишку, щоб отримана/відправлена валюта не
@@ -87,12 +98,16 @@ export class ShiftsService {
     );
 
     // Фактичний результат (з нестачею/надлишком касира) — за введеним залишком,
-    // мінус нетто-передачі (вони не належать до прибутку каси).
+    // з якого вилучаємо нетто-передачі та рух готівки (підкріплення/інкасації):
+    // жодне з них не належить до прибутку каси.
     const factualEnd: Record<string, number> = {
       ...((endBalance as Record<string, number>) ?? calcBalance),
     };
     for (const [cur, amt] of Object.entries(net)) {
       factualEnd[cur] = (factualEnd[cur] ?? 0) - amt;
+    }
+    for (const [cur, d] of Object.entries(moveDelta)) {
+      factualEnd[cur] = (factualEnd[cur] ?? 0) - d; // IN(+)→прибираємо, OUT(−)→повертаємо
     }
     const factualProfit = shiftProfit(start, factualEnd, valuation);
 
@@ -106,8 +121,9 @@ export class ShiftsService {
         profit,
       },
     });
-    // factualProfit, valuationRates і netTransfers не зберігаються (без зміни схеми) — повертаємо для звіту
-    return { ...updated, factualProfit, valuationRates: valuation, netTransfers: net };
+    // factualProfit, valuationRates, netTransfers і netCashMovements не зберігаються
+    // (без зміни схеми) — повертаємо для звіту
+    return { ...updated, factualProfit, valuationRates: valuation, netTransfers: net, netCashMovements: moveDelta };
   }
 
   // Залишок із закриття останньої зміни цієї каси — для префілу при відкритті нової.
@@ -130,6 +146,7 @@ export class ShiftsService {
         cashDesk: { include: { exchangePoint: true } },
         openedBy: true,
         operations: { orderBy: { createdAt: 'desc' } },
+        cashMovements: { orderBy: { createdAt: 'desc' } },
       },
     });
   }
@@ -141,6 +158,7 @@ export class ShiftsService {
         cashDesk: { include: { exchangePoint: true } },
         openedBy: true,
         operations: { orderBy: { createdAt: 'desc' } },
+        cashMovements: { orderBy: { createdAt: 'desc' } },
       },
     });
   }
@@ -152,6 +170,7 @@ export class ShiftsService {
         cashDesk: { include: { exchangePoint: true } },
         openedBy: true,
         operations: { orderBy: { createdAt: 'desc' } },
+        cashMovements: { orderBy: { createdAt: 'desc' } },
       },
     });
   }
@@ -159,19 +178,20 @@ export class ShiftsService {
   async adjustBalance(shiftId: number, newCurrentBalance: Record<string, number>) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
-      include: { operations: true },
+      include: { operations: true, cashMovements: true },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна закрита');
 
-    // Обчислюємо дельту операцій: Σ(effectPerCurrency)
+    // Поточний залишок = початок + операції + рух готівки. Тож
+    // newStartBalance[cur] = newCurrentBalance[cur] − opsDelta[cur] − moveDelta[cur].
     const opsDelta = operationsDelta(shift.operations);
+    const moveDelta = cashMovementsDelta(shift.cashMovements ?? []);
 
-    // newStartBalance[cur] = newCurrentBalance[cur] - opsDelta[cur]
     const startBalance = shift.startBalance as Record<string, number>;
     const newStartBalance: Record<string, number> = { ...startBalance };
     for (const [cur, newAmt] of Object.entries(newCurrentBalance)) {
-      newStartBalance[cur] = newAmt - (opsDelta[cur] ?? 0);
+      newStartBalance[cur] = newAmt - (opsDelta[cur] ?? 0) - (moveDelta[cur] ?? 0);
     }
 
     return this.prisma.shift.update({

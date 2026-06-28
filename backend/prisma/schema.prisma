@@ -35,6 +35,11 @@ enum TransferStatus {
   REJECTED
 }
 
+enum CashMovementDirection {
+  IN  // підкріплення каси — готівка приходить (банк/офіс/власник/інша каса)
+  OUT // інкасація — готівка йде з каси
+}
+
 model Currency {
   code      String   @id  // USD, EUR, PLN...
   name      String        // Долар США
@@ -88,6 +93,7 @@ model User {
   notifications   Notification[]
   operationEdits  OperationEdit[] @relation("OperationEdits")
   reconciliations Reconciliation[]
+  cashMovements   CashMovement[] @relation("CreatedCashMovements")
 }
 
 model CashDesk {
@@ -103,6 +109,7 @@ model CashDesk {
   sentTransfers   Transfer[]    @relation("FromDesk")
   receivedTransfers Transfer[]  @relation("ToDesk")
   reconciliations Reconciliation[]
+  cashMovements   CashMovement[]
 }
 
 model Shift {
@@ -130,6 +137,31 @@ model Shift {
 
   operations      Operation[]
   reconciliations Reconciliation[]
+  cashMovements   CashMovement[]
+}
+
+// Рух готівки каси — підкріплення (IN, готівка приходить) та інкасація (OUT,
+// готівка йде з каси). Це переміщення готівки, а не торгова операція: змінює
+// поточний (розрахунковий) залишок каси, але НЕ входить у прибуток зміни
+// (так само як передачі між касами).
+model CashMovement {
+  id          Int                   @id @default(autoincrement())
+  number      String                @unique // REP-/INC-YYYYMMDD-0001
+  direction   CashMovementDirection
+  currency    String
+  amount      Decimal               @db.Decimal(15, 2)
+  source      String?               // категорія: Банк/Офіс/Власник/Інша каса/Інше
+  note        String?
+  createdAt   DateTime              @default(now())
+
+  shift       Shift    @relation(fields: [shiftId], references: [id])
+  shiftId     Int
+
+  cashDesk    CashDesk @relation(fields: [cashDeskId], references: [id])
+  cashDeskId  Int
+
+  createdBy   User     @relation("CreatedCashMovements", fields: [createdById], references: [id])
+  createdById Int
 }
 
 // Проміжна звірка залишку касиром упродовж дня (без закриття зміни).

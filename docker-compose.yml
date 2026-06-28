@@ -22,8 +22,10 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    # Dev: перевизначаємо CMD з Dockerfile (build+prod) на watch-режим
-    command: sh -c "npx prisma migrate deploy && npm run start:dev"
+    # Dev: перевизначаємо CMD з Dockerfile (build+prod) на watch-режим.
+    # prisma generate — щоб Prisma client завжди збігався з актуальною схемою
+    # (інакше зміни schema.prisma кладуть watch-бекенд на неузгоджених типах).
+    command: sh -c "npx prisma generate && npx prisma migrate deploy && npm run start:dev"
     restart: always
     ports:
       - "4000:4000"

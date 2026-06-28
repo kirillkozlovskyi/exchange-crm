@@ -3,6 +3,7 @@ import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
 import { midRates, shiftProfit } from '../../lib/profit';
 import { netTransfers, type TransferRow } from '../../lib/transfers';
+import { applyCashMovements, cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 
 type Operation = {
   id: number;
@@ -32,6 +33,7 @@ export default function CloseShiftForm({
   rates = [],
   deskId,
   transfers = [],
+  cashMovements = [],
   onClose,
   onCancel,
 }: {
@@ -39,6 +41,7 @@ export default function CloseShiftForm({
   rates?: Rate[];
   deskId?: number;
   transfers?: TransferRow[];
+  cashMovements?: CashMovementRow[];
   onClose: (endBalance: Record<string, number>) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -51,20 +54,31 @@ export default function CloseShiftForm({
     [transfers, deskId],
   );
 
-  // ── Розрахунковий залишок (спільна логіка з бекендом, lib/balance) ─────────
-  const calcBalance = useMemo(
+  // Рух готівки (підкріплення +, інкасація −) по валютах. Як і передачі, не входить
+  // у прибуток, але змінює очікуваний фізичний залишок у касі.
+  const moveNet = useMemo(() => cashMovementsDelta(cashMovements), [cashMovements]);
+
+  // ── Залишок до руху готівки (початок + операції) — база для прибутку ───────
+  const opsBalance = useMemo(
     () => computeCurrentBalance({ UAH: 0, ...startBal }, shift.operations),
     [shift],
   );
 
-  // Всі валюти: UAH + всі з балансу + всі з операцій + всі з передач
+  // ── Розрахунковий (очікуваний фізичний) залишок = операції + рух готівки ───
+  const calcBalance = useMemo(
+    () => applyCashMovements(opsBalance, cashMovements),
+    [opsBalance, cashMovements],
+  );
+
+  // Всі валюти: UAH + всі з балансу + всі з операцій + передач + руху готівки
   const currencies = useMemo(() => {
     const set = new Set<string>(['UAH']);
     for (const k of Object.keys(startBal)) set.add(k);
     for (const op of shift.operations) set.add(op.currency);
     for (const k of Object.keys(net)) set.add(k);
+    for (const k of Object.keys(moveNet)) set.add(k);
     return Array.from(set);
-  }, [shift, startBal, net]);
+  }, [shift, startBal, net, moveNet]);
 
   // Фактичний залишок (вводить касир) — prefill з calcBalance, без копійок/центів
   const [endBal, setEndBal] = useState<Record<string, string>>(
@@ -77,26 +91,29 @@ export default function CloseShiftForm({
   // ── Прибуток = приріст вартості каси за серединним курсом ───────────────────
   const valuation = useMemo(() => midRates(rates), [rates]);
   const startValued = useMemo(() => ({ UAH: 0, ...startBal }), [startBal]);
-  // Торговий — за розрахунковим залишком; фактичний — за введеним касиром
+  // Торговий — за залишком ДО інкасацій (вилучена готівка не є збитком);
+  // фактичний — за введеним касиром.
   const tradingProfit = useMemo(
-    () => shiftProfit(startValued, calcBalance, valuation),
-    [startValued, calcBalance, valuation],
+    () => shiftProfit(startValued, opsBalance, valuation),
+    [startValued, opsBalance, valuation],
   );
   const endBalParsed = useMemo(
     () => Object.fromEntries(Object.entries(endBal).map(([k, v]) => [k, parseFloat(v) || 0])),
     [endBal],
   );
-  // Фактичний результат — за введеним залишком МІНУС нетто-передачі (їх вилучаємо,
-  // бо отримана/відправлена валюта не є прибутком каси).
+  // Фактичний результат — за введеним залишком, з якого прибираємо нетто-передачі
+  // та рух готівки (підкріплення/інкасації): жодне з них не є прибутком каси.
   const factualEnd = useMemo(() => {
     const eff: Record<string, number> = { ...endBalParsed };
     for (const [cur, amt] of Object.entries(net)) eff[cur] = (eff[cur] ?? 0) - amt;
+    for (const [cur, d] of Object.entries(moveNet)) eff[cur] = (eff[cur] ?? 0) - d; // IN(+)→прибрати, OUT(−)→повернути
     return eff;
-  }, [endBalParsed, net]);
+  }, [endBalParsed, net, moveNet]);
   const factualProfit = shiftProfit(startValued, factualEnd, valuation);
 
-  // Чи були передачі взагалі (для умовного показу колонки/рядка)
+  // Чи були передачі/рух готівки взагалі (для умовного показу колонки/рядка)
   const hasTransfers = Object.values(net).some((v) => Math.abs(v) >= 0.005);
+  const hasMovements = Object.values(moveNet).some((v) => Math.abs(v) >= 0.005);
 
   // Гривневий потік операцій по кожній валюті: купівля → каса платить UAH (−),
   // продаж → отримує UAH (+). Крос (валюта↔валюта) гривні не зачіпає.
@@ -126,18 +143,21 @@ export default function CloseShiftForm({
       .filter((cur) => cur !== 'UAH')
       .map((cur) => {
         const open = Number(startBal[cur] ?? 0);
-        const close = calcBalance[cur] ?? 0;
+        const close = calcBalance[cur] ?? 0;          // показуємо очікуваний (після руху готівки)
+        const opsClose = opsBalance[cur] ?? 0;        // для прибутку — до руху готівки
         const transfer = net[cur] ?? 0;
+        const movement = moveNet[cur] ?? 0;           // рух готівки (підкр. +, інкас. −)
         const mid = valuation[cur] ?? 0;
-        const profitUah = (close - open) * mid + (uahFlow[cur] ?? 0);
-        return { cur, open, close, transfer, profitUah };
+        const profitUah = (opsClose - open) * mid + (uahFlow[cur] ?? 0);
+        return { cur, open, close, transfer, movement, profitUah };
       })
       .filter((r) =>
         Math.abs(r.profitUah) >= 0.005 ||
         Math.abs(r.transfer) >= 0.005 ||
+        Math.abs(r.movement) >= 0.005 ||
         Math.abs(r.close - r.open) >= 0.005,
       );
-  }, [currencies, startBal, calcBalance, net, valuation, uahFlow]);
+  }, [currencies, startBal, calcBalance, opsBalance, net, moveNet, valuation, uahFlow]);
 
   const handleSubmit = async () => {
     setSaving(true);
@@ -255,6 +275,7 @@ export default function CloseShiftForm({
             <p className="text-xs text-gray-400 mb-3">
               Прибуток по кожній валюті — спред і переоцінка позиції за серединним курсом.
               {hasTransfers && ' Передачі між касами не входять у прибуток.'}
+              {hasMovements && ' Підкріплення/інкасації не входять у прибуток.'}
             </p>
 
             <table className="w-full text-sm">
@@ -263,6 +284,7 @@ export default function CloseShiftForm({
                   <th className="pb-2 text-left">Валюта</th>
                   <th className="pb-2 text-right">Відкриття</th>
                   {hasTransfers && <th className="pb-2 text-right">Передачі</th>}
+                  {hasMovements && <th className="pb-2 text-right">Підкр./Інкас.</th>}
                   <th className="pb-2 text-right">Закриття</th>
                   <th className="pb-2 text-right">Прибуток&nbsp;₴</th>
                 </tr>
@@ -280,6 +302,14 @@ export default function CloseShiftForm({
                         {Math.abs(r.transfer) < 0.005 ? '—' : (r.transfer > 0 ? '+' : '') + r.transfer.toFixed(2)}
                       </td>
                     )}
+                    {hasMovements && (
+                      <td className={`py-2 text-right ${
+                        Math.abs(r.movement) < 0.005 ? 'text-gray-300' :
+                        r.movement > 0 ? 'text-green-600' : 'text-purple-600'
+                      }`}>
+                        {Math.abs(r.movement) < 0.005 ? '—' : (r.movement > 0 ? '+' : '−') + Math.abs(r.movement).toFixed(2)}
+                      </td>
+                    )}
                     <td className="py-2 text-right font-medium text-gray-700">{r.close.toFixed(2)}</td>
                     <td className={`py-2 text-right font-semibold ${
                       Math.abs(r.profitUah) < 0.005 ? 'text-gray-300' :
@@ -292,7 +322,7 @@ export default function CloseShiftForm({
               </tbody>
               <tfoot>
                 <tr className="border-t-2 border-gray-200">
-                  <td colSpan={hasTransfers ? 4 : 3} className="pt-2.5 font-semibold text-gray-700">
+                  <td colSpan={3 + (hasTransfers ? 1 : 0) + (hasMovements ? 1 : 0)} className="pt-2.5 font-semibold text-gray-700">
                     Торговий прибуток
                   </td>
                   <td className={`pt-2.5 text-right text-lg font-bold ${tradingProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -307,7 +337,9 @@ export default function CloseShiftForm({
               <div>
                 <span className="font-semibold text-gray-700">Фактичний результат</span>
                 <div className="text-xs text-gray-400">
-                  за введеним залишком{hasTransfers ? ' (без передач)' : ''}
+                  за введеним залишком{(hasTransfers || hasMovements)
+                    ? ` (без ${[hasTransfers && 'передач', hasMovements && 'руху готівки'].filter(Boolean).join(' та ')})`
+                    : ''}
                 </div>
               </div>
               <span className={`text-lg font-bold ${factualProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>

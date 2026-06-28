@@ -79,6 +79,35 @@ describe('ShiftsService — закриття та коригування', () =>
       expect(res.netTransfers).toEqual({ USD: 200 });
     });
 
+    it('рух готівки (інкасація −, підкріплення +) змінює залишок, але не прибуток', async () => {
+      const shift = {
+        id: 1, status: 'OPEN', cashDeskId: 7, startBalance: { UAH: 10000 },
+        cashDesk: { exchangePointId: 1 },
+        operations: [{ type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, cancelled: false }],
+        // Інкасували 40 USD (OUT) і підкріпили касу на 2000 UAH (IN).
+        cashMovements: [
+          { direction: 'OUT', currency: 'USD', amount: 40 },
+          { direction: 'IN', currency: 'UAH', amount: 2000 },
+        ],
+      };
+      const prisma = {
+        shift: { findUnique: jest.fn().mockResolvedValue(shift), update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })) },
+        rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]) }, // mid 41.25
+        transfer: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+      const service = new ShiftsService(prisma as any);
+      // Очікуваний фізичний залишок: USD 60 (100 − 40), UAH 7900 (5900 + 2000 підкріплення).
+      const res: any = await service.closeShift(1, { UAH: 7900, USD: 60 });
+      // Розрахунковий залишок враховує рух готівки.
+      expect(res.calcBalance).toEqual({ UAH: 7900, USD: 60 });
+      // Торговий прибуток рахується ДО руху готівки: (5900 + 100×41.25) − 10000 = 25
+      expect(Number(res.profit)).toBeCloseTo(25);
+      // Фактичний: повертаємо інкасовані 40 USD і прибираємо 2000 UAH підкріплення →
+      // (5900 + (60+40)×41.25) − 10000 = 25 (без нестачі)
+      expect(Number(res.factualProfit)).toBeCloseTo(25);
+      expect(res.netCashMovements).toEqual({ USD: -40, UAH: 2000 });
+    });
+
     it('кидає BadRequestException, якщо зміна вже закрита', async () => {
       const prisma = {
         shift: {

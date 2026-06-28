@@ -10,6 +10,7 @@ import OpenShiftForm from '../components/cashier/OpenShiftForm';
 import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
 import { computeCurrentBalance } from '../lib/balance';
+import { applyCashMovements, type CashDirection } from '../lib/cash-movements';
 
 type Tab = 'operations' | 'transfers';
 
@@ -55,6 +56,8 @@ export default function CashierPage() {
   const [mobileView, setMobileView] = useState<'form' | 'list'>('form');
 
   const [showReconcileModal, setShowReconcileModal] = useState(false);
+  // Модалка руху готівки: null закрита, або напрямок IN (підкріплення)/OUT (інкасація).
+  const [cashMoveDir, setCashMoveDir] = useState<CashDirection | null>(null);
   const [quickAmounts, setQuickAmounts] = useState<number[]>([10, 20, 50, 100, 500]);
   const [activeCur, setActiveCur] = useState<string | undefined>(undefined);
 
@@ -264,8 +267,12 @@ export default function CashierPage() {
   };
 
   // ── Поточний баланс каси (хук ПЕРЕД будь-якими early return) ────────────
+  // Залишок = початок + операції + рух готівки (підкріплення +, інкасація −).
   const currentBalance = useMemo(
-    () => computeCurrentBalance(shift?.startBalance, shift?.operations),
+    () => applyCashMovements(
+      computeCurrentBalance(shift?.startBalance, shift?.operations),
+      shift?.cashMovements,
+    ),
     [shift],
   );
 
@@ -463,6 +470,7 @@ export default function CashierPage() {
           rates={rates}
           deskId={selectedDeskId ?? shift.cashDeskId}
           transfers={closeTransfers}
+          cashMovements={shift.cashMovements ?? []}
           onClose={handleCloseShift}
           onCancel={() => setClosingShift(false)}
         />
@@ -556,8 +564,20 @@ export default function CashierPage() {
 
               {/* Залишок в касі */}
               <div className="bg-white px-3 py-2 w-full sm:w-1/2 border-t sm:border-t-0 sm:border-l border-gray-200">
-                <div className="flex items-center text-xs font-semibold uppercase tracking-wider mb-1">
+                <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold uppercase tracking-wider mb-1">
                   <span className="flex-1 text-gray-900">Залишок в касі</span>
+                  <button
+                    onClick={() => setCashMoveDir('IN')}
+                    className="bg-green-600 hover:bg-green-700 text-white rounded text-base px-2 py-1 font-medium normal-case"
+                  >
+                    Підкріплення
+                  </button>
+                  <button
+                    onClick={() => setCashMoveDir('OUT')}
+                    className="bg-purple-600 hover:bg-purple-700 text-white rounded text-base px-2 py-1 font-medium normal-case"
+                  >
+                    Інкасація
+                  </button>
                   <button
                     onClick={() => setShowReconcileModal(true)}
                     className="bg-amber-500 hover:bg-amber-600 text-white rounded text-base px-2 py-1 font-medium normal-case"
@@ -626,6 +646,202 @@ export default function CashierPage() {
           }}
         />
       )}
+
+      {/* ── Модалка руху готівки (підкріплення / інкасація) ────────────────── */}
+      {cashMoveDir && (
+        <CashMovementModal
+          shiftId={shift.id}
+          direction={cashMoveDir}
+          balance={currentBalance}
+          movements={shift.cashMovements ?? []}
+          currencies={Array.from(new Set(['UAH', ...rates.map((r: any) => r.currency), ...Object.keys(currentBalance)]))}
+          onClose={() => setCashMoveDir(null)}
+          onSaved={() => loadShift(selectedDeskId!)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Модалка руху готівки ─────────────────────────────────────────────────────
+// Підкріплення (IN) — готівка приходить у касу (банк/офіс/власник/інша каса).
+// Інкасація (OUT) — готівка йде з каси. Змінює залишок каси, але не входить у
+// прибуток зміни. Для OUT перевіряємо достатній залишок.
+type MovementItem = {
+  id: number;
+  direction: CashDirection;
+  currency: string;
+  amount: string | number;
+  source?: string | null;
+  note?: string | null;
+  createdAt: string;
+};
+
+const SOURCE_CATEGORIES = ['Банк', 'Офіс', 'Власник', 'Інша каса', 'Інше'];
+
+function CashMovementModal({
+  shiftId, direction, balance, movements, currencies, onClose, onSaved,
+}: {
+  shiftId: number;
+  direction: CashDirection;
+  balance: Record<string, number>;
+  movements: MovementItem[];
+  currencies: string[];
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const isIn = direction === 'IN';
+  // Повні (статичні) класи — щоб Tailwind JIT їх згенерував.
+  const ui = isIn
+    ? { head: 'text-green-700', ring: 'focus:ring-green-500' }
+    : { head: 'text-purple-700', ring: 'focus:ring-purple-500' };
+  const title = isIn ? 'Підкріплення каси' : 'Інкасація';
+  const sourceLabel = isIn ? 'Джерело' : 'Призначення';
+
+  // За замовчуванням — гривня (найчастіший випадок для підкріплення/інкасації).
+  const [currency, setCurrency] = useState(
+    currencies.includes('UAH') ? 'UAH' : (currencies[0] ?? 'UAH'),
+  );
+  const [amount, setAmount] = useState('');
+  const [source, setSource] = useState(SOURCE_CATEGORIES[0]);
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const have = balance[currency] ?? 0;
+  const parsed = parseFloat(amount) || 0;
+  // Перевірка залишку лише для інкасації (OUT).
+  const warning = !isIn && parsed > have
+    ? `Недостатньо ${currency}: в касі ${have.toFixed(2)}, інкасуєте ${parsed.toFixed(2)}`
+    : '';
+
+  const handleSave = async () => {
+    if (!parsed || warning) return;
+    setSaving(true);
+    setError('');
+    try {
+      await api.post('/cash-movements', {
+        shiftId, direction, currency, amount: parsed,
+        source: source || undefined,
+        note: note || undefined,
+      });
+      onSaved();
+      onClose();
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Помилка');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+        <div className="p-5 pb-3 border-b border-gray-100">
+          <div className={`text-sm font-semibold ${ui.head} uppercase tracking-wider`}>{title}</div>
+          <p className="text-sm text-gray-500 mt-1">
+            {isIn
+              ? 'Готівка приходить у касу (з банку / офісу / іншої каси). Збільшує залишок каси, але не впливає на прибуток зміни.'
+              : 'Вилучення готівки з каси (в банк / офіс / сейф). Зменшує залишок каси, але не впливає на прибуток зміни.'}
+          </p>
+        </div>
+
+        <div className="p-5 space-y-3 overflow-y-auto">
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="block text-sm text-gray-600 mb-1">Валюта</label>
+              <select
+                value={currency}
+                onChange={(e) => setCurrency(e.target.value)}
+                className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring}`}
+              >
+                {currencies.map((c) => (
+                  <option key={c} value={c}>{c} (в касі {Number(balance[c] ?? 0).toFixed(0)})</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex-1">
+              <label className="block text-sm text-gray-600 mb-1">Сума</label>
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0.00"
+                className={`w-full border rounded-lg px-3 py-2 text-right font-medium focus:outline-none focus:ring-2 ${
+                  warning ? 'border-red-300 focus:ring-red-400 bg-red-50' : `border-gray-300 ${ui.ring}`
+                }`}
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">{sourceLabel}</label>
+            <select
+              value={source}
+              onChange={(e) => setSource(e.target.value)}
+              className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring}`}
+            >
+              {SOURCE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">Примітка (необов'язково)</label>
+            <input
+              type="text"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder={isIn ? 'Напр.: підкріплення з головної каси' : 'Напр.: інкасація в банк'}
+              className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring}`}
+            />
+          </div>
+          {warning && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-lg p-2.5 text-sm text-red-700">
+              <span className="mt-0.5">⚠️</span><span>{warning}</span>
+            </div>
+          )}
+          {error && <p className="text-red-500 text-sm">{error}</p>}
+
+          {movements.length > 0 && (
+            <div className="pt-2">
+              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Рух готівки за зміну</div>
+              <div className="divide-y divide-gray-100 max-h-40 overflow-y-auto">
+                {movements.map((m) => (
+                  <div key={m.id} className="flex items-center justify-between py-1.5 text-sm">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                        m.direction === 'IN' ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'
+                      }`}>
+                        {m.direction === 'IN' ? 'Підкр.' : 'Інкас.'}
+                      </span>
+                      <span className="font-semibold text-gray-800">{Number(m.amount).toFixed(2)} {m.currency}</span>
+                      {(m.source || m.note) && (
+                        <span className="text-gray-400 italic">{[m.source, m.note].filter(Boolean).join(' · ')}</span>
+                      )}
+                    </div>
+                    <span className="text-xs text-gray-400">{format(new Date(m.createdAt), 'HH:mm')}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-gray-100 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 border border-gray-300 rounded-lg text-gray-600 hover:bg-gray-50 transition">
+            Скасувати
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving || !parsed || !!warning}
+            className={`px-4 py-2 text-white rounded-lg font-semibold disabled:opacity-50 transition ${
+              isIn ? 'bg-green-600 hover:bg-green-700' : 'bg-purple-600 hover:bg-purple-700'
+            }`}
+          >
+            {saving ? 'Збереження...' : (isIn ? 'Підкріпити' : 'Інкасувати')}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -2,13 +2,14 @@ import { useState } from 'react';
 import RatesAdmin from '../components/admin/RatesAdmin';
 import FinanceAdmin from '../components/admin/FinanceAdmin';
 import TransfersAdmin from '../components/admin/TransfersAdmin';
+import CashMovementsAdmin from '../components/admin/CashMovementsAdmin';
 import OperationsAdmin from '../components/admin/OperationsAdmin';
 import ActiveShiftsAdmin from '../components/admin/ActiveShiftsAdmin';
 import ReconciliationsAdmin from '../components/admin/ReconciliationsAdmin';
 import SettingsAdmin from '../components/admin/SettingsAdmin';
 import NbuWidget from '../components/admin/NbuWidget';
 
-type Tab = 'shifts' | 'rates' | 'operations' | 'finance' | 'transfers' | 'reconciliations' | 'settings';
+type Tab = 'shifts' | 'rates' | 'operations' | 'finance' | 'transfers' | 'cashmovements' | 'reconciliations' | 'settings';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'shifts',     label: '🟢 Хто працює' },
@@ -16,6 +17,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'operations', label: '🔄 Операції' },
   { key: 'finance',    label: '💰 Фінанси' },
   { key: 'transfers',  label: '💸 Передачі' },
+  { key: 'cashmovements', label: '🏦 Рух готівки' },
   { key: 'reconciliations', label: '⚖️ Звірки' },
   { key: 'settings',   label: '⚙️ Налаштування' },
 ];
@@ -45,6 +47,7 @@ export default function AdminPage() {
         {tab === 'operations' && <OperationsAdmin />}
         {tab === 'finance'    && <FinanceAdmin />}
         {tab === 'transfers'  && <TransfersAdmin />}
+        {tab === 'cashmovements' && <CashMovementsAdmin />}
         {tab === 'reconciliations' && <ReconciliationsAdmin />}
         {tab === 'settings'   && <SettingsAdmin />}
       </div>
