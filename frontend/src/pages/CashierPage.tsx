@@ -689,7 +689,7 @@ function ReconcileModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-3xl mx-4 max-h-[92vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-[90vw] max-w-[90vw] max-h-[90vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
         <div className="p-6 pb-3 text-center border-b border-gray-100">
           <div className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-1">Звірка залишку</div>
           <p className="text-sm text-gray-500">
@@ -701,48 +701,48 @@ function ReconcileModal({
           <table className="w-full text-sm border-collapse border border-gray-200 [&_th]:border [&_th]:border-gray-200 [&_td]:border [&_td]:border-gray-200">
             <thead>
               <tr className="text-xs text-gray-900 uppercase tracking-wide bg-gray-50">
-                <th className="py-2 px-3 text-left font-semibold">Валюта</th>
-                <th className="py-2 px-3 text-right font-semibold">На початок</th>
+                <th className="py-1 px-2 text-left font-semibold">Валюта</th>
+                <th className="py-1 px-2 text-right font-semibold">На початок</th>
                 {history.map((h) => (
-                  <th key={h.id} className="py-2 px-3 text-right font-semibold whitespace-nowrap" title={`Звірка ${format(new Date(h.createdAt), 'dd.MM HH:mm')}`}>
+                  <th key={h.id} className="py-1 px-2 text-right font-semibold whitespace-nowrap" title={`Звірка ${format(new Date(h.createdAt), 'dd.MM HH:mm')}`}>
                     {format(new Date(h.createdAt), 'HH:mm')}
                     {h.hasDiscrepancy && <span className="text-red-500" title="Були розбіжності"> ⚠</span>}
                   </th>
                 ))}
-                <th className="py-2 px-3 text-right font-semibold">Очікувано</th>
-                <th className="py-2 px-3 text-right font-semibold">Фактично</th>
-                <th className="py-2 px-3 text-right font-semibold">Різниця</th>
+                <th className="py-1 px-2 text-right font-semibold">Очікувано</th>
+                <th className="py-1 px-2 text-right font-semibold">Фактично</th>
+                <th className="py-1 px-2 text-right font-semibold">Різниця</th>
               </tr>
             </thead>
             <tbody>
               {rows.map((r) => (
                 <tr key={r.cur} className={r.hasDiff ? 'bg-red-50' : r.entered ? 'bg-green-50' : ''}>
-                  <td className="py-2.5 px-3 font-bold text-gray-800">
+                  <td className="py-1 px-2 font-bold text-gray-800">
                     <span className="inline-flex items-center gap-2"><Flag currency={r.cur} /> {r.cur}</span>
                   </td>
-                  <td className="py-2.5 px-3 text-right text-gray-500 tabular-nums">{r.start.toFixed(2)}</td>
+                  <td className="py-1 px-2 text-right text-gray-500 tabular-nums">{r.start.toFixed(2)}</td>
                   {history.map((h) => {
                     const v = h.actual?.[r.cur];
                     return (
-                      <td key={h.id} className="py-2.5 px-3 text-right text-gray-600 tabular-nums">
+                      <td key={h.id} className="py-1 px-2 text-right text-gray-600 tabular-nums">
                         {v === undefined ? '—' : Number(v).toFixed(2)}
                       </td>
                     );
                   })}
-                  <td className="py-2.5 px-3 text-right font-medium text-blue-700 tabular-nums">{r.expected.toFixed(2)}</td>
-                  <td className="py-2.5 px-3 text-right">
+                  <td className="py-1 px-2 text-right font-medium text-blue-700 tabular-nums">{r.expected.toFixed(2)}</td>
+                  <td className="py-1 px-2 text-right">
                     <input
                       type="number"
                       step="0.01"
                       value={actual[r.cur] ?? ''}
                       onChange={(e) => setActual((p) => ({ ...p, [r.cur]: e.target.value }))}
                       placeholder={r.expected.toFixed(2)}
-                      className={`w-36 border rounded px-3 py-1.5 text-right font-medium tabular-nums focus:outline-none focus:ring-2 ${
+                      className={`w-32 border rounded px-2 py-1 text-right font-medium tabular-nums focus:outline-none focus:ring-2 ${
                         r.hasDiff ? 'border-red-300 focus:ring-red-400 bg-red-50' : 'border-gray-300 focus:ring-blue-400'
                       }`}
                     />
                   </td>
-                  <td className={`py-2.5 px-3 text-right font-semibold tabular-nums ${
+                  <td className={`py-1 px-2 text-right font-semibold tabular-nums ${
                     !r.entered ? 'text-gray-300' : r.hasDiff ? (r.diff > 0 ? 'text-green-600' : 'text-red-600') : 'text-green-600'
                   }`}>
                     {!r.entered ? '—' : r.hasDiff ? (r.diff > 0 ? '+' : '') + r.diff.toFixed(2) : '✓'}
@@ -765,14 +765,14 @@ function ReconcileModal({
               </div>
             )
           )}
-          <div className="flex gap-3">
-            <button onClick={onClose} className="flex-1 px-4 py-3 border border-gray-300 rounded text-lg text-gray-600 hover:bg-gray-50 transition">
+          <div className="flex justify-end gap-2">
+            <button onClick={onClose} className="px-3 py-1 border border-gray-300 rounded text-lg text-gray-600 hover:bg-gray-50 transition">
               Скасувати
             </button>
             <button
               onClick={handleSave}
               disabled={saving || checked.length === 0}
-              className="flex-1 px-4 py-3 bg-blue-700 hover:bg-blue-800 text-white rounded text-lg font-bold disabled:opacity-50 transition"
+              className="px-3 py-1 bg-blue-700 hover:bg-blue-800 text-white rounded text-lg font-semibold disabled:opacity-50 transition"
             >
               {saving ? 'Збереження...' : 'Зберегти звірку'}
             </button>
