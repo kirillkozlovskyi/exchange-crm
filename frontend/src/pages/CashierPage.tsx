@@ -618,6 +618,11 @@ export default function CashierPage() {
               balance={currentBalance}
               quickAmounts={quickAmounts}
               activeCur={activeCur}
+              receipt={{
+                orgName,
+                address: shift?.cashDesk?.exchangePoint?.address ?? '',
+                deskNo: shift?.cashDeskId,
+              }}
               onCreated={() => {
                 setRefreshOps((n) => n + 1);
                 loadShift(selectedDeskId!);

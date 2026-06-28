@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import api from '../../api/axios';
+import { printReceipt, type ReceiptInfo } from './OperationsList';
 
 type OpMode = 'BUY' | 'SELL';
 
@@ -22,7 +23,7 @@ function CurSelect({
 }
 
 export default function OperationForm({
-  shiftId, rates, balance, quickAmounts = [], activeCur, onCreated,
+  shiftId, rates, balance, quickAmounts = [], activeCur, onCreated, receipt = {},
 }: {
   shiftId: number;
   rates: any[];
@@ -30,6 +31,7 @@ export default function OperationForm({
   quickAmounts?: number[];
   activeCur?: string;
   onCreated: () => void;
+  receipt?: ReceiptInfo;
 }) {
   const foreignCurrencies = rates.map((r) => r.currency);
   const allCurrencies = ['UAH', ...foreignCurrencies];
@@ -736,7 +738,7 @@ export default function OperationForm({
                 }
               </div>
             </div>
-            <button onClick={() => window.print()} className="text-blue-600 hover:underline text-xs">🖨 Друк</button>
+            <button onClick={() => printReceipt(lastOp, receipt)} className="text-blue-600 hover:underline text-xs">🖨 Друк</button>
           </div>
         </div>
       )}

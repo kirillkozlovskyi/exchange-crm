@@ -105,7 +105,7 @@ function curLine(cur: string) {
 const dispCode = (cur: string) => CUR_DISPLAY[cur] ?? cur;
 
 // Друк чека операції через прихований iframe (без спливних вікон).
-function printReceipt(op: Op, info: ReceiptInfo = {}) {
+export function printReceipt(op: Op, info: ReceiptInfo = {}) {
   const isCross = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
   const typeLabel = isCross
     ? 'ОБМІН ІНОЗЕМНОЇ ВАЛЮТИ'
@@ -158,7 +158,6 @@ function printReceipt(op: Op, info: ReceiptInfo = {}) {
     <div class="center">ДЧ ${dt} Он-лайн</div>
     <hr>
     <div class="center b">ЧЕК З ТОРГІВЛІ<br>ВАЛЮТНИМИ ЦІННОСТЯМИ</div>
-    <div class="center">CurrencyExchange CRM</div>
   </body></html>`;
 
   const iframe = document.createElement('iframe');
