@@ -40,102 +40,93 @@ function getMarketRate(op: Op, rates: Rate[]): number {
   return getR(op.payCurrency ?? op.currency, 'buy');
 }
 
+// Потоки операції з погляду каси: що каса ВИДАЛА клієнту і що ПРИЙНЯЛА.
+//  • Купівля: каса купує валюту → видала UAH, прийняла валюту.
+//  • Продаж:  каса продає валюту → видала валюту, прийняла UAH.
+//  • Крос:    видала op.currency, прийняла payCurrency.
+function opFlows(op: Op) {
+  const isCross = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
+  if (isCross) {
+    return {
+      gaveAmt: Number(op.amount), gaveCur: op.currency,
+      gotAmt: Number(op.payAmount ?? 0), gotCur: op.payCurrency!,
+    };
+  }
+  if (op.type === 'SELL') {
+    return {
+      gaveAmt: Number(op.amount), gaveCur: op.currency,
+      gotAmt: Number(op.totalUah), gotCur: 'UAH',
+    };
+  }
+  return {
+    gaveAmt: Number(op.totalUah), gaveCur: 'UAH',
+    gotAmt: Number(op.amount), gotCur: op.currency,
+  };
+}
+
+function CurCell({ cur }: { cur: string }) {
+  return (
+    <span className="inline-flex items-center gap-1 whitespace-nowrap">
+      <Flag currency={cur} /><span className="text-xs text-gray-500 font-medium">{cur}</span>
+    </span>
+  );
+}
+
 function OpRow({
-  op, rates, onEdit, onStorno, isLast, canEdit, stornoWindowMin, now,
+  op, seq, rates, onEdit, onStorno, isLast, canEdit, stornoWindowMin, now,
 }: {
-  op: Op; rates: Rate[]; onEdit: (op: Op) => void;
+  op: Op; seq: number; rates: Rate[]; onEdit: (op: Op) => void;
   onStorno: (op: Op) => void; isLast: boolean; canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
-  // Крос = є payCurrency (foreign) І валюта операції теж іноземна (не класичний BUY/SELL)
-  const isCross     = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
-  const isClientBuy = !isCross && op.type === 'SELL';
-
-  const opRate     = Number(op.rate);
+  const isCross  = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
+  const opRate   = Number(op.rate);
   const marketRate = getMarketRate(op, rates);
-  const isCustom   = marketRate > 0 && Math.abs(opRate - marketRate) > 0.005;
+  const isCustom = marketRate > 0 && Math.abs(opRate - marketRate) > 0.005;
 
-  // Сторно дозволено тільки якщо операція в межах вікна часу
   const ageMin = (now - new Date(op.createdAt).getTime()) / 60_000;
   const withinWindow = ageMin <= stornoWindowMin;
 
-  const rateStr = isCross
-    ? `${opRate.toFixed(2)} ${op.payCurrency}/${op.currency}`
-    : isClientBuy
-      ? `${opRate.toFixed(2)} UAH/${op.currency}`
-      : `${opRate.toFixed(2)} UAH/${op.payCurrency ?? op.currency}`;
+  const f = opFlows(op);
+  const ratePair = isCross
+    ? `${op.payCurrency}/${op.currency}`
+    : `UAH/${op.type === 'SELL' ? op.currency : (op.payCurrency ?? op.currency)}`;
+  const numStr = op.cancelled ? 'line-through text-gray-400' : 'text-gray-800';
 
   return (
-    <div className={`flex items-center justify-between py-1.5 border-b border-gray-100 last:border-0 group ${op.cancelled ? 'opacity-50' : ''}`}>
-      <div className="flex-1 min-w-0">
-        {op.cancelled && (
-          <div className="text-xs text-red-500 font-semibold mb-0.5">СТОРНО{op.cancelNote ? ` · ${op.cancelNote}` : ''}</div>
+    <tr className={`border-b border-gray-100 last:border-0 group ${op.cancelled ? 'opacity-50' : ''}`}>
+      <td className="w-8 py-1.5 px-1 text-center text-sm font-semibold text-gray-700 whitespace-nowrap" title={`№ транзакції: ${op.number}`}>
+        {op.cancelled && <span className="text-red-500 text-xs font-semibold mr-1" title={op.cancelNote || 'Сторно'}>СТОРНО</span>}
+        {seq}
+      </td>
+      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{f.gaveAmt.toFixed(0)}</td>
+      <td className="py-1.5 px-1"><CurCell cur={f.gaveCur} /></td>
+      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{f.gotAmt.toFixed(0)}</td>
+      <td className="py-1.5 px-1"><CurCell cur={f.gotCur} /></td>
+      <td className={`py-1.5 px-1 text-right text-xs whitespace-nowrap font-medium ${isCustom ? 'text-orange-500' : 'text-gray-500'}`} title={ratePair}>
+        {isCustom && '✱'}{opRate.toFixed(2)}
+        {(op._count?.edits ?? 0) > 0 && (
+          <span className="ml-1 text-[10px] bg-amber-100 text-amber-700 font-semibold px-1 py-0.5 rounded" title="Відредаговано">ред.</span>
         )}
-        {/* Рядок 1: суми операції */}
-        <div className={`font-semibold text-sm ${op.cancelled ? 'line-through text-gray-400' : 'text-gray-800'}`}>
-          {isCross ? (
-            <>
-              {Number(op.payAmount).toFixed(2)}
-              <Flag currency={op.payCurrency!} className="mx-1" />
-              <span className="text-gray-400 mx-1">→</span>
-              {Number(op.amount).toFixed(2)}
-              <Flag currency={op.currency} className="mx-1" />
-            </>
-          ) : isClientBuy ? (
-            <>
-              {Number(op.totalUah).toFixed(2)}
-              <Flag currency="UAH" className="mx-1" />
-              <span className="text-gray-400 mx-1">→</span>
-              {Number(op.amount).toFixed(2)}
-              <Flag currency={op.currency} className="mx-1" />
-            </>
-          ) : (
-            <>
-              {Number(op.payAmount ?? op.amount).toFixed(2)}
-              <Flag currency={op.payCurrency ?? op.currency} className="mx-1" />
-              <span className="text-gray-400 mx-1">→</span>
-              {Number(op.totalUah).toFixed(2)}
-              <Flag currency="UAH" className="mx-1" />
-            </>
-          )}
-        </div>
-        {/* Рядок 2: час + курс */}
-        <div className="flex items-center gap-2 text-xs text-gray-400 mt-0.5">
-          <span>{format(new Date(op.createdAt), 'HH:mm')}</span>
-          <span className={`font-medium ${isCustom ? 'text-orange-500' : ''}`}>
-            {isCustom && <span className="mr-0.5">✱</span>}{rateStr}
+      </td>
+      <td className="py-1.5 px-1 text-right text-xs text-gray-400 whitespace-nowrap">{format(new Date(op.createdAt), 'HH:mm')}</td>
+      <td className="w-10 py-1.5 px-0.5 text-center whitespace-nowrap">
+        {!op.cancelled && (
+          <span className="inline-flex gap-0.5">
+            {canEdit && (
+              <button onClick={() => onEdit(op)}
+                className="p-1 rounded text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition text-sm leading-none font-bold"
+                title="Редагувати операцію">✎</button>
+            )}
+            {isLast && withinWindow && (
+              <button onClick={() => onStorno(op)}
+                className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 transition text-sm leading-none font-black"
+                title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}>✕</button>
+            )}
           </span>
-          {(op._count?.edits ?? 0) > 0 && (
-            <span className="text-[10px] bg-amber-100 text-amber-700 font-semibold px-1 py-0.5 rounded" title="Операцію відредаговано">
-              ред.
-            </span>
-          )}
-        </div>
-      </div>
-
-      {!op.cancelled && (
-        <div className="flex flex-col gap-1 flex-shrink-0 ml-2">
-          {canEdit && (
-            <button
-              onClick={() => onEdit(op)}
-              className="p-2 rounded-lg text-gray-700 hover:text-blue-600 hover:bg-blue-50 transition text-xl leading-none font-bold"
-              title="Редагувати операцію"
-            >
-              ✎
-            </button>
-          )}
-          {isLast && withinWindow && (
-            <button
-              onClick={() => onStorno(op)}
-              className="p-2 rounded-lg text-red-500 hover:text-red-700 hover:bg-red-50 transition text-xl leading-none font-black"
-              title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+        )}
+      </td>
+    </tr>
   );
 }
 
@@ -147,6 +138,21 @@ function OpsBlock({
   lastOpId: number | null; canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
+  const head = (
+    <thead className="sticky top-0 bg-white z-10">
+      <tr className="text-[11px] text-gray-900 uppercase tracking-wide border-b">
+        <th className="w-8 py-1.5 px-1 text-center font-semibold">№</th>
+        <th className="py-1.5 px-1 text-right font-medium">Видав</th>
+        <th className="py-1.5 px-1 text-left font-medium">Валюта</th>
+        <th className="py-1.5 px-1 text-right font-medium">Прийняв</th>
+        <th className="py-1.5 px-1 text-left font-medium">Валюта</th>
+        <th className="py-1.5 px-1 text-right font-medium">Курс</th>
+        <th className="py-1.5 px-1 text-right font-medium">Час</th>
+        <th className="w-10 py-1.5 px-0.5 text-center font-medium text-[10px]">Сторно</th>
+      </tr>
+    </thead>
+  );
+
   return (
     <div className={`flex flex-col ${fullHeight ? 'flex-1 min-h-0 overflow-hidden' : 'bg-white rounded-xl shadow p-4'}`}>
       {!hideTitle && (
@@ -154,20 +160,25 @@ function OpsBlock({
           <h3 className={`font-semibold text-sm ${colorClass}`}>{title}</h3>
         </div>
       )}
-      <div className={`${fullHeight ? 'flex-1 overflow-y-auto px-3' : 'space-y-1.5 overflow-y-auto max-h-72 flex-1'}`}>
+      <div className={`${fullHeight ? 'flex-1 overflow-auto px-3' : 'overflow-auto max-h-72 flex-1'}`}>
         {ops.length === 0 ? (
           <p className="text-gray-400 text-sm text-center py-6">Немає</p>
         ) : (
-          ops.map((op) => (
-            <OpRow
-              key={op.id} op={op} rates={rates}
-              onEdit={onEdit} onStorno={onStorno}
-              isLast={op.id === lastOpId}
-              canEdit={canEdit}
-              stornoWindowMin={stornoWindowMin}
-              now={now}
-            />
-          ))
+          <table className="w-full text-sm border-collapse border border-gray-200 [&_th]:border [&_th]:border-gray-200 [&_td]:border [&_td]:border-gray-200">
+            {head}
+            <tbody>
+              {ops.map((op, i) => (
+                <OpRow
+                  key={op.id} op={op} seq={ops.length - i} rates={rates}
+                  onEdit={onEdit} onStorno={onStorno}
+                  isLast={op.id === lastOpId}
+                  canEdit={canEdit}
+                  stornoWindowMin={stornoWindowMin}
+                  now={now}
+                />
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
       <div className={`${fullHeight ? 'px-3 py-1.5 border-t' : 'mt-2 pt-2 border-t'} text-xs text-gray-400 text-right`}>
@@ -202,7 +213,7 @@ function StornoModal({ op, onConfirm, onClose }: {
           <div className="font-bold text-red-600 text-lg">Скасувати операцію #{op.number}?</div>
         </div>
 
-        <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm text-gray-700 text-center">
+        <div className="bg-gray-50 rounded px-4 py-3 text-sm text-gray-700 text-center">
           {isCross ? (
             <>{Number(op.payAmount).toFixed(2)} <Flag currency={op.payCurrency!} /> → {Number(op.amount).toFixed(2)} <Flag currency={op.currency} /></>
           ) : isClientBuy ? (
@@ -217,17 +228,17 @@ function StornoModal({ op, onConfirm, onClose }: {
           <input
             type="text" value={note} onChange={e => setNote(e.target.value)}
             placeholder="Помилка касира, клієнт відмовився..."
-            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+            className="mt-1 w-full border border-gray-300 rounded px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
           />
         </div>
 
         <div className="flex gap-2">
           <button onClick={onClose}
-            className="flex-1 py-2 rounded-lg border border-gray-300 text-gray-700 font-medium text-sm hover:bg-gray-50 transition">
+            className="flex-1 py-2 rounded border border-gray-300 text-gray-700 font-medium text-sm hover:bg-gray-50 transition">
             Скасувати
           </button>
           <button onClick={handleConfirm} disabled={loading}
-            className="flex-1 py-2 rounded-lg bg-red-600 hover:bg-red-700 text-white font-semibold text-sm disabled:opacity-50 transition">
+            className="flex-1 py-2 rounded bg-red-600 hover:bg-red-700 text-white font-semibold text-sm disabled:opacity-50 transition">
             {loading ? 'Обробка...' : 'Сторно'}
           </button>
         </div>
@@ -339,15 +350,15 @@ export default function OperationsList({
               <span className="text-xs text-gray-400">Всього: {ops.length}</span>
             </div>
             {/* Таби Купівля / Продаж */}
-            <div className="flex gap-1 mt-1.5 bg-gray-100 rounded-lg p-0.5">
+            <div className="flex gap-1 mt-1.5 bg-gray-100 rounded p-0.5">
               <button
                 onClick={() => setOpTab('buy')}
-                className={`flex-1 py-1.5 rounded-md text-sm font-semibold transition ${opTab === 'buy' ? 'bg-white shadow text-green-700' : 'text-gray-500'}`}>
+                className={`flex-1 py-1 rounded text-sm font-semibold transition ${opTab === 'buy' ? 'bg-white shadow text-green-700' : 'text-gray-500'}`}>
                 🟢 Купівля ({clientBuyOps.length})
               </button>
               <button
                 onClick={() => setOpTab('sell')}
-                className={`flex-1 py-1.5 rounded-md text-sm font-semibold transition ${opTab === 'sell' ? 'bg-white shadow text-red-600' : 'text-gray-500'}`}>
+                className={`flex-1 py-1 rounded text-sm font-semibold transition ${opTab === 'sell' ? 'bg-white shadow text-red-600' : 'text-gray-500'}`}>
                 🔴 Продаж ({clientSellOps.length})
               </button>
             </div>

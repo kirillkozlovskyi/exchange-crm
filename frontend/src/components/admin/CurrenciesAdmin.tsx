@@ -27,8 +27,6 @@ export default function CurrenciesAdmin() {
   const [curError, setCurError] = useState('');
   const [globalEdit, setGlobalEdit] = useState<EditMap | null>(null);
   const [globalSaving, setGlobalSaving] = useState(false);
-  const [buyPct, setBuyPct] = useState(-5);
-  const [sellPct, setSellPct] = useState(5);
 
   const loadAll = async () => {
     const [c, p, r] = await Promise.all([
@@ -50,24 +48,9 @@ export default function CurrenciesAdmin() {
     } catch { /* ігнорується */ }
   };
 
-  const loadPct = async () => {
-    try {
-      const { data } = await api.get('/settings/nbu-rates');
-      setBuyPct(data.buyPct);
-      setSellPct(data.sellPct);
-    } catch { /* використовуємо дефолти */ }
-  };
-
-  const savePct = async (bPct: number, sPct: number) => {
-    try {
-      await api.put('/settings/nbu-rates', { buyPct: bPct, sellPct: sPct });
-    } catch { /* ігнорується */ }
-  };
-
   useEffect(() => {
     loadAll();
     fetchNbu();
-    loadPct();
   }, []);
 
   const activeCurrencies = currencies.filter((c) => c.active);
@@ -87,41 +70,29 @@ export default function CurrenciesAdmin() {
     nbuRates.find((r) => r.cc === code)?.rate ?? null;
 
   // ── Розрахунок курсів від НБУ ± % ─────────────────────────────────────────
-  const buildFromNbu = (bPct: number, sPct: number): EditMap => {
+  // Поточні встановлені курси з бази підставляються в режимі редагування.
+  const buildFromCurrent = (): EditMap => {
     const map: EditMap = {};
     for (const cur of sortedActive) {
-      const nbu = getNbu(cur.code);
-      if (nbu) {
-        map[cur.code] = {
-          buy: (nbu * (1 + bPct / 100)).toFixed(2),
-          sell: (nbu * (1 + sPct / 100)).toFixed(2),
-        };
-      } else {
-        // fallback: поточний курс з бази
-        const r = getAnyRate(cur.code);
-        map[cur.code] = {
-          buy: r ? Number(r.buy).toFixed(2) : '',
-          sell: r ? Number(r.sell).toFixed(2) : '',
-        };
-      }
+      const r = getAnyRate(cur.code);
+      map[cur.code] = {
+        buy: r ? Number(r.buy).toFixed(2) : '',
+        sell: r ? Number(r.sell).toFixed(2) : '',
+      };
     }
     return map;
   };
 
-  const startGlobalEdit = () => setGlobalEdit(buildFromNbu(buyPct, sellPct));
-
-  const applyPct = (bPct: number, sPct: number) => {
-    if (!globalEdit) return;
-    setGlobalEdit(buildFromNbu(bPct, sPct));
-  };
+  const startGlobalEdit = () => setGlobalEdit(buildFromCurrent());
 
   // ── CRUD валют ─────────────────────────────────────────────────────────────
 
   const addCurrency = async () => {
     setCurError('');
-    if (!newCur.code.trim()) { setCurError('Оберіть валюту зі списку'); return; }
+    if (!newCur.code.trim()) { setCurError('Оберіть або введіть код валюти'); return; }
+    if (!newCur.name.trim()) { setCurError('Вкажіть назву валюти'); return; }
     try {
-      await api.post('/currencies', { code: newCur.code, name: newCur.name });
+      await api.post('/currencies', { code: newCur.code, name: newCur.name.trim() });
       setNewCur({ code: '', name: '' });
       setAddingCur(false);
       await loadAll();
@@ -191,14 +162,23 @@ export default function CurrenciesAdmin() {
         {addingCur && (
           <div className="flex gap-2 mb-3 items-end flex-wrap">
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Валюта</label>
+              <label className="text-xs text-gray-500 block mb-1">Валюта / код</label>
               <CurrencyAutocomplete
                 value={newCur}
                 onChange={(v) => setNewCur(v)}
                 excludeCodes={new Set(currencies.map((c) => c.code))}
               />
             </div>
-            <button onClick={addCurrency} disabled={!newCur.code}
+            <div>
+              <label className="text-xs text-gray-500 block mb-1">Назва</label>
+              <input
+                value={newCur.name}
+                onChange={(e) => setNewCur((p) => ({ ...p, name: e.target.value }))}
+                placeholder="Напр. Долар (старий зразок)"
+                className="border rounded px-2 py-1.5 text-sm w-56 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              />
+            </div>
+            <button onClick={addCurrency} disabled={!newCur.code || !newCur.name.trim()}
               className="bg-green-600 hover:bg-green-700 text-white px-3 py-1.5 rounded-lg text-sm disabled:opacity-50">
               Додати
             </button>
@@ -284,60 +264,6 @@ export default function CurrenciesAdmin() {
           )}
         </div>
 
-        {/* ── Панель відхилення від НБУ (тільки в режимі редагування) ── */}
-        {globalEdit && (
-          <div className="flex flex-wrap items-end gap-4 mb-4 p-3 bg-blue-50 rounded-lg border border-blue-100">
-            <div className="text-xs font-semibold text-blue-700 self-center">
-              🏦 Відхилення від курсу НБУ
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Купівля</label>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  step="0.1"
-                  value={buyPct}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value) || 0;
-                    setBuyPct(v);
-                    applyPct(v, sellPct);
-                    savePct(v, sellPct);
-                  }}
-                  className="w-20 border border-blue-300 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400"
-                />
-                <span className="text-xs text-gray-500">%</span>
-              </div>
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Продаж</label>
-              <div className="flex items-center gap-1">
-                <input
-                  type="number"
-                  step="0.1"
-                  value={sellPct}
-                  onChange={(e) => {
-                    const v = parseFloat(e.target.value) || 0;
-                    setSellPct(v);
-                    applyPct(buyPct, v);
-                    savePct(buyPct, v);
-                  }}
-                  className="w-20 border border-blue-300 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400"
-                />
-                <span className="text-xs text-gray-500">%</span>
-              </div>
-            </div>
-            <button
-              onClick={() => applyPct(buyPct, sellPct)}
-              className="bg-blue-700 hover:bg-blue-800 text-white text-xs px-3 py-1.5 rounded-lg font-medium"
-            >
-              ↻ Перерахувати
-            </button>
-            <span className="text-xs text-gray-400 self-center">
-              Значення можна коригувати вручну
-            </span>
-          </div>
-        )}
-
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-gray-500 border-b text-xs">
@@ -394,7 +320,7 @@ export default function CurrenciesAdmin() {
                       ? <span className="text-xs text-blue-500 font-mono">{nbu.toFixed(2)}</span>
                       : <span className="text-xs text-gray-300">—</span>}
                   </td>
-                  <td className="py-2 pr-4">
+                  <td className="py-2 pr-4 text-right">
                     <input type="number" step="0.01"
                       value={globalEdit[cur.code]?.buy ?? ''}
                       onChange={(e) => setGlobalEdit((prev) => prev && ({
@@ -403,7 +329,7 @@ export default function CurrenciesAdmin() {
                       className="w-28 border rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-blue-400"
                     />
                   </td>
-                  <td className="py-2">
+                  <td className="py-2 text-right">
                     <input type="number" step="0.01"
                       value={globalEdit[cur.code]?.sell ?? ''}
                       onChange={(e) => setGlobalEdit((prev) => prev && ({

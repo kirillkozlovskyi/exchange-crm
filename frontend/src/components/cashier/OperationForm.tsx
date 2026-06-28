@@ -14,7 +14,7 @@ function CurSelect({
 }) {
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}
-      className={`border border-gray-300 rounded-lg px-2 py-2 font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 ${className}`}>
+      className={`border border-gray-300 rounded px-1.5 py-1 font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 ${className}`}>
       {placeholder && <option value="">—</option>}
       {currencies.map((c) => <option key={c} value={c}>{c}</option>)}
     </select>
@@ -287,9 +287,11 @@ export default function OperationForm({
   //  • Продаж — це валюта, яку каса продає (незалежна від UAH-готівки клієнта).
   const handleQtyCurChange = (cur: string) => {
     if (mode === 'BUY') { handleClientCurChange(cur); return; }
+    // Зберігаємо введену суму продажу; «Отримує» перерахується під новий курс
+    // (через ефект marketRate → rateRaw → recalcRcv).
     setQtyCur(cur); setHSumCur(cur);
     setRateManual(false);
-    setQtyAmt(''); setRcvAmt('');
+    setRcvAmt('');
   };
 
   // Курс: ручне редагування
@@ -433,7 +435,7 @@ export default function OperationForm({
             key={v}
             type="button"
             onClick={() => onPick(String(v))}
-            className={`px-3 py-1.5 rounded-lg text-lg font-semibold border transition ${
+            className={`px-2.5 py-1 rounded text-base font-semibold border transition ${
               Number(current) === v
                 ? 'bg-blue-600 text-white border-blue-600'
                 : 'bg-white text-gray-700 border-gray-300 hover:border-blue-400 hover:text-blue-700'
@@ -447,14 +449,14 @@ export default function OperationForm({
 
   // ── Поля (фрагменти, переставляються залежно від режиму) ──
   const clientField = (
-    <div className="flex-1 space-y-1">
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Клієнт приніс</div>
+    <div className="flex-1 min-w-0 space-y-1">
+      <div className="text-xs font-semibold text-gray-900 uppercase tracking-wider">Клієнт приніс</div>
       <div className="flex gap-1">
-        <CurSelect value={clientCur} onChange={handleClientCurChange} currencies={clientCurrencies} className="w-28 text-lg" />
+        <CurSelect value={clientCur} onChange={handleClientCurChange} currencies={clientCurrencies} className="w-20 text-base" />
         <input
           type="number" min="0" step="1" value={clientAmt}
           onChange={(e) => handleClientAmtChange(e.target.value)}
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2.5 text-right text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"
+          className="flex-1 min-w-0 w-full border border-gray-300 rounded px-2 py-1 text-right text-xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400"
           placeholder="0" autoFocus={mode === 'BUY'}
         />
       </div>
@@ -463,8 +465,8 @@ export default function OperationForm({
   );
 
   const rateField = (
-    <div className="space-y-1">
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Курс</div>
+    <div className="space-y-1 shrink-0">
+      <div className="text-xs font-semibold text-gray-900 uppercase tracking-wider">Курс</div>
       <div className="flex items-center gap-1.5">
         {rateLabelCur && (
           <span className="text-sm font-semibold text-gray-600 whitespace-nowrap">1 {rateLabelCur} =</span>
@@ -472,7 +474,7 @@ export default function OperationForm({
         <input
           type="number" min="0" step="0.01" value={rateRaw}
           onChange={(e) => handleRateChange(e.target.value)}
-          className={`w-28 border rounded-lg px-3 py-2.5 text-right text-xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 transition ${
+          className={`w-24 border rounded px-2 py-1 text-right text-lg font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 transition ${
             isRateEdited ? 'border-amber-400 bg-amber-50 text-amber-800' : 'border-gray-300'
           }`}
           placeholder="0.00"
@@ -486,16 +488,16 @@ export default function OperationForm({
   );
 
   const qtyField = (
-    <div className="flex-1 space-y-1">
-      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">
+    <div className="flex-1 min-w-0 space-y-1">
+      <div className="text-xs font-semibold text-gray-900 uppercase tracking-wide">
         {mode === 'SELL' ? 'Сума продажу' : 'Кількість'}
       </div>
       <div className="flex gap-1">
-        <CurSelect value={qtyCur} onChange={handleQtyCurChange} currencies={foreignCurrencies} className={`w-20 text-lg ${qtyWarn ? 'border-red-400' : ''}`} />
+        <CurSelect value={qtyCur} onChange={handleQtyCurChange} currencies={foreignCurrencies} className={`w-20 text-base ${qtyWarn ? 'border-red-400' : ''}`} />
         <input
           type="number" min="0" step="1" value={qtyAmt}
           onChange={(e) => handleQtyAmtChange(e.target.value)}
-          className={`flex-1 border rounded-lg px-3 py-2.5 text-right text-2xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 ${qtyWarn ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
+          className={`flex-1 min-w-0 w-full border rounded px-2 py-1 text-right text-xl font-bold focus:outline-none focus:ring-2 focus:ring-blue-400 ${qtyWarn ? 'border-red-400 bg-red-50' : 'border-gray-300'}`}
           placeholder="0" autoFocus={mode === 'SELL'}
         />
       </div>
@@ -504,15 +506,15 @@ export default function OperationForm({
   );
 
   const rcvField = (
-    <div className="flex-1 space-y-1">
-      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Отримує</div>
+    <div className="flex-1 min-w-0 space-y-1">
+      <div className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Отримує</div>
       <div className="flex gap-1">
-        <CurSelect value={rcvCur} onChange={handleRcvCurChange} currencies={allCurrencies} placeholder className={`w-20 text-lg ${rcvWarn ? 'border-red-400' : ''}`} />
-        <div className={`flex-1 flex border rounded-lg ${rcvWarn ? 'border-red-400 bg-red-50' : 'border-dashed border-gray-300 bg-gray-50'}`}>
+        <CurSelect value={rcvCur} onChange={handleRcvCurChange} currencies={allCurrencies} placeholder className={`w-20 text-base ${rcvWarn ? 'border-red-400' : ''}`} />
+        <div className={`flex-1 min-w-0 flex border rounded ${rcvWarn ? 'border-red-400 bg-red-50' : 'border-dashed border-gray-300 bg-gray-50'}`}>
           <input
             type="number" min="0" step="1" value={rcvAmt}
             onChange={(e) => handleRcvAmtChange(e.target.value)}
-            className="flex-1 px-3 py-2.5 text-right text-2xl font-bold bg-transparent focus:outline-none rounded-lg"
+            className="flex-1 min-w-0 w-full px-2 py-1 text-right text-xl font-bold bg-transparent focus:outline-none rounded"
             placeholder="0"
           />
         </div>
@@ -522,11 +524,11 @@ export default function OperationForm({
   );
 
   const changeField = showChange ? (
-    <div className="flex-1 space-y-1">
-      <div className="text-xs font-semibold text-gray-700 uppercase tracking-wide">Решта</div>
+    <div className="flex-1 min-w-0 space-y-1">
+      <div className="text-xs font-semibold text-gray-900 uppercase tracking-wide">Решта</div>
       <div className="flex gap-1">
-        <CurSelect value={chgCur} onChange={setChgCur} currencies={allCurrencies} className="w-20 text-lg" />
-        <div className={`flex-1 flex items-center justify-end rounded-lg px-3 py-2.5 font-bold text-2xl border ${
+        <CurSelect value={chgCur} onChange={setChgCur} currencies={allCurrencies} className="w-20 text-base" />
+        <div className={`flex-1 min-w-0 flex items-center justify-end rounded px-2 py-1 font-bold text-xl border ${
           changeAmt === null ? 'border-gray-200 bg-gray-50 text-gray-300' :
           changeAmt < -0.005 ? 'border-red-300 bg-red-50 text-red-700' :
           'border-green-200 bg-green-50 text-green-700'
@@ -546,14 +548,14 @@ export default function OperationForm({
 
   const helpersBlock = (
     <div className="bg-gray-50 rounded-xl p-3 space-y-2">
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Допоміжний розрахунок</div>
+      <div className="text-xs font-semibold text-gray-900 uppercase tracking-wider">Допоміжний розрахунок</div>
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex-1 flex gap-1">
           <CurSelect value={hSumCur} onChange={(c) => { setHSumCur(c); setHConvManual(false); }} currencies={allCurrencies} className="w-24 text-sm" />
           <input
             type="number" min="0" step="1" value={hSumAmt}
             onChange={(e) => handleHSumAmtChange(e.target.value)}
-            className="flex-1 border border-gray-200 rounded-lg px-3 py-1.5 text-right text-sm font-semibold bg-white focus:outline-none"
+            className="flex-1 border border-gray-200 rounded px-3 py-1 text-right text-sm font-semibold bg-white focus:outline-none"
             placeholder="Сума"
           />
         </div>
@@ -579,7 +581,7 @@ export default function OperationForm({
             type="number" min="0" step="1"
             value={hConvDisplay}
             onChange={(e) => handleHConvAmtChange(e.target.value)}
-            className="flex-1 border border-dashed border-gray-300 rounded-lg px-3 py-1.5 text-right text-sm font-semibold bg-gray-50 focus:outline-none focus:bg-white"
+            className="flex-1 border border-dashed border-gray-300 rounded px-3 py-1 text-right text-sm font-semibold bg-gray-50 focus:outline-none focus:bg-white"
             placeholder="Конвертація"
           />
         </div>
@@ -589,13 +591,13 @@ export default function OperationForm({
 
   return (
     <div className="bg-white shadow p-3 space-y-2.5">
-      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Нова операція</div>
+      <div className="text-xs font-semibold text-gray-900 uppercase tracking-wider">Нова операція</div>
 
       {/* Mode tabs */}
       <div className="flex gap-2">
         {(['BUY', 'SELL'] as OpMode[]).map((m) => (
           <button key={m} onClick={() => handleModeChange(m)}
-            className={`flex-1 py-2.5 rounded-lg text-xl font-bold border transition ${
+            className={`flex-1 py-1 rounded text-lg font-bold border transition ${
               mode === m
                 ? (m === 'BUY' ? 'bg-green-600 text-white border-green-600' : 'bg-red-600 text-white border-red-600')
                 : m === 'BUY' ? 'border-green-200 text-green-700 hover:bg-green-50' : 'border-red-200 text-red-700 hover:bg-red-50'
@@ -636,8 +638,8 @@ export default function OperationForm({
             {rateField}
           </div>
 
-          {/* Ряд 2: Допоміжний розрахунок */}
-          {helpersBlock}
+          {/* Допоміжний розрахунок — приховано (display:none) */}
+          <div className="hidden">{helpersBlock}</div>
 
           {/* Ряд 3: Кількість | Отримує | Решта */}
           <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start">
@@ -654,7 +656,7 @@ export default function OperationForm({
       <button
         onClick={() => setShowConfirm(true)}
         disabled={!qtyNum || !rcvAmtNum || !rcvCur || !!balanceWarning}
-        className={`w-full font-bold py-3 rounded-lg disabled:opacity-50 transition text-lg text-white ${submitColor}`}>
+        className={`w-full font-bold py-1 rounded disabled:opacity-50 transition text-base text-white ${submitColor}`}>
         {qtyNum && rcvAmtNum && rcvCur
           ? `${mode === 'BUY' ? 'Купівля' : 'Продаж'}: ${summary.fromAmt.toFixed(2)} ${summary.fromCur} → ${summary.toAmt.toFixed(2)} ${summary.toCur}`
           : mode === 'BUY' ? 'Провести купівлю' : 'Провести продаж'
@@ -667,7 +669,7 @@ export default function OperationForm({
           <div className="bg-white rounded-xl shadow-xl w-full max-w-sm mx-4 p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
 
             <div className="text-center">
-              <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Підтвердження операції</div>
+              <div className="text-xs font-semibold text-gray-900 uppercase tracking-wider mb-1">Підтвердження операції</div>
               <div className={`text-xl font-bold ${mode === 'BUY' ? 'text-green-700' : 'text-red-600'}`}>
                 {mode === 'BUY' ? '🟢 Купівля' : '🔴 Продаж'}
               </div>
@@ -707,11 +709,11 @@ export default function OperationForm({
 
             <div className="flex gap-2 pt-1">
               <button onClick={() => setShowConfirm(false)}
-                className="flex-1 py-2.5 rounded-lg border border-gray-300 text-gray-700 font-medium text-sm hover:bg-gray-50 transition">
+                className="flex-1 py-1 rounded border border-gray-300 text-gray-700 font-medium text-sm hover:bg-gray-50 transition">
                 Скасувати
               </button>
               <button onClick={handleSubmit} disabled={loading}
-                className={`flex-1 py-2.5 rounded-lg text-white font-semibold text-sm disabled:opacity-50 transition ${submitColor}`}>
+                className={`flex-1 py-1 rounded text-white font-semibold text-sm disabled:opacity-50 transition ${submitColor}`}>
                 {loading ? 'Збереження...' : 'Підтвердити'}
               </button>
             </div>
@@ -721,7 +723,7 @@ export default function OperationForm({
 
       {/* Last op confirmation */}
       {lastOp && (
-        <div className="border border-green-200 bg-green-50 rounded-lg p-3 text-sm">
+        <div className="border border-green-200 bg-green-50 rounded p-3 text-sm">
           <div className="flex justify-between items-center">
             <div>
               <div className="font-semibold text-green-700">✓ Операція #{lastOp.number}</div>

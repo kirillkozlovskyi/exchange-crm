@@ -87,6 +87,7 @@ model User {
   receivedTransfers Transfer[]  @relation("ReceivedTransfers")
   notifications   Notification[]
   operationEdits  OperationEdit[] @relation("OperationEdits")
+  reconciliations Reconciliation[]
 }
 
 model CashDesk {
@@ -101,6 +102,7 @@ model CashDesk {
   shifts          Shift[]
   sentTransfers   Transfer[]    @relation("FromDesk")
   receivedTransfers Transfer[]  @relation("ToDesk")
+  reconciliations Reconciliation[]
 }
 
 model Shift {
@@ -127,6 +129,28 @@ model Shift {
   openedById      Int
 
   operations      Operation[]
+  reconciliations Reconciliation[]
+}
+
+// Проміжна звірка залишку касиром упродовж дня (без закриття зміни).
+model Reconciliation {
+  id             Int      @id @default(autoincrement())
+  createdAt      DateTime @default(now())
+  // Розрахунковий залишок (CMS) на момент звірки: { UAH: ..., USD: ... }
+  expected       Json     @default("{}")
+  // Фактично перерахована готівка касиром
+  actual         Json     @default("{}")
+  hasDiscrepancy Boolean  @default(false)
+  note           String?
+
+  shift          Shift    @relation(fields: [shiftId], references: [id])
+  shiftId        Int
+
+  cashDesk       CashDesk @relation(fields: [cashDeskId], references: [id])
+  cashDeskId     Int
+
+  createdBy      User     @relation(fields: [createdById], references: [id])
+  createdById    Int
 }
 
 model Operation {

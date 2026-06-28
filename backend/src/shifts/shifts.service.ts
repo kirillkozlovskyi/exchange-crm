@@ -110,6 +110,19 @@ export class ShiftsService {
     return { ...updated, factualProfit, valuationRates: valuation, netTransfers: net };
   }
 
+  // Залишок із закриття останньої зміни цієї каси — для префілу при відкритті нової.
+  async getLastEndBalance(cashDeskId: number) {
+    const last = await this.prisma.shift.findFirst({
+      where: { cashDeskId, status: 'CLOSED' },
+      orderBy: { closedAt: 'desc' },
+      select: { number: true, closedAt: true, endBalance: true },
+    });
+    return {
+      endBalance: (last?.endBalance as Record<string, number>) ?? {},
+      from: last ? { number: last.number, closedAt: last.closedAt } : null,
+    };
+  }
+
   async getActiveShift(cashDeskId: number) {
     return this.prisma.shift.findFirst({
       where: { cashDeskId, status: 'OPEN' },

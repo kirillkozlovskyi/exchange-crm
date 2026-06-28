@@ -66,9 +66,9 @@ export default function CloseShiftForm({
     return Array.from(set);
   }, [shift, startBal, net]);
 
-  // Фактичний залишок (вводить касир) — prefill з calcBalance
+  // Фактичний залишок (вводить касир) — prefill з calcBalance, без копійок/центів
   const [endBal, setEndBal] = useState<Record<string, string>>(
-    Object.fromEntries(currencies.map((c) => [c, String(calcBalance[c]?.toFixed(2) ?? '0')]))
+    Object.fromEntries(currencies.map((c) => [c, String(Math.round(calcBalance[c] ?? 0))]))
   );
 
   const [saving, setSaving] = useState(false);
@@ -98,26 +98,46 @@ export default function CloseShiftForm({
   // Чи були передачі взагалі (для умовного показу колонки/рядка)
   const hasTransfers = Object.values(net).some((v) => Math.abs(v) >= 0.005);
 
-  // Порозрядна розбивка торгового прибутку по валютах (для зрозумілого блоку).
-  // Внесок у прибуток = (розрахунковий залишок − відкриття) × серединний курс.
-  // Передачі показуються окремо й у прибуток НЕ входять (їх немає в calcBalance).
+  // Гривневий потік операцій по кожній валюті: купівля → каса платить UAH (−),
+  // продаж → отримує UAH (+). Крос (валюта↔валюта) гривні не зачіпає.
+  const uahFlow = useMemo(() => {
+    const flow: Record<string, number> = {};
+    for (const op of shift.operations) {
+      if (op.cancelled) continue;
+      const totalUah = Number(op.totalUah);
+      const payCur = op.payCurrency;
+      if (payCur && payCur !== 'UAH' && op.currency !== 'UAH') continue; // крос — без UAH
+      if (payCur && payCur !== 'UAH') {
+        flow[payCur] = (flow[payCur] ?? 0) - totalUah; // старий BUY: −UAH
+      } else {
+        const sign = op.type === 'BUY' ? 1 : -1;
+        flow[op.currency] = (flow[op.currency] ?? 0) - sign * totalUah;
+      }
+    }
+    return flow;
+  }, [shift]);
+
+  // Прибуток по кожній валюті = спред + переоцінка позиції:
+  //   (закриття − відкриття) × серединний курс + гривневий потік цієї валюти.
+  // UAH — валюта розрахунку (його рух рознесено по валютах), тож окремого рядка немає.
+  // Сума рядків точно дорівнює торговому прибутку. Передачі у прибуток не входять.
   const profitRows = useMemo(() => {
     return currencies
+      .filter((cur) => cur !== 'UAH')
       .map((cur) => {
         const open = Number(startBal[cur] ?? 0);
         const close = calcBalance[cur] ?? 0;
         const transfer = net[cur] ?? 0;
         const mid = valuation[cur] ?? 0;
-        const profitUah = (close - open) * mid;
+        const profitUah = (close - open) * mid + (uahFlow[cur] ?? 0);
         return { cur, open, close, transfer, profitUah };
       })
       .filter((r) =>
-        Math.abs(r.open) >= 0.005 ||
-        Math.abs(r.close) >= 0.005 ||
+        Math.abs(r.profitUah) >= 0.005 ||
         Math.abs(r.transfer) >= 0.005 ||
-        Math.abs(r.profitUah) >= 0.005,
+        Math.abs(r.close - r.open) >= 0.005,
       );
-  }, [currencies, startBal, calcBalance, net, valuation]);
+  }, [currencies, startBal, calcBalance, net, valuation, uahFlow]);
 
   const handleSubmit = async () => {
     setSaving(true);
@@ -135,18 +155,18 @@ export default function CloseShiftForm({
   };
 
   const hasDiscrepancy = currencies.some((c) => {
-    const actual = parseFloat(endBal[c]) || 0;
-    const expected = calcBalance[c] ?? 0;
-    return Math.abs(actual - expected) >= 0.01;
+    const actual = Math.round(parseFloat(endBal[c]) || 0);
+    const expected = Math.round(calcBalance[c] ?? 0);
+    return Math.abs(actual - expected) >= 1;
   });
 
   const cashDiff = factualProfit - tradingProfit;
 
   return (
-    <div className="w-full space-y-4 pb-28">
+    <div className="w-full space-y-2.5 pb-24">
 
       {/* ── Заголовок (липкий) ── */}
-      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur rounded-xl shadow p-4 flex items-center justify-between">
+      <div className="sticky top-0 z-20 bg-white/95 backdrop-blur rounded-xl shadow p-3 flex items-center justify-between">
         <div>
           <h2 className="font-bold text-lg text-red-700">Закриття зміни</h2>
           <div className="text-sm text-gray-500 mt-0.5">
@@ -159,10 +179,10 @@ export default function CloseShiftForm({
       </div>
 
       {/* ── Основна сітка: зліва підрахунок (головна дія), справа підсумки ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-4 items-start">
+      <div className="grid grid-cols-1 xl:grid-cols-12 gap-2.5 items-start">
 
         {/* ── Ліва колонка: Підрахунок залишку ── */}
-        <div className="xl:col-span-8 bg-white rounded-xl shadow p-5">
+        <div className="xl:col-span-8 bg-white rounded-xl shadow p-4">
           <div className="flex items-baseline justify-between mb-1">
             <h3 className="font-semibold text-gray-800">Підрахунок залишку</h3>
             {hasDiscrepancy && (
@@ -186,20 +206,21 @@ export default function CloseShiftForm({
             </thead>
             <tbody>
               {currencies.map((cur) => {
-                const start = Number(startBal[cur] ?? 0);
-                const expected = calcBalance[cur] ?? 0;
-                const actual = parseFloat(endBal[cur]) || 0;
+                // Залишок рахуємо без копійок/центів — округлюємо до цілих.
+                const start = Math.round(Number(startBal[cur] ?? 0));
+                const expected = Math.round(calcBalance[cur] ?? 0);
+                const actual = Math.round(parseFloat(endBal[cur]) || 0);
                 const diff = actual - expected;
-                const hasDiff = Math.abs(diff) >= 0.01;
+                const hasDiff = Math.abs(diff) >= 1;
                 return (
                   <tr key={cur} className={`border-b last:border-0 ${hasDiff ? 'bg-red-50' : ''}`}>
                     <td className="py-2.5 font-bold text-gray-800">{cur}</td>
-                    <td className="py-2.5 text-right text-gray-500">{start.toFixed(2)}</td>
-                    <td className="py-2.5 text-right font-medium text-blue-700">{expected.toFixed(2)}</td>
+                    <td className="py-2.5 text-right text-gray-500">{start}</td>
+                    <td className="py-2.5 text-right font-medium text-blue-700">{expected}</td>
                     <td className="py-2.5 text-right">
                       <input
                         type="number"
-                        step="0.01"
+                        step="1"
                         value={endBal[cur]}
                         onChange={(e) => setEndBal((b) => ({ ...b, [cur]: e.target.value }))}
                         className={`w-32 border rounded-lg px-3 py-1.5 text-right font-medium focus:outline-none focus:ring-2 ${
@@ -210,7 +231,7 @@ export default function CloseShiftForm({
                     <td className={`py-2.5 text-right font-semibold ${
                       !hasDiff ? 'text-gray-300' : diff > 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {hasDiff ? (diff > 0 ? '+' : '') + diff.toFixed(2) : '—'}
+                      {hasDiff ? (diff > 0 ? '+' : '') + diff : '—'}
                     </td>
                   </tr>
                 );
@@ -226,13 +247,13 @@ export default function CloseShiftForm({
         </div>
 
         {/* ── Права колонка: прибуток + операції ── */}
-        <div className="xl:col-span-4 space-y-4">
+        <div className="xl:col-span-4 space-y-2.5">
 
           {/* Підсумок прибутку — розбивка по валютах */}
-          <div className="bg-white rounded-xl shadow p-5">
+          <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold text-gray-800 mb-1">Прибуток за зміну</h3>
             <p className="text-xs text-gray-400 mb-3">
-              Зміна залишку кожної валюти від відкриття до закриття, за серединним курсом.
+              Прибуток по кожній валюті — спред і переоцінка позиції за серединним курсом.
               {hasTransfers && ' Передачі між касами не входять у прибуток.'}
             </p>
 
@@ -301,7 +322,7 @@ export default function CloseShiftForm({
           </div>
 
           {/* Операції зміни (скрол при великій кількості) */}
-          <div className="bg-white rounded-xl shadow p-5">
+          <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold text-gray-800 mb-3">
               Операції зміни <span className="text-gray-400 font-normal">· {shift.operations.length}</span>
             </h3>
@@ -338,9 +359,19 @@ export default function CloseShiftForm({
                         <td className="py-1.5 text-right text-gray-500">
                           {Number(op.rate).toFixed(2)}
                         </td>
-                        <td className="py-1.5 text-right">
-                          {Number(op.totalUah).toFixed(2)} ₴
-                        </td>
+                        {(() => {
+                          // Рух гривні: Продаж → каса отримує грн (+), Купівля → віддає (−).
+                          // Крос (валюта↔валюта) гривні не зачіпає — нейтрально.
+                          const isCross = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
+                          const inflow = op.type === 'SELL';
+                          return (
+                            <td className={`py-1.5 text-right font-medium ${
+                              isCross ? 'text-gray-400' : inflow ? 'text-green-600' : 'text-red-600'
+                            }`}>
+                              {isCross ? '' : inflow ? '+' : '−'}{Number(op.totalUah).toFixed(2)} ₴
+                            </td>
+                          );
+                        })()}
                       </tr>
                     ))}
                   </tbody>
@@ -352,7 +383,7 @@ export default function CloseShiftForm({
       </div>
 
       {/* ── Підтвердження (липка панель дій) ── */}
-      <div className="fixed bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur border-t border-gray-200 px-4 sm:px-6 py-3">
+      <div className="fixed bottom-0 left-0 right-0 z-20 bg-white/95 backdrop-blur border-t border-gray-200 px-3 py-2">
         <div className="w-full space-y-2">
           {error && (
             <div className="bg-red-50 border border-red-200 rounded-lg px-4 py-2 text-red-700 text-sm">

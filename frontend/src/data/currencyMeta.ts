@@ -1,5 +1,6 @@
 export const WORLD_CURRENCIES = [
   { code: 'USD', name: 'Долар США',                flag: '🇺🇸' },
+  { code: 'USDT', name: 'Tether (USDT)',           flag: '🪙' },
   { code: 'EUR', name: 'Євро',                      flag: '🇪🇺' },
   { code: 'PLN', name: 'Польський злотий',          flag: '🇵🇱' },
   { code: 'GBP', name: 'Британський фунт',          flag: '🇬🇧' },

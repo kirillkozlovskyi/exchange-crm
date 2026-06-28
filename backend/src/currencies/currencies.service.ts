@@ -1,4 +1,4 @@
-import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -10,10 +10,15 @@ export class CurrenciesService {
   }
 
   async create(dto: { code: string; name: string }) {
-    const code = dto.code.toUpperCase().trim();
+    const code = (dto.code ?? '').toUpperCase().trim();
+    const name = (dto.name ?? '').trim();
+    // Дозволяємо будь-який власний код (USDT, образці тощо): A–Z/0–9, 2–10 символів.
+    if (!/^[A-Z0-9]{2,10}$/.test(code))
+      throw new BadRequestException('Код валюти: 2–10 символів A–Z/0–9');
+    if (!name) throw new BadRequestException('Вкажіть назву валюти');
     const existing = await this.prisma.currency.findUnique({ where: { code } });
     if (existing) throw new ConflictException(`Валюта ${code} вже існує`);
-    return this.prisma.currency.create({ data: { code, name: dto.name.trim() } });
+    return this.prisma.currency.create({ data: { code, name } });
   }
 
   async update(code: string, dto: { name?: string; active?: boolean }) {

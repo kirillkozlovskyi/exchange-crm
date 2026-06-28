@@ -33,6 +33,11 @@ export class ShiftsController {
     return this.shiftsService.getActiveShift(cashDeskId);
   }
 
+  @Get('last-balance/desk/:cashDeskId')
+  getLastBalance(@Param('cashDeskId', ParseIntPipe) cashDeskId: number) {
+    return this.shiftsService.getLastEndBalance(cashDeskId);
+  }
+
   @Patch(':id/adjust-balance')
   adjustBalance(
     @Param('id', ParseIntPipe) id: number,

@@ -14,6 +14,7 @@ import { TelegramModule } from './telegram/telegram.module';
 import { CurrenciesModule } from './currencies/currencies.module';
 import { SettingsModule } from './settings/settings.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { ReconciliationsModule } from './reconciliations/reconciliations.module';
 import { SeedService } from './seed.service';
 
 @Module({
@@ -33,6 +34,7 @@ import { SeedService } from './seed.service';
     TransfersModule,
     FinanceModule,
     NotificationsModule,
+    ReconciliationsModule,
   ],
   providers: [SeedService],
 })
