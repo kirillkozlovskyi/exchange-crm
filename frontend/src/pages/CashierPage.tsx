@@ -300,14 +300,14 @@ export default function CashierPage() {
       `px-3 py-1 rounded text-sm font-medium transition ${active ? 'bg-blue-900' : 'hover:bg-blue-600'}`;
     setActions(
       <>
-        <button onClick={() => setTab('operations')} className={tabCls(tab === 'operations')}>
-          Операції
-        </button>
         <button onClick={() => setCashMoveDir('IN')} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium">
           Підкріплення
         </button>
         <button onClick={() => setCashMoveDir('OUT')} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm font-medium">
           Інкасація
+        </button>
+        <button onClick={() => setTab('operations')} className={tabCls(tab === 'operations')}>
+          Операції
         </button>
         <button onClick={() => setTab('transfers')} className={`relative ${tabCls(tab === 'transfers')}`}>
           Передачі
