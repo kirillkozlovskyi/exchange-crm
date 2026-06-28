@@ -66,11 +66,31 @@ export class ExchangePointsService {
     });
   }
 
-  async create(dto: { name: string; code: string }) {
+  async create(dto: { name: string; code: string; address?: string }) {
     const exists = await this.prisma.exchangePoint.findUnique({ where: { code: dto.code } });
     if (exists) throw new ConflictException('Точка з таким кодом вже існує');
     return this.prisma.exchangePoint.create({
-      data: { name: dto.name, code: dto.code.toUpperCase() },
+      data: { name: dto.name, code: dto.code.toUpperCase(), address: dto.address?.trim() || null },
+      include: { cashDesks: true },
+    });
+  }
+
+  async update(id: number, dto: { name?: string; code?: string; address?: string }) {
+    const point = await this.prisma.exchangePoint.findUnique({ where: { id } });
+    if (!point) throw new NotFoundException('Точку не знайдено');
+
+    if (dto.code && dto.code.toUpperCase() !== point.code) {
+      const exists = await this.prisma.exchangePoint.findUnique({ where: { code: dto.code.toUpperCase() } });
+      if (exists) throw new ConflictException('Точка з таким кодом вже існує');
+    }
+
+    return this.prisma.exchangePoint.update({
+      where: { id },
+      data: {
+        ...(dto.name !== undefined ? { name: dto.name } : {}),
+        ...(dto.code !== undefined ? { code: dto.code.toUpperCase() } : {}),
+        ...(dto.address !== undefined ? { address: dto.address.trim() || null } : {}),
+      },
       include: { cashDesks: true },
     });
   }

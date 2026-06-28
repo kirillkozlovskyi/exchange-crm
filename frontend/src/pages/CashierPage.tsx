@@ -59,6 +59,7 @@ export default function CashierPage() {
   // Модалка руху готівки: null закрита, або напрямок IN (підкріплення)/OUT (інкасація).
   const [cashMoveDir, setCashMoveDir] = useState<CashDirection | null>(null);
   const [quickAmounts, setQuickAmounts] = useState<number[]>([10, 20, 50, 100, 500]);
+  const [orgName, setOrgName] = useState('');
   const [activeCur, setActiveCur] = useState<string | undefined>(undefined);
 
   // Передачі та сповіщення
@@ -123,6 +124,7 @@ export default function CashierPage() {
       try {
         // Завантажуємо налаштування паралельно
         api.get('/settings/quick-amounts').then(({ data }) => setQuickAmounts(data)).catch(() => {});
+        api.get('/settings/org-name').then(({ data }) => setOrgName(data.name ?? '')).catch(() => {});
 
         // Спочатку перевіряємо — чи є у юзера вже відкрита зміна
         const myShiftRes = await api.get('/shifts/my').catch(() => null);
@@ -290,7 +292,7 @@ export default function CashierPage() {
     }
   }, [shift, selectedPointName, selectedDeskName, setInfo]);
 
-  // ── Кнопки (Операції / Передачі / Закрити зміну) — у хедер ────────────────
+  // ── Кнопки (Операції / Підкріплення / Інкасація / Передачі / Закрити) — хедер ──
   useEffect(() => {
     const inWorkingView = !!shift && !closingShift && !!selectedDeskId;
     if (!inWorkingView) { setActions(null); return; }
@@ -300,6 +302,12 @@ export default function CashierPage() {
       <>
         <button onClick={() => setTab('operations')} className={tabCls(tab === 'operations')}>
           Операції
+        </button>
+        <button onClick={() => setCashMoveDir('IN')} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium">
+          Підкріплення
+        </button>
+        <button onClick={() => setCashMoveDir('OUT')} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm font-medium">
+          Інкасація
         </button>
         <button onClick={() => setTab('transfers')} className={`relative ${tabCls(tab === 'transfers')}`}>
           Передачі
@@ -524,7 +532,18 @@ export default function CashierPage() {
             ${mobileView === 'list' ? 'flex flex-1 overflow-hidden bg-white' : 'hidden'}
           `}>
             <div className="w-full h-full">
-              <OperationsList shiftId={shift.id} refresh={refreshOps} fullHeight rates={rates} onRefresh={() => loadShift(selectedDeskId!)} />
+              <OperationsList
+                shiftId={shift.id}
+                refresh={refreshOps}
+                fullHeight
+                rates={rates}
+                onRefresh={() => loadShift(selectedDeskId!)}
+                receipt={{
+                  orgName,
+                  address: shift?.cashDesk?.exchangePoint?.address ?? '',
+                  deskNo: shift?.cashDeskId,
+                }}
+              />
             </div>
           </div>
 
@@ -566,18 +585,6 @@ export default function CashierPage() {
               <div className="bg-white px-3 py-2 w-full sm:w-1/2 border-t sm:border-t-0 sm:border-l border-gray-200">
                 <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold uppercase tracking-wider mb-1">
                   <span className="flex-1 text-gray-900">Залишок в касі</span>
-                  <button
-                    onClick={() => setCashMoveDir('IN')}
-                    className="bg-green-600 hover:bg-green-700 text-white rounded text-base px-2 py-1 font-medium normal-case"
-                  >
-                    Підкріплення
-                  </button>
-                  <button
-                    onClick={() => setCashMoveDir('OUT')}
-                    className="bg-purple-600 hover:bg-purple-700 text-white rounded text-base px-2 py-1 font-medium normal-case"
-                  >
-                    Інкасація
-                  </button>
                   <button
                     onClick={() => setShowReconcileModal(true)}
                     className="bg-amber-500 hover:bg-amber-600 text-white rounded text-base px-2 py-1 font-medium normal-case"

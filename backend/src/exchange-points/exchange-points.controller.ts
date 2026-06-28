@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { ExchangePointsService } from './exchange-points.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -22,8 +22,18 @@ export class ExchangePointsController {
   @Post()
   @UseGuards(RolesGuard)
   @Roles('ADMIN')
-  create(@Body() dto: { name: string; code: string }) {
+  create(@Body() dto: { name: string; code: string; address?: string }) {
     return this.service.create(dto);
+  }
+
+  @Patch(':id')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  update(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { name?: string; code?: string; address?: string },
+  ) {
+    return this.service.update(id, dto);
   }
 
   @Delete(':id')

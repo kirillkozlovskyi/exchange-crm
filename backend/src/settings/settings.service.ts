@@ -73,4 +73,13 @@ export class SettingsService {
   async setQuickAmounts(amounts: number[]): Promise<void> {
     await this.set('quick_amounts', JSON.stringify([...amounts].sort((a, b) => a - b)));
   }
+
+  // Назва організації (для чеків). Порожньо = не друкувати.
+  async getOrgName(): Promise<string> {
+    return (await this.get('org_name')) ?? '';
+  }
+
+  async setOrgName(name: string): Promise<void> {
+    await this.set('org_name', name.trim());
+  }
 }

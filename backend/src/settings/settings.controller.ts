@@ -68,4 +68,16 @@ export class SettingsController {
   setQuickAmounts(@Body() body: { amounts: number[] }) {
     return this.settingsService.setQuickAmounts(body.amounts).then(() => body.amounts);
   }
+
+  @Get('org-name')
+  getOrgName() {
+    return this.settingsService.getOrgName().then((name) => ({ name }));
+  }
+
+  @Put('org-name')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setOrgName(@Body() body: { name: string }) {
+    return this.settingsService.setOrgName(body.name ?? '').then(() => ({ name: (body.name ?? '').trim() }));
+  }
 }

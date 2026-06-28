@@ -90,12 +90,30 @@ function PointCard({ point, onUpdate }: { point: any; onUpdate: () => void }) {
   const [addingDesk, setAddingDesk] = useState(false);
   const [open, setOpen] = useState(true);
 
+  // Редагування адреси точки
+  const [editingAddr, setEditingAddr] = useState(false);
+  const [addr, setAddr] = useState(point.address ?? '');
+  const [savingAddr, setSavingAddr] = useState(false);
+
   const loadDesks = async () => {
     const { data } = await api.get(`/cash-desks?pointId=${point.id}`);
     setDesks(data);
   };
 
   useEffect(() => { loadDesks(); }, []);
+
+  const saveAddress = async () => {
+    setSavingAddr(true);
+    try {
+      await api.patch(`/exchange-points/${point.id}`, { address: addr.trim() });
+      setEditingAddr(false);
+      onUpdate();
+    } catch (err: any) {
+      alert(err.response?.data?.message ?? 'Помилка');
+    } finally {
+      setSavingAddr(false);
+    }
+  };
 
   const addDesk = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -137,6 +155,32 @@ function PointCard({ point, onUpdate }: { point: any; onUpdate: () => void }) {
 
       {open && (
         <div className="px-4 pb-4 pt-2">
+          {/* Адреса точки */}
+          <div className="flex items-center gap-2 mb-3 pb-3 border-b">
+            <span className="text-xs text-gray-500 flex-shrink-0">📍 Адреса:</span>
+            {editingAddr ? (
+              <>
+                <input
+                  value={addr}
+                  onChange={(e) => setAddr(e.target.value)}
+                  placeholder="вул. Хрещатик, 1, Київ"
+                  autoFocus
+                  onKeyDown={(e) => { if (e.key === 'Enter') saveAddress(); if (e.key === 'Escape') { setEditingAddr(false); setAddr(point.address ?? ''); } }}
+                  className="border rounded px-2 py-1 text-sm flex-1 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                />
+                <button onClick={saveAddress} disabled={savingAddr} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 disabled:opacity-50">Зберегти</button>
+                <button onClick={() => { setEditingAddr(false); setAddr(point.address ?? ''); }} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200">✕</button>
+              </>
+            ) : (
+              <>
+                <span className={`flex-1 text-sm ${point.address ? 'text-gray-700' : 'text-gray-400 italic'}`}>
+                  {point.address || 'не вказано'}
+                </span>
+                <button onClick={() => setEditingAddr(true)} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200">Ред.</button>
+              </>
+            )}
+          </div>
+
           {/* Список кас */}
           {desks.length === 0
             ? <p className="text-sm text-gray-400 py-2">Немає кас</p>
@@ -169,6 +213,7 @@ export default function ExchangePointsAdmin() {
   const [points, setPoints] = useState<any[]>([]);
   const [name, setName] = useState('');
   const [code, setCode] = useState('');
+  const [address, setAddress] = useState('');
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -182,9 +227,10 @@ export default function ExchangePointsAdmin() {
     if (!name.trim() || !code.trim()) return;
     setSaving(true);
     try {
-      await api.post('/exchange-points', { name: name.trim(), code: code.trim() });
+      await api.post('/exchange-points', { name: name.trim(), code: code.trim(), address: address.trim() || undefined });
       setName('');
       setCode('');
+      setAddress('');
       await loadPoints();
     } catch (err: any) {
       setError(err.response?.data?.message ?? 'Помилка');
@@ -216,6 +262,15 @@ export default function ExchangePointsAdmin() {
               placeholder="T3"
               maxLength={10}
               className="border rounded-lg px-3 py-2 text-sm w-32 font-mono focus:outline-none focus:ring-2 focus:ring-blue-300"
+            />
+          </div>
+          <div>
+            <label className="text-xs text-gray-500 block mb-1">Адреса</label>
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder="вул. Хрещатик, 1, Київ"
+              className="border rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-300"
             />
           </div>
           <button

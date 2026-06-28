@@ -62,6 +62,7 @@ model ExchangePoint {
   id        Int        @id @default(autoincrement())
   name      String
   code      String     @unique // T1, T2, etc.
+  address   String?    // адреса точки (для чеків тощо)
   createdAt DateTime   @default(now())
 
   cashDesks       CashDesk[]

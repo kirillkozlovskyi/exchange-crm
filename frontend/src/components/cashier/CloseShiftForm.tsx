@@ -208,11 +208,14 @@ export default function CloseShiftForm({
         </button>
       </div>
 
-      {/* ── Основна сітка: зліва підрахунок (головна дія), справа підсумки ── */}
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-2.5 items-start">
+      {/* ── Основна сітка: три рівні частини ── */}
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-2.5 items-start">
 
-        {/* ── Ліва колонка: Підрахунок залишку ── */}
-        <div className="xl:col-span-8 bg-white rounded-xl shadow p-4">
+        {/* ── Частина 1: Підрахунок залишку + Прибуток за зміну ── */}
+        <div className="space-y-2.5">
+
+          {/* Підрахунок залишку */}
+          <div className="bg-white rounded-xl shadow p-4">
           <div className="flex items-baseline justify-between mb-1">
             <h3 className="font-semibold text-gray-800">Підрахунок залишку</h3>
             {hasDiscrepancy && (
@@ -276,10 +279,7 @@ export default function CloseShiftForm({
           )}
         </div>
 
-        {/* ── Права колонка: прибуток + операції ── */}
-        <div className="xl:col-span-4 space-y-2.5">
-
-          {/* Підсумок прибутку — розбивка по валютах */}
+          {/* Прибуток за зміну — розбивка по валютах */}
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold text-gray-800 mb-1">Прибуток за зміну</h3>
             <p className="text-xs text-gray-400 mb-3">
@@ -363,7 +363,10 @@ export default function CloseShiftForm({
             )}
           </div>
 
-          {/* Операції зміни (скрол при великій кількості) */}
+        </div>
+
+        {/* ── Частина 2: Операції зміни ── */}
+        <div className="space-y-2.5">
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold text-gray-800 mb-3">
               Операції зміни <span className="text-gray-400 font-normal">· {shift.operations.length}</span>
@@ -421,9 +424,16 @@ export default function CloseShiftForm({
               </div>
             )}
           </div>
+        </div>
 
-          {/* Рух готівки зміни (підкріплення / інкасації) */}
-          {cashMovements.length > 0 && (
+        {/* ── Частина 3: Рух готівки ── */}
+        <div className="space-y-2.5">
+          {cashMovements.length === 0 ? (
+            <div className="bg-white rounded-xl shadow p-4">
+              <h3 className="font-semibold text-gray-800 mb-1">Рух готівки</h3>
+              <p className="text-gray-400 text-sm text-center py-4">Підкріплень та інкасацій не було</p>
+            </div>
+          ) : (
             <div className="bg-white rounded-xl shadow p-4">
               <h3 className="font-semibold text-gray-800 mb-1">
                 Рух готівки <span className="text-gray-400 font-normal">· {cashMovements.length}</span>

@@ -86,6 +86,51 @@ function QuickAmountsSettings() {
   );
 }
 
+function OrgSettings() {
+  const [name, setName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/org-name').then(({ data }) => setName(data.name ?? '')).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await api.put('/settings/org-name', { name });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-4">
+      <div>
+        <h3 className="font-semibold text-gray-800 text-base">🏢 Назва організації</h3>
+        <p className="text-xs text-gray-400 mt-0.5">Друкується у шапці чека. Залиште порожнім, щоб не друкувати.</p>
+      </div>
+      <div className="flex gap-2">
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && save()}
+          placeholder='ТОВ "Преміум Фінанс"'
+          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <button onClick={save} disabled={saving}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
+          {saving ? '...' : 'Зберегти'}
+        </button>
+      </div>
+      {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
+    </div>
+  );
+}
+
 function OperationsSettings() {
   const [minutes, setMinutes] = useState<number>(5);
   const [balanceEdit, setBalanceEdit] = useState<boolean>(true);
@@ -119,6 +164,7 @@ function OperationsSettings() {
 
   return (
     <div className="space-y-6">
+      <OrgSettings />
       <QuickAmountsSettings />
 
       <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-5">
