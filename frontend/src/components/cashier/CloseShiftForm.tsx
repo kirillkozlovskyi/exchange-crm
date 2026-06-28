@@ -28,6 +28,16 @@ type Shift = {
 
 type Rate = { currency: string; buy: number | string; sell: number | string };
 
+// Рух готівки з повними полями для відображення (math використовує лише
+// direction/currency/amount із CashMovementRow).
+type MovementRow = CashMovementRow & {
+  id?: number;
+  number?: string;
+  source?: string | null;
+  note?: string | null;
+  createdAt?: string;
+};
+
 export default function CloseShiftForm({
   shift,
   rates = [],
@@ -41,7 +51,7 @@ export default function CloseShiftForm({
   rates?: Rate[];
   deskId?: number;
   transfers?: TransferRow[];
-  cashMovements?: CashMovementRow[];
+  cashMovements?: MovementRow[];
   onClose: (endBalance: Record<string, number>) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -411,6 +421,57 @@ export default function CloseShiftForm({
               </div>
             )}
           </div>
+
+          {/* Рух готівки зміни (підкріплення / інкасації) */}
+          {cashMovements.length > 0 && (
+            <div className="bg-white rounded-xl shadow p-4">
+              <h3 className="font-semibold text-gray-800 mb-1">
+                Рух готівки <span className="text-gray-400 font-normal">· {cashMovements.length}</span>
+              </h3>
+              <p className="text-xs text-gray-400 mb-3">
+                Підкріплення (готівка прийшла) та інкасації (готівка пішла). Не входять у прибуток зміни.
+              </p>
+              <div className="overflow-auto max-h-[20rem]">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 bg-white">
+                    <tr className="text-xs text-gray-400 border-b">
+                      <th className="pb-2 text-left">Час</th>
+                      <th className="pb-2 text-left">Тип</th>
+                      <th className="pb-2 text-left">Джерело</th>
+                      <th className="pb-2 text-right">Сума</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {[...cashMovements]
+                      .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
+                      .map((m, i) => {
+                        const isIn = m.direction === 'IN';
+                        return (
+                          <tr key={m.id ?? i} className="border-b last:border-0">
+                            <td className="py-1.5 text-gray-400 text-xs">
+                              {m.createdAt ? format(new Date(m.createdAt), 'HH:mm') : '—'}
+                            </td>
+                            <td className="py-1.5">
+                              <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
+                                isIn ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'
+                              }`}>
+                                {isIn ? 'Підкріплення' : 'Інкасація'}
+                              </span>
+                            </td>
+                            <td className="py-1.5 text-gray-500 text-xs">
+                              {[m.source, m.note].filter(Boolean).join(' · ') || '—'}
+                            </td>
+                            <td className={`py-1.5 text-right font-medium ${isIn ? 'text-green-600' : 'text-purple-600'}`}>
+                              {isIn ? '+' : '−'}{Number(m.amount).toFixed(2)} <span className="text-gray-400 text-xs">{m.currency}</span>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
