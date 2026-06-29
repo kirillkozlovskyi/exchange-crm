@@ -1,7 +1,9 @@
-import { Controller, Post, Get, Patch, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Body, Param, Query, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { ShiftsService } from './shifts.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/user.decorator';
+import { Roles } from '../common/decorators/roles.decorator';
+import { RolesGuard } from '../common/guards/roles.guard';
 
 @UseGuards(JwtAuthGuard)
 @Controller('shifts')
@@ -26,6 +28,16 @@ export class ShiftsController {
   @Get('active')
   getAllActive() {
     return this.shiftsService.getAllActiveShifts();
+  }
+
+  @Get('list')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN', 'SENIOR_CASHIER')
+  list(@Query('pointId') pointId?: string, @Query('deskId') deskId?: string) {
+    return this.shiftsService.listShifts(
+      pointId ? Number(pointId) : undefined,
+      deskId ? Number(deskId) : undefined,
+    );
   }
 
   @Get('active/desk/:cashDeskId')

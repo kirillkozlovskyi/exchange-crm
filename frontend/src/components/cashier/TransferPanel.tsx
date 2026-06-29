@@ -20,6 +20,10 @@ export default function TransferPanel({
   const [currency, setCurrency] = useState('USD');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
+  // Своп (Б2): зустрічне плече — отримувач віддає назад іншу валюту.
+  const [isSwap, setIsSwap] = useState(false);
+  const [counterCurrency, setCounterCurrency] = useState('UAH');
+  const [counterAmount, setCounterAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -56,6 +60,10 @@ export default function TransferPanel({
 
   const handleSend = async () => {
     if (!toDeskId || !amount) return;
+    if (isSwap && (!counterAmount || counterCurrency === currency)) {
+      setError(counterCurrency === currency ? 'Валюти свопу мають відрізнятися' : 'Вкажіть суму зустрічного плеча');
+      return;
+    }
     setLoading(true);
     setError('');
     setSuccess('');
@@ -65,11 +73,14 @@ export default function TransferPanel({
         toDeskId: parseInt(toDeskId),
         currency,
         amount: parseFloat(amount),
+        counterCurrency: isSwap ? counterCurrency : undefined,
+        counterAmount: isSwap ? parseFloat(counterAmount) : undefined,
         note: note || undefined,
       });
       setAmount('');
+      setCounterAmount('');
       setNote('');
-      setSuccess('Передачу відправлено, очікує підтвердження');
+      setSuccess(isSwap ? 'Своп відправлено, очікує підтвердження' : 'Передачу відправлено, очікує підтвердження');
       loadPending();
     } catch (e: any) {
       setError(e.response?.data?.message || 'Помилка');
@@ -184,6 +195,42 @@ export default function TransferPanel({
               />
             </div>
           </div>
+          {/* Своп (Б2): отримувач віддає назад іншу валюту */}
+          <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={isSwap}
+              onChange={(e) => setIsSwap(e.target.checked)}
+              className="w-4 h-4 accent-blue-600"
+            />
+            Обмін (своп) — отримати іншу валюту назад
+          </label>
+          {isSwap && (
+            <div className="flex gap-2 bg-blue-50 border border-blue-200 rounded-lg p-2">
+              <div className="flex-1">
+                <label className="block text-xs text-gray-600 mb-1">Отримуєте назад: валюта</label>
+                <select
+                  value={counterCurrency}
+                  onChange={(e) => setCounterCurrency(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  {CURRENCIES.map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </div>
+              <div className="flex-1">
+                <label className="block text-xs text-gray-600 mb-1">Сума</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={counterAmount}
+                  onChange={(e) => setCounterAmount(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="0.00"
+                />
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-sm text-gray-600 mb-1">Примітка (необов'язково)</label>
             <input
@@ -204,10 +251,10 @@ export default function TransferPanel({
           {success && <p className="text-green-600 text-sm">{success}</p>}
           <button
             onClick={handleSend}
-            disabled={loading || !toDeskId || !amount || !!balanceWarning}
+            disabled={loading || !toDeskId || !amount || !!balanceWarning || (isSwap && !counterAmount)}
             className="w-full bg-blue-700 hover:bg-blue-800 text-white font-medium py-2 rounded-lg disabled:opacity-50"
           >
-            {loading ? 'Відправлення...' : 'Відправити'}
+            {loading ? 'Відправлення...' : isSwap ? 'Відправити своп' : 'Відправити'}
           </button>
         </div>
 
@@ -229,7 +276,15 @@ export default function TransferPanel({
               <div key={t.id} className="border border-yellow-200 bg-yellow-50 rounded-lg p-3">
                 <div className="text-sm font-medium">
                   {Number(t.amount).toFixed(2)} {t.currency}
+                  {t.counterCurrency && (
+                    <span className="text-gray-500"> ↔ {Number(t.counterAmount).toFixed(2)} {t.counterCurrency}</span>
+                  )}
                 </div>
+                {t.counterCurrency && (
+                  <div className="text-xs text-blue-700 mb-1">
+                    Своп: отримаєте {Number(t.amount).toFixed(2)} {t.currency}, віддасте {Number(t.counterAmount).toFixed(2)} {t.counterCurrency}
+                  </div>
+                )}
                 <div className="text-xs text-gray-500 mb-2">
                   від: {t.fromDesk?.exchangePoint?.name} — {t.sentBy?.name}
                 </div>

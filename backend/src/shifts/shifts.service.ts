@@ -85,7 +85,10 @@ export class ShiftsService {
         confirmedAt: { gte: shift.openedAt },
         OR: [{ fromDeskId: shift.cashDeskId }, { toDeskId: shift.cashDeskId }],
       },
-      select: { currency: true, amount: true, fromDeskId: true, toDeskId: true },
+      select: {
+        currency: true, amount: true, fromDeskId: true, toDeskId: true,
+        counterCurrency: true, counterAmount: true,
+      },
     });
     const net = netTransfers(
       transfers.map((t) => ({
@@ -93,9 +96,17 @@ export class ShiftsService {
         amount: Number(t.amount),
         fromDeskId: t.fromDeskId,
         toDeskId: t.toDeskId,
+        counterCurrency: t.counterCurrency,
+        counterAmount: t.counterAmount != null ? Number(t.counterAmount) : null,
       })),
       shift.cashDeskId,
     );
+
+    // Б1: підтверджені передачі/свопи рухають очікуваний залишок каси
+    // (раніше їх не додавали — звідси фантомні розбіжності).
+    for (const [cur, amt] of Object.entries(net)) {
+      calcBalance[cur] = (calcBalance[cur] ?? 0) + amt;
+    }
 
     // Фактичний результат (з нестачею/надлишком касира) — за введеним залишком,
     // з якого вилучаємо нетто-передачі та рух готівки (підкріплення/інкасації):
@@ -139,40 +150,82 @@ export class ShiftsService {
     };
   }
 
-  async getActiveShift(cashDeskId: number) {
-    return this.prisma.shift.findFirst({
-      where: { cashDeskId, status: 'OPEN' },
-      include: {
-        cashDesk: { include: { exchangePoint: true } },
-        openedBy: true,
-        operations: { orderBy: { createdAt: 'desc' } },
-        cashMovements: { orderBy: { createdAt: 'desc' } },
+  // Підтверджені передачі/свопи каси з моменту відкриття зміни — щоб поточний
+  // баланс ураховував рух готівки між касами (Б1/Б2).
+  private async confirmedTransfersForShift(
+    shift: { cashDeskId: number; openedAt: Date } | null,
+  ) {
+    if (!shift) return [];
+    return this.prisma.transfer.findMany({
+      where: {
+        status: 'CONFIRMED',
+        confirmedAt: { gte: shift.openedAt },
+        OR: [{ fromDeskId: shift.cashDeskId }, { toDeskId: shift.cashDeskId }],
       },
+      select: {
+        id: true, number: true, currency: true, amount: true,
+        fromDeskId: true, toDeskId: true,
+        counterCurrency: true, counterAmount: true, confirmedAt: true,
+      },
+      orderBy: { confirmedAt: 'desc' },
     });
   }
 
+  private readonly activeShiftInclude = {
+    cashDesk: { include: { exchangePoint: true } },
+    openedBy: true,
+    operations: { orderBy: { createdAt: 'desc' as const } },
+    cashMovements: { orderBy: { createdAt: 'desc' as const } },
+  };
+
+  async getActiveShift(cashDeskId: number) {
+    const shift = await this.prisma.shift.findFirst({
+      where: { cashDeskId, status: 'OPEN' },
+      include: this.activeShiftInclude,
+    });
+    if (!shift) return shift;
+    return { ...shift, confirmedTransfers: await this.confirmedTransfersForShift(shift) };
+  }
+
   async getShiftById(id: number) {
-    return this.prisma.shift.findUnique({
+    const shift = await this.prisma.shift.findUnique({
       where: { id },
       include: {
-        cashDesk: { include: { exchangePoint: true } },
-        openedBy: true,
-        operations: { orderBy: { createdAt: 'desc' } },
-        cashMovements: { orderBy: { createdAt: 'desc' } },
+        ...this.activeShiftInclude,
+        reconciliations: {
+          include: { createdBy: { select: { name: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
       },
+    });
+    if (!shift) return shift;
+    return { ...shift, confirmedTransfers: await this.confirmedTransfersForShift(shift) };
+  }
+
+  // Список змін (для адмінки) — фільтр по точці/касі, найновіші перші.
+  async listShifts(pointId?: number, deskId?: number) {
+    return this.prisma.shift.findMany({
+      where: {
+        ...(deskId ? { cashDeskId: deskId } : {}),
+        ...(pointId ? { cashDesk: { exchangePointId: pointId } } : {}),
+      },
+      include: {
+        cashDesk: { include: { exchangePoint: true } },
+        openedBy: { select: { name: true } },
+        _count: { select: { operations: true, cashMovements: true, reconciliations: true } },
+      },
+      orderBy: { openedAt: 'desc' },
+      take: 300,
     });
   }
 
   async getMyActiveShift(userId: number) {
-    return this.prisma.shift.findFirst({
+    const shift = await this.prisma.shift.findFirst({
       where: { openedById: userId, status: 'OPEN' },
-      include: {
-        cashDesk: { include: { exchangePoint: true } },
-        openedBy: true,
-        operations: { orderBy: { createdAt: 'desc' } },
-        cashMovements: { orderBy: { createdAt: 'desc' } },
-      },
+      include: this.activeShiftInclude,
     });
+    if (!shift) return shift;
+    return { ...shift, confirmedTransfers: await this.confirmedTransfersForShift(shift) };
   }
 
   async adjustBalance(shiftId: number, newCurrentBalance: Record<string, number>) {

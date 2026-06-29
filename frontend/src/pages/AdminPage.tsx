@@ -5,14 +5,16 @@ import TransfersAdmin from '../components/admin/TransfersAdmin';
 import CashMovementsAdmin from '../components/admin/CashMovementsAdmin';
 import OperationsAdmin from '../components/admin/OperationsAdmin';
 import ActiveShiftsAdmin from '../components/admin/ActiveShiftsAdmin';
+import ShiftsAdmin from '../components/admin/ShiftsAdmin';
 import ReconciliationsAdmin from '../components/admin/ReconciliationsAdmin';
 import SettingsAdmin from '../components/admin/SettingsAdmin';
 import NbuWidget from '../components/admin/NbuWidget';
 
-type Tab = 'shifts' | 'rates' | 'operations' | 'finance' | 'transfers' | 'cashmovements' | 'reconciliations' | 'settings';
+type Tab = 'shifts' | 'shiftlog' | 'rates' | 'operations' | 'finance' | 'transfers' | 'cashmovements' | 'reconciliations' | 'settings';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'shifts',     label: '🟢 Хто працює' },
+  { key: 'shiftlog',   label: '📋 Зміни' },
   { key: 'rates',      label: '📊 Курси' },
   { key: 'operations', label: '🔄 Операції' },
   { key: 'finance',    label: '💰 Фінанси' },
@@ -43,6 +45,7 @@ export default function AdminPage() {
       </div>
       <div>
         {tab === 'shifts'     && <ActiveShiftsAdmin />}
+        {tab === 'shiftlog'   && <ShiftsAdmin />}
         {tab === 'rates'      && <RatesAdmin />}
         {tab === 'operations' && <OperationsAdmin />}
         {tab === 'finance'    && <FinanceAdmin />}

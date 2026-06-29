@@ -11,6 +11,7 @@ import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
 import { computeCurrentBalance } from '../lib/balance';
 import { applyCashMovements, type CashDirection } from '../lib/cash-movements';
+import { netTransfers } from '../lib/transfers';
 
 type Tab = 'operations' | 'transfers';
 
@@ -269,14 +270,18 @@ export default function CashierPage() {
   };
 
   // ── Поточний баланс каси (хук ПЕРЕД будь-якими early return) ────────────
-  // Залишок = початок + операції + рух готівки (підкріплення +, інкасація −).
-  const currentBalance = useMemo(
-    () => applyCashMovements(
+  // Залишок = початок + операції + рух готівки + підтверджені передачі/свопи.
+  const currentBalance = useMemo(() => {
+    const base = applyCashMovements(
       computeCurrentBalance(shift?.startBalance, shift?.operations),
       shift?.cashMovements,
-    ),
-    [shift],
-  );
+    );
+    if (shift?.cashDeskId) {
+      const net = netTransfers(shift.confirmedTransfers ?? [], shift.cashDeskId);
+      for (const [cur, amt] of Object.entries(net)) base[cur] = (base[cur] ?? 0) + amt;
+    }
+    return base;
+  }, [shift]);
 
   // ── Синхронізація інфо зміни в хедер ─────────────────────────────────────
   useEffect(() => {
@@ -294,6 +299,25 @@ export default function CashierPage() {
 
   // ── Кнопки (Операції / Підкріплення / Інкасація / Передачі / Закрити) — хедер ──
   useEffect(() => {
+    // Стан відкриття зміни: каса обрана, зміни ще немає — у хедер тайтл + «Змінити касу».
+    if (selectedDeskId && !shift && !closingShift) {
+      setActions(
+        <>
+          <span className="text-sm">
+            {selectedPointName && <span className="opacity-80">{selectedPointName} · </span>}
+            <span className="font-semibold">{selectedDeskName}</span>
+          </span>
+          <button
+            onClick={handleBackToPicker}
+            className="text-sm hover:bg-blue-600 px-3 py-1 rounded transition"
+          >
+            ← Змінити касу
+          </button>
+        </>
+      );
+      return () => setActions(null);
+    }
+
     const inWorkingView = !!shift && !closingShift && !!selectedDeskId;
     if (!inWorkingView) { setActions(null); return; }
     const tabCls = (active: boolean) =>
@@ -324,7 +348,7 @@ export default function CashierPage() {
     );
     return () => setActions(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shift, closingShift, selectedDeskId, tab, pendingCount]);
+  }, [shift, closingShift, selectedDeskId, tab, pendingCount, selectedPointName, selectedDeskName]);
 
   // ── Рендер ────────────────────────────────────────────────────────────────
 
@@ -452,18 +476,10 @@ export default function CashierPage() {
   }
 
   // ── Відкриття зміни ────────────────────────────────────────────────────────
+  // «Змінити касу» і тайтл точки/каси — у хедері (див. setActions нижче).
   if (!shift) {
     return (
-      <div className="p-6">
-        <div className="max-w-lg mx-auto mb-4 mt-2">
-          <button onClick={handleBackToPicker} className="text-sm text-gray-500 hover:text-gray-700">
-            ← Змінити касу
-          </button>
-          <div className="text-sm text-gray-500 mt-1">
-            {selectedPointName && <>{selectedPointName} · </>}
-            <span className="font-semibold text-gray-700">{selectedDeskName}</span>
-          </div>
-        </div>
+      <div className="px-6 pt-3 pb-6">
         <OpenShiftForm rates={rates} cashDeskId={selectedDeskId} onOpen={handleOpenShift} />
       </div>
     );

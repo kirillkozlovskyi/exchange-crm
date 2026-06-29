@@ -256,6 +256,10 @@ model Transfer {
   number          String         @unique
   currency        String
   amount          Decimal        @db.Decimal(15, 2)
+  // Двовалютний своп (Б2): зустрічне плече — fromDesk отримує counterAmount
+  // counterCurrency від toDesk. NULL = звичайна одностороння передача.
+  counterCurrency String?
+  counterAmount   Decimal?       @db.Decimal(15, 2)
   status          TransferStatus @default(PENDING)
   note            String?
   createdAt       DateTime       @default(now())

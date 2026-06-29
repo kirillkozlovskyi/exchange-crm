@@ -74,11 +74,13 @@ export default function CloseShiftForm({
     [shift],
   );
 
-  // ── Розрахунковий (очікуваний фізичний) залишок = операції + рух готівки ───
-  const calcBalance = useMemo(
-    () => applyCashMovements(opsBalance, cashMovements),
-    [opsBalance, cashMovements],
-  );
+  // ── Розрахунковий (очікуваний фізичний) залишок ───────────────────────────
+  // = операції + рух готівки + підтверджені передачі/свопи (Б1).
+  const calcBalance = useMemo(() => {
+    const b = applyCashMovements(opsBalance, cashMovements);
+    for (const [cur, amt] of Object.entries(net)) b[cur] = (b[cur] ?? 0) + amt;
+    return b;
+  }, [opsBalance, cashMovements, net]);
 
   // Всі валюти: UAH + всі з балансу + всі з операцій + передач + руху готівки
   const currencies = useMemo(() => {

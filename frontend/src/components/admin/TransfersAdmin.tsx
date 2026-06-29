@@ -35,7 +35,11 @@ export default function TransfersAdmin() {
                 {t.fromDesk?.exchangePoint?.name} → {t.toDesk?.exchangePoint?.name}
               </div>
               <div className="text-xs text-gray-500">
-                {Number(t.amount).toFixed(2)} {t.currency} · {t.sentBy?.name}
+                {Number(t.amount).toFixed(2)} {t.currency}
+                {t.counterCurrency && (
+                  <span className="text-blue-600"> ↔ {Number(t.counterAmount).toFixed(2)} {t.counterCurrency}</span>
+                )}
+                {' · '}{t.sentBy?.name}
               </div>
               {t.note && <div className="text-xs text-gray-400 italic">{t.note}</div>}
             </div>

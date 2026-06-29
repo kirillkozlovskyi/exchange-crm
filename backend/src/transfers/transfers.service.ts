@@ -17,10 +17,23 @@ export class TransfersService {
     toDeskId: number;
     currency: string;
     amount: number;
+    counterCurrency?: string | null;
+    counterAmount?: number | null;
     note?: string;
   }, userId: number) {
     if (dto.fromDeskId === dto.toDeskId)
       throw new BadRequestException('Не можна переказати на ту ж касу');
+    if (!(Number(dto.amount) > 0))
+      throw new BadRequestException('Сума має бути більшою за 0');
+
+    // Своп (Б2): зустрічне плече має бути повним і в іншій валюті.
+    const isSwap = !!dto.counterCurrency;
+    if (isSwap) {
+      if (!(Number(dto.counterAmount) > 0))
+        throw new BadRequestException('Сума зустрічного плеча має бути більшою за 0');
+      if (dto.counterCurrency === dto.currency)
+        throw new BadRequestException('Валюти свопу мають відрізнятися');
+    }
 
     const number = await this.generateNumber();
     return this.prisma.transfer.create({
@@ -30,6 +43,8 @@ export class TransfersService {
         toDeskId: dto.toDeskId,
         currency: dto.currency,
         amount: dto.amount,
+        counterCurrency: isSwap ? dto.counterCurrency : null,
+        counterAmount: isSwap ? dto.counterAmount : null,
         note: dto.note,
         sentById: userId,
         status: 'PENDING',
@@ -64,12 +79,14 @@ export class TransfersService {
     ]);
 
     // Сповіщення відправнику
-    const amount = Number(transfer.amount).toFixed(2);
+    const legText = transfer.counterCurrency
+      ? `${Number(transfer.amount).toFixed(2)} ${transfer.currency} ↔ ${Number(transfer.counterAmount).toFixed(2)} ${transfer.counterCurrency}`
+      : `${Number(transfer.amount).toFixed(2)} ${transfer.currency}`;
     const toPointName = transfer.toDesk?.exchangePoint?.name ?? transfer.toDesk?.name ?? 'каса';
     await this.prisma.notification.create({
       data: {
         userId: transfer.sentBy.id,
-        message: `✅ Передачу ${amount} ${transfer.currency} прийнято касою «${toPointName}» (${confirmedUser?.name ?? ''})`,
+        message: `✅ ${transfer.counterCurrency ? 'Своп' : 'Передачу'} ${legText} прийнято касою «${toPointName}» (${confirmedUser?.name ?? ''})`,
       },
     });
 
@@ -97,13 +114,15 @@ export class TransfersService {
     ]);
 
     // Сповіщення відправнику
-    const amount = Number(transfer.amount).toFixed(2);
+    const legText = transfer.counterCurrency
+      ? `${Number(transfer.amount).toFixed(2)} ${transfer.currency} ↔ ${Number(transfer.counterAmount).toFixed(2)} ${transfer.counterCurrency}`
+      : `${Number(transfer.amount).toFixed(2)} ${transfer.currency}`;
     const toPointName = transfer.toDesk?.exchangePoint?.name ?? transfer.toDesk?.name ?? 'каса';
     const noteText = rejectNote ? ` Причина: ${rejectNote}` : '';
     await this.prisma.notification.create({
       data: {
         userId: transfer.sentBy.id,
-        message: `❌ Передачу ${amount} ${transfer.currency} відхилено касою «${toPointName}» (${rejectedUser?.name ?? ''}).${noteText}`,
+        message: `❌ ${transfer.counterCurrency ? 'Своп' : 'Передачу'} ${legText} відхилено касою «${toPointName}» (${rejectedUser?.name ?? ''}).${noteText}`,
       },
     });
 
