@@ -327,11 +327,21 @@ model UsdtWallet {
   updatedAt       DateTime      @updatedAt
 }
 
-// Операція з USDT: рухає віртуальний гаманець точки та фізичну готівку каси.
+// Глобальний гаманець USDT — єдиний «банк» організації. Звідси USDT
+// розподіляється по точках; також може бути джерелом USDT для операцій
+// (залежно від налаштування usdt_source). Singleton (id = 1).
+model UsdtGlobalWallet {
+  id        Int      @id @default(1)
+  balance   Decimal  @default(0) @db.Decimal(18, 4)
+  updatedAt DateTime @updatedAt
+}
+
+// Операція з USDT: рухає віртуальний гаманець (точки або глобальний) та фізичну готівку каси.
 model UsdtOperation {
   id             Int      @id @default(autoincrement())
   number         String   @unique // USDT-YYYYMMDD-0001
   side           UsdtSide
+  walletSource   String   @default("POINT") // POINT | GLOBAL — звідки рухався USDT
   usdtAmount     Decimal  @db.Decimal(18, 4)  // сума USDT (рух гаманця)
   pct            Decimal  @db.Decimal(8, 4)   // застосований %
   usdValue       Decimal  @db.Decimal(18, 4)  // 1:1 база × (1±%) у USD-еквіваленті

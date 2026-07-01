@@ -12,6 +12,37 @@ import { CurrentUser } from '../common/decorators/user.decorator';
 export class UsdtController {
   constructor(private service: UsdtService) {}
 
+  // ── Глобальний банк / налаштування джерела ────────────────────────────────
+  // Конфіг доступний усім автентифікованим (каса читає джерело/баланс).
+  @Get('config')
+  getConfig() {
+    return this.service.getConfig();
+  }
+
+  @Put('source')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setSource(@Body() dto: { source: 'POINT' | 'GLOBAL' }) {
+    return this.service.setSource(dto.source);
+  }
+
+  @Post('global/adjust')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  adjustGlobal(@Body() dto: { delta: number }) {
+    return this.service.adjustGlobal(Number(dto.delta));
+  }
+
+  @Post('wallet/:pointId/distribute')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  distribute(
+    @Param('pointId', ParseIntPipe) pointId: number,
+    @Body() dto: { amount: number },
+  ) {
+    return this.service.distribute(pointId, Number(dto.amount));
+  }
+
   // ── Гаманці / налаштування ──────────────────────────────────────────────
   @Get('wallets')
   @UseGuards(RolesGuard)

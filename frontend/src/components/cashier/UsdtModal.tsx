@@ -18,6 +18,7 @@ export default function UsdtModal({
   onSaved: () => void;
 }) {
   const [wallet, setWallet] = useState<{ balance: number; buyPct: number; sellPct: number } | null>(null);
+  const [config, setConfig] = useState<{ source: 'POINT' | 'GLOBAL'; globalBalance: number } | null>(null);
   const [side, setSide] = useState<UsdtSide>('SELL');
   const [usdtAmount, setUsdtAmount] = useState('');
   const [pctRaw, setPctRaw] = useState('');
@@ -33,7 +34,14 @@ export default function UsdtModal({
     api.get(`/usdt/wallet/${pointId}`).then(({ data }) =>
       setWallet({ balance: Number(data.balance), buyPct: Number(data.buyPct), sellPct: Number(data.sellPct) }),
     ).catch(() => setWallet({ balance: 0, buyPct: 0, sellPct: 0 }));
+    api.get('/usdt/config').then(({ data }) =>
+      setConfig({ source: data.source, globalBalance: Number(data.globalBalance) }),
+    ).catch(() => setConfig({ source: 'POINT', globalBalance: 0 }));
   }, [pointId]);
+
+  // Доступний баланс USDT для продажу — залежно від джерела (точка/глобал).
+  const isGlobal = config?.source === 'GLOBAL';
+  const availableUsdt = isGlobal ? (config?.globalBalance ?? 0) : (wallet?.balance ?? 0);
 
   const defaultPct = side === 'SELL' ? (wallet?.sellPct ?? 0) : (wallet?.buyPct ?? 0);
   // Доки касир не редагував % вручну — тримаємо дефолт гаманця для поточної сторони.
@@ -67,8 +75,8 @@ export default function UsdtModal({
   const profitUah = usdt * (pct / 100) * usdMid;
 
   const warning = (() => {
-    if (side === 'SELL' && wallet && usdt > wallet.balance)
-      return `Недостатньо USDT у гаманці: є ${wallet.balance.toFixed(4)}, продаєте ${usdt.toFixed(4)}`;
+    if (side === 'SELL' && config && usdt > availableUsdt)
+      return `Недостатньо USDT у ${isGlobal ? 'глобальному банку' : 'гаманці точки'}: є ${availableUsdt.toFixed(4)}, продаєте ${usdt.toFixed(4)}`;
     if (side === 'BUY' && settle > (balance[settleCurrency] ?? 0))
       return `Недостатньо ${settleCurrency} у касі: є ${(balance[settleCurrency] ?? 0).toFixed(2)}, видаєте ${settle.toFixed(2)}`;
     return '';
@@ -113,7 +121,10 @@ export default function UsdtModal({
           <div className="text-sm font-semibold text-teal-700 uppercase tracking-wider">₮ USDT — операція</div>
           <p className="text-xs text-gray-500 mt-0.5">
             Гаманець 1:1 до USD, торгівля через %-комісію.
-            {wallet && <> Баланс: <span className="font-semibold text-gray-700">{wallet.balance.toFixed(4)} USDT</span>.</>}
+            {config && (
+              <> Джерело: <span className="font-semibold text-gray-700">{isGlobal ? 'глобальний банк' : 'гаманець точки'}</span>
+                {' · '}баланс: <span className="font-semibold text-gray-700">{availableUsdt.toFixed(4)} USDT</span>.</>
+            )}
           </p>
         </div>
 

@@ -63,6 +63,66 @@ export class UsdtService {
     });
   }
 
+  // ── Глобальний гаманець USDT (singleton id=1) ─────────────────────────────
+  async getGlobalWallet() {
+    return this.prisma.usdtGlobalWallet.upsert({
+      where: { id: 1 },
+      create: { id: 1 },
+      update: {},
+    });
+  }
+
+  // Ручне коригування глобального балансу (депозит/зняття USDT).
+  async adjustGlobal(delta: number) {
+    const g = await this.getGlobalWallet();
+    const next = Number(g.balance) + Number(delta);
+    if (next < 0) throw new BadRequestException('Глобальний баланс не може стати відʼємним');
+    return this.prisma.usdtGlobalWallet.update({ where: { id: 1 }, data: { balance: next } });
+  }
+
+  // Джерело USDT для операцій кас: 'POINT' (гаманець точки) або 'GLOBAL'.
+  async getSource(): Promise<'POINT' | 'GLOBAL'> {
+    const s = await this.prisma.setting.findUnique({ where: { key: 'usdt_source' } });
+    return s?.value === 'GLOBAL' ? 'GLOBAL' : 'POINT';
+  }
+
+  async setSource(source: 'POINT' | 'GLOBAL') {
+    const value = source === 'GLOBAL' ? 'GLOBAL' : 'POINT';
+    await this.prisma.setting.upsert({
+      where: { key: 'usdt_source' },
+      create: { key: 'usdt_source', value },
+      update: { value },
+    });
+    return { source: value };
+  }
+
+  // Загальний стан USDT для адмінки/каси: джерело + глобальний баланс.
+  async getConfig() {
+    const [source, global] = await Promise.all([this.getSource(), this.getGlobalWallet()]);
+    return { source, globalBalance: Number(global.balance) };
+  }
+
+  // Розподіл USDT: amount>0 — з глобального у точку; amount<0 — з точки в глобальний.
+  async distribute(exchangePointId: number, amount: number) {
+    const amt = Number(amount);
+    if (!amt) throw new BadRequestException('Сума розподілу має бути ненульовою');
+    const g = await this.getGlobalWallet();
+    const wallet = await this.getWallet(exchangePointId);
+    const gBal = Number(g.balance);
+    const pBal = Number(wallet.balance);
+
+    if (amt > 0 && gBal < amt)
+      throw new BadRequestException(`Недостатньо USDT у глобальному банку: є ${gBal.toFixed(4)}`);
+    if (amt < 0 && pBal < -amt)
+      throw new BadRequestException(`Недостатньо USDT у точці: є ${pBal.toFixed(4)}`);
+
+    await this.prisma.$transaction([
+      this.prisma.usdtGlobalWallet.update({ where: { id: 1 }, data: { balance: gBal - amt } }),
+      this.prisma.usdtWallet.update({ where: { exchangePointId }, data: { balance: pBal + amt } }),
+    ]);
+    return { globalBalance: gBal - amt, pointBalance: pBal + amt };
+  }
+
   private async generateNumber() {
     const date = format(new Date(), 'yyyyMMdd');
     const count = await this.prisma.usdtOperation.count();
@@ -155,11 +215,17 @@ export class UsdtService {
     // Чиста маржа (%) у гривні: usdtAmount × % × серединний курс USD.
     const profitUah = round2(usdtAmount * frac * usd.mid);
 
+    // Джерело USDT: гаманець точки чи глобальний банк (налаштування).
+    const source = await this.getSource();
+    const global = source === 'GLOBAL' ? await this.getGlobalWallet() : null;
+    const sourceBalance = source === 'GLOBAL' ? Number(global!.balance) : Number(wallet.balance);
+
     if (side === 'SELL') {
-      // Продаємо USDT з гаманця — має вистачати USDT.
-      if (Number(wallet.balance) < usdtAmount) {
+      // Продаємо USDT з гаманця-джерела — має вистачати USDT.
+      if (sourceBalance < usdtAmount) {
+        const where = source === 'GLOBAL' ? 'глобальному банку' : 'гаманці точки';
         throw new BadRequestException(
-          `Недостатньо USDT у гаманці: є ${Number(wallet.balance).toFixed(4)}, продаєте ${usdtAmount.toFixed(4)}`,
+          `Недостатньо USDT у ${where}: є ${sourceBalance.toFixed(4)}, продаєте ${usdtAmount.toFixed(4)}`,
         );
       }
     } else {
@@ -180,11 +246,24 @@ export class UsdtService {
     const number = await this.generateNumber();
     const walletDelta = side === 'SELL' ? -usdtAmount : usdtAmount;
 
+    // Рухаємо саме той гаманець, який обрано джерелом.
+    const walletMove =
+      source === 'GLOBAL'
+        ? this.prisma.usdtGlobalWallet.update({
+            where: { id: 1 },
+            data: { balance: Number(global!.balance) + walletDelta },
+          })
+        : this.prisma.usdtWallet.update({
+            where: { exchangePointId: pointId },
+            data: { balance: Number(wallet.balance) + walletDelta },
+          });
+
     const [op] = await this.prisma.$transaction([
       this.prisma.usdtOperation.create({
         data: {
           number,
           side,
+          walletSource: source,
           usdtAmount,
           pct,
           usdValue,
@@ -199,10 +278,7 @@ export class UsdtService {
         },
         include: { createdBy: { select: { name: true } } },
       }),
-      this.prisma.usdtWallet.update({
-        where: { exchangePointId: pointId },
-        data: { balance: Number(wallet.balance) + walletDelta },
-      }),
+      walletMove,
     ]);
 
     return op;

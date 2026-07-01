@@ -29,10 +29,87 @@ type UsdtOp = {
 
 type SideFilter = 'all' | 'BUY' | 'SELL';
 
-function WalletCard({ w, onSaved }: { w: Wallet; onSaved: () => void }) {
+// Глобальний банк USDT + вибір джерела для операцій кас.
+function GlobalCard({
+  source, globalBalance, onSetSource, onSaved,
+}: {
+  source: 'POINT' | 'GLOBAL';
+  globalBalance: number;
+  onSetSource: (s: 'POINT' | 'GLOBAL') => void;
+  onSaved: () => void;
+}) {
+  const [adjust, setAdjust] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const applyAdjust = async (sign: 1 | -1) => {
+    const delta = (parseFloat(adjust) || 0) * sign;
+    if (!delta) return;
+    setBusy(true); setMsg('');
+    try {
+      await api.post('/usdt/global/adjust', { delta });
+      setAdjust(''); setMsg('Баланс оновлено'); onSaved();
+    } catch (e: any) {
+      setMsg(e.response?.data?.message ?? 'Помилка');
+    } finally { setBusy(false); }
+  };
+
+  const srcBtn = (s: 'POINT' | 'GLOBAL', label: string) => (
+    <button onClick={() => onSetSource(s)}
+      className={`flex-1 rounded px-3 py-1.5 text-sm font-semibold border transition ${
+        source === s ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+      }`}>
+      {label}
+    </button>
+  );
+
+  return (
+    <div className="bg-white rounded-xl shadow p-5">
+      <div className="flex items-baseline justify-between mb-3 flex-wrap gap-2">
+        <h3 className="font-semibold text-lg">₮ USDT — глобальний банк</h3>
+        <div className="text-right">
+          <div className="text-xs text-gray-400">Баланс глобального банку</div>
+          <div className="font-bold text-teal-700 text-lg">{globalBalance.toFixed(4)} USDT</div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Джерело USDT для операцій кас</div>
+          <div className="flex gap-2">
+            {srcBtn('POINT', 'Гаманець точки')}
+            {srcBtn('GLOBAL', 'Глобальний банк')}
+          </div>
+          <p className="text-xs text-gray-400 mt-1.5">
+            {source === 'GLOBAL'
+              ? 'Каси беруть/повертають USDT напряму з глобального банку.'
+              : 'Каси працюють із гаманцем своєї точки (поповнюйте його розподілом нижче).'}
+          </p>
+        </div>
+
+        <div>
+          <div className="text-xs text-gray-500 mb-1">Коригування балансу (депозит/зняття USDT)</div>
+          <div className="flex gap-1.5">
+            <input type="number" step="0.0001" min="0" value={adjust} onChange={(e) => setAdjust(e.target.value)}
+              placeholder="0.0000"
+              className="flex-1 border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+            <button onClick={() => applyAdjust(1)} disabled={busy}
+              className="px-3 py-1 rounded bg-green-100 text-green-700 font-semibold text-sm hover:bg-green-200 disabled:opacity-50">+ Депозит</button>
+            <button onClick={() => applyAdjust(-1)} disabled={busy}
+              className="px-3 py-1 rounded bg-red-100 text-red-700 font-semibold text-sm hover:bg-red-200 disabled:opacity-50">− Зняти</button>
+          </div>
+          {msg && <div className="text-xs text-gray-500 mt-1.5">{msg}</div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WalletCard({ w, globalBalance, onSaved }: { w: Wallet; globalBalance: number; onSaved: () => void }) {
   const [buyPct, setBuyPct] = useState(String(w.buyPct));
   const [sellPct, setSellPct] = useState(String(w.sellPct));
   const [adjust, setAdjust] = useState('');
+  const [distr, setDistr] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -61,6 +138,19 @@ function WalletCard({ w, onSaved }: { w: Wallet; onSaved: () => void }) {
     try {
       await api.post(`/usdt/wallet/${w.exchangePointId}/adjust`, { delta });
       setAdjust(''); setMsg('Баланс оновлено'); onSaved();
+    } catch (e: any) {
+      setMsg(e.response?.data?.message ?? 'Помилка');
+    } finally { setBusy(false); }
+  };
+
+  // Розподіл: sign=+1 — з глобального у точку; sign=−1 — з точки в глобальний.
+  const applyDistribute = async (sign: 1 | -1) => {
+    const amount = (parseFloat(distr) || 0) * sign;
+    if (!amount) return;
+    setBusy(true); setMsg('');
+    try {
+      await api.post(`/usdt/wallet/${w.exchangePointId}/distribute`, { amount });
+      setDistr(''); setMsg('Розподілено'); onSaved();
     } catch (e: any) {
       setMsg(e.response?.data?.message ?? 'Помилка');
     } finally { setBusy(false); }
@@ -107,6 +197,23 @@ function WalletCard({ w, onSaved }: { w: Wallet; onSaved: () => void }) {
             className="px-3 py-1 rounded bg-red-100 text-red-700 font-semibold text-sm hover:bg-red-200 disabled:opacity-50">− Зняти</button>
         </div>
       </div>
+
+      <div className="border-t pt-2 mt-2">
+        <div className="text-xs text-gray-500 mb-1">
+          Розподіл із глобального банку <span className="text-gray-400">(у банку {globalBalance.toFixed(4)})</span>
+        </div>
+        <div className="flex gap-1.5">
+          <input type="number" step="0.0001" min="0" value={distr} onChange={(e) => setDistr(e.target.value)}
+            placeholder="0.0000"
+            className="flex-1 border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+          <button onClick={() => applyDistribute(1)} disabled={busy}
+            title="З глобального банку → у точку"
+            className="px-3 py-1 rounded bg-teal-100 text-teal-700 font-semibold text-sm hover:bg-teal-200 disabled:opacity-50">← у точку</button>
+          <button onClick={() => applyDistribute(-1)} disabled={busy}
+            title="З точки → у глобальний банк"
+            className="px-3 py-1 rounded bg-gray-100 text-gray-700 font-semibold text-sm hover:bg-gray-200 disabled:opacity-50">у банк →</button>
+        </div>
+      </div>
       {msg && <div className="text-xs text-gray-500 mt-2">{msg}</div>}
     </div>
   );
@@ -115,14 +222,19 @@ function WalletCard({ w, onSaved }: { w: Wallet; onSaved: () => void }) {
 export default function UsdtAdmin() {
   const [wallets, setWallets] = useState<Wallet[]>([]);
   const [ops, setOps] = useState<UsdtOp[]>([]);
+  const [config, setConfig] = useState<{ source: 'POINT' | 'GLOBAL'; globalBalance: number }>({ source: 'POINT', globalBalance: 0 });
   const [loading, setLoading] = useState(true);
   const [side, setSide] = useState<SideFilter>('all');
   const [pointId, setPointId] = useState<number | 'all'>('all');
 
   const load = () => {
     setLoading(true);
-    Promise.all([api.get('/usdt/wallets'), api.get('/usdt')])
-      .then(([w, o]) => { setWallets(w.data); setOps(o.data); })
+    Promise.all([api.get('/usdt/wallets'), api.get('/usdt'), api.get('/usdt/config')])
+      .then(([w, o, c]) => {
+        setWallets(w.data);
+        setOps(o.data);
+        setConfig({ source: c.data.source, globalBalance: Number(c.data.globalBalance) });
+      })
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
@@ -140,9 +252,22 @@ export default function UsdtAdmin() {
   const chip = (active: boolean) =>
     `px-3 py-1 rounded text-sm font-medium transition ${active ? 'bg-white shadow text-teal-700' : 'text-gray-600'}`;
 
+  const setSource = async (source: 'POINT' | 'GLOBAL') => {
+    await api.put('/usdt/source', { source }).catch(() => {});
+    load();
+  };
+
   return (
     <div className="space-y-4">
-      {/* Гаманці + налаштування */}
+      {/* Глобальний банк + джерело USDT */}
+      <GlobalCard
+        source={config.source}
+        globalBalance={config.globalBalance}
+        onSetSource={setSource}
+        onSaved={load}
+      />
+
+      {/* Гаманці точок + налаштування */}
       <div className="bg-white rounded-xl shadow p-5">
         <h3 className="font-semibold text-lg mb-3">₮ USDT — гаманці точок</h3>
         {loading ? (
@@ -151,7 +276,9 @@ export default function UsdtAdmin() {
           <p className="text-gray-400 text-sm">Немає точок</p>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {wallets.map((w) => <WalletCard key={w.exchangePointId} w={w} onSaved={load} />)}
+            {wallets.map((w) => (
+              <WalletCard key={w.exchangePointId} w={w} globalBalance={config.globalBalance} onSaved={load} />
+            ))}
           </div>
         )}
       </div>
