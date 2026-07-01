@@ -16,6 +16,7 @@ import { SettingsModule } from './settings/settings.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReconciliationsModule } from './reconciliations/reconciliations.module';
 import { CashMovementsModule } from './cash-movements/cash-movements.module';
+import { UsdtModule } from './usdt/usdt.module';
 import { SeedService } from './seed.service';
 
 @Module({
@@ -37,6 +38,7 @@ import { SeedService } from './seed.service';
     NotificationsModule,
     ReconciliationsModule,
     CashMovementsModule,
+    UsdtModule,
   ],
   providers: [SeedService],
 })

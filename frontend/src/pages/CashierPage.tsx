@@ -12,6 +12,8 @@ import Flag from '../components/Flag';
 import { computeCurrentBalance } from '../lib/balance';
 import { applyCashMovements, type CashDirection } from '../lib/cash-movements';
 import { netTransfers } from '../lib/transfers';
+import { usdtCashDelta } from '../lib/usdt';
+import UsdtModal from '../components/cashier/UsdtModal';
 
 type Tab = 'operations' | 'transfers';
 
@@ -59,6 +61,8 @@ export default function CashierPage() {
   const [showReconcileModal, setShowReconcileModal] = useState(false);
   // Модалка руху готівки: null закрита, або напрямок IN (підкріплення)/OUT (інкасація).
   const [cashMoveDir, setCashMoveDir] = useState<CashDirection | null>(null);
+  // Модалка USDT-операції
+  const [showUsdt, setShowUsdt] = useState(false);
   const [quickAmounts, setQuickAmounts] = useState<number[]>([10, 20, 50, 100, 500]);
   const [orgName, setOrgName] = useState('');
   const [activeCur, setActiveCur] = useState<string | undefined>(undefined);
@@ -280,6 +284,9 @@ export default function CashierPage() {
       const net = netTransfers(shift.confirmedTransfers ?? [], shift.cashDeskId);
       for (const [cur, amt] of Object.entries(net)) base[cur] = (base[cur] ?? 0) + amt;
     }
+    // Фізична готівка від USDT-операцій (settleCurrency).
+    const usdtD = usdtCashDelta(shift?.usdtOperations ?? []);
+    for (const [cur, amt] of Object.entries(usdtD)) base[cur] = (base[cur] ?? 0) + amt;
     return base;
   }, [shift]);
 
@@ -329,6 +336,9 @@ export default function CashierPage() {
         </button>
         <button onClick={() => setCashMoveDir('OUT')} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm font-medium">
           Інкасація
+        </button>
+        <button onClick={() => setShowUsdt(true)} className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1 rounded text-sm font-medium">
+          ₮ USDT
         </button>
         <button onClick={() => setTab('operations')} className={tabCls(tab === 'operations')}>
           Операції
@@ -495,6 +505,7 @@ export default function CashierPage() {
           deskId={selectedDeskId ?? shift.cashDeskId}
           transfers={closeTransfers}
           cashMovements={shift.cashMovements ?? []}
+          usdtOperations={shift.usdtOperations ?? []}
           onClose={handleCloseShift}
           onCancel={() => setClosingShift(false)}
         />
@@ -684,6 +695,18 @@ export default function CashierPage() {
           movements={shift.cashMovements ?? []}
           currencies={Array.from(new Set(['UAH', ...rates.map((r: any) => r.currency), ...Object.keys(currentBalance)]))}
           onClose={() => setCashMoveDir(null)}
+          onSaved={() => loadShift(selectedDeskId!)}
+        />
+      )}
+
+      {/* ── Модалка USDT-операції ──────────────────────────────────────────── */}
+      {showUsdt && (
+        <UsdtModal
+          shiftId={shift.id}
+          pointId={selectedPointId ?? shift.cashDesk?.exchangePointId}
+          rates={rates}
+          balance={currentBalance}
+          onClose={() => setShowUsdt(false)}
           onSaved={() => loadShift(selectedDeskId!)}
         />
       )}

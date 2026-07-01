@@ -3,6 +3,7 @@ import RatesAdmin from '../components/admin/RatesAdmin';
 import FinanceAdmin from '../components/admin/FinanceAdmin';
 import TransfersAdmin from '../components/admin/TransfersAdmin';
 import CashMovementsAdmin from '../components/admin/CashMovementsAdmin';
+import UsdtAdmin from '../components/admin/UsdtAdmin';
 import OperationsAdmin from '../components/admin/OperationsAdmin';
 import ActiveShiftsAdmin from '../components/admin/ActiveShiftsAdmin';
 import ShiftsAdmin from '../components/admin/ShiftsAdmin';
@@ -10,7 +11,7 @@ import ReconciliationsAdmin from '../components/admin/ReconciliationsAdmin';
 import SettingsAdmin from '../components/admin/SettingsAdmin';
 import NbuWidget from '../components/admin/NbuWidget';
 
-type Tab = 'shifts' | 'shiftlog' | 'rates' | 'operations' | 'finance' | 'transfers' | 'cashmovements' | 'reconciliations' | 'settings';
+type Tab = 'shifts' | 'shiftlog' | 'rates' | 'operations' | 'finance' | 'transfers' | 'cashmovements' | 'usdt' | 'reconciliations' | 'settings';
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'shifts',     label: '🟢 Хто працює' },
@@ -20,6 +21,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: 'finance',    label: '💰 Фінанси' },
   { key: 'transfers',  label: '💸 Передачі' },
   { key: 'cashmovements', label: '🏦 Рух готівки' },
+  { key: 'usdt',       label: '₮ USDT' },
   { key: 'reconciliations', label: '⚖️ Звірки' },
   { key: 'settings',   label: '⚙️ Налаштування' },
 ];
@@ -51,6 +53,7 @@ export default function AdminPage() {
         {tab === 'finance'    && <FinanceAdmin />}
         {tab === 'transfers'  && <TransfersAdmin />}
         {tab === 'cashmovements' && <CashMovementsAdmin />}
+        {tab === 'usdt'        && <UsdtAdmin />}
         {tab === 'reconciliations' && <ReconciliationsAdmin />}
         {tab === 'settings'   && <SettingsAdmin />}
       </div>

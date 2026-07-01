@@ -5,6 +5,7 @@ import { applyOperationsToBalance, operationsDelta } from '../common/balance.uti
 import { midRates, valueOf, realizedProfit } from '../common/profit.util';
 import { netTransfers } from '../common/transfers.util';
 import { cashMovementsDelta } from '../common/cash-movements.util';
+import { usdtCashDelta, usdtProfit } from '../common/usdt.util';
 
 @Injectable()
 export class ShiftsService {
@@ -46,7 +47,7 @@ export class ShiftsService {
   async closeShift(shiftId: number, endBalance?: object) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
-      include: { operations: true, cashMovements: true, cashDesk: true },
+      include: { operations: true, cashMovements: true, usdtOperations: true, cashDesk: true },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна вже закрита');
@@ -59,8 +60,15 @@ export class ShiftsService {
     // Підкріплення/інкасації змінюють готівку каси, але це не торговий результат.
     const moveDelta = cashMovementsDelta(shift.cashMovements ?? []);
 
-    // Розрахунковий залишок, який має бути фізично в касі = операції + рух готівки.
+    // USDT-операції рухають фізичну готівку каси (settleCurrency) — це торгова
+    // готівка (входить у прибуток окремою маржею), на відміну від руху готівки.
+    const usdtDelta = usdtCashDelta((shift.usdtOperations as any) ?? []);
+
+    // Розрахунковий залишок у касі = операції + USDT-готівка + рух готівки.
     const calcBalance: Record<string, number> = { ...opsBalance };
+    for (const [cur, d] of Object.entries(usdtDelta)) {
+      calcBalance[cur] = (calcBalance[cur] ?? 0) + d;
+    }
     for (const [cur, d] of Object.entries(moveDelta)) {
       calcBalance[cur] = (calcBalance[cur] ?? 0) + d;
     }
@@ -74,10 +82,12 @@ export class ShiftsService {
     const valuation = midRates(
       rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
     );
-    const { total: profit, byCurrency: profitByCurrency } = realizedProfit(
-      shift.operations,
-      valuation,
-    );
+    const realized = realizedProfit(shift.operations, valuation);
+    // Прибуток USDT — чиста маржа (%) у гривні, окремим рядком «USDT».
+    const usdtMargin = usdtProfit((shift.usdtOperations as any) ?? []);
+    const profitByCurrency = { ...realized.byCurrency };
+    if (Math.abs(usdtMargin) >= 0.005) profitByCurrency.USDT = usdtMargin;
+    const profit = realized.total + usdtMargin;
 
     // Передачі між касами/точками — це рух готівки, а не торговий прибуток.
     // Вилучаємо їх із фактичного залишку, щоб отримана/відправлена валюта не
@@ -123,9 +133,15 @@ export class ShiftsService {
     for (const [cur, d] of Object.entries(moveDelta)) {
       factualEnd[cur] = (factualEnd[cur] ?? 0) - d; // IN(+)→прибираємо, OUT(−)→повертаємо
     }
-    // Фактичний результат = реалізований прибуток + нестача/надлишок каси
+    // Очікувана торгова готівка = операції + USDT-готівка (рух готівки/передачі
+    // не входять — їх вилучено з factualEnd вище). Порівнюємо з фактично введеним.
+    const expectedTrading: Record<string, number> = { ...opsBalance };
+    for (const [cur, d] of Object.entries(usdtDelta)) {
+      expectedTrading[cur] = (expectedTrading[cur] ?? 0) + d;
+    }
+    // Фактичний результат = прибуток (спред + маржа USDT) + нестача/надлишок каси
     // (різниця між фактично введеним і очікуваним залишком за серединним курсом).
-    const surplusShort = valueOf(factualEnd, valuation) - valueOf(opsBalance, valuation);
+    const surplusShort = valueOf(factualEnd, valuation) - valueOf(expectedTrading, valuation);
     const factualProfit = profit + surplusShort;
 
     const updated = await this.prisma.shift.update({
@@ -140,7 +156,7 @@ export class ShiftsService {
     });
     // factualProfit, valuationRates, netTransfers і netCashMovements не зберігаються
     // (без зміни схеми) — повертаємо для звіту
-    return { ...updated, factualProfit, profitByCurrency, valuationRates: valuation, netTransfers: net, netCashMovements: moveDelta };
+    return { ...updated, factualProfit, profitByCurrency, valuationRates: valuation, netTransfers: net, netCashMovements: moveDelta, netUsdt: usdtDelta, usdtProfit: usdtMargin };
   }
 
   // Залишок із закриття останньої зміни цієї каси — для префілу при відкритті нової.
@@ -182,6 +198,7 @@ export class ShiftsService {
     openedBy: true,
     operations: { orderBy: { createdAt: 'desc' as const } },
     cashMovements: { orderBy: { createdAt: 'desc' as const } },
+    usdtOperations: { orderBy: { createdAt: 'desc' as const } },
   };
 
   async getActiveShift(cashDeskId: number) {
@@ -218,7 +235,7 @@ export class ShiftsService {
       include: {
         cashDesk: { include: { exchangePoint: true } },
         openedBy: { select: { name: true } },
-        _count: { select: { operations: true, cashMovements: true, reconciliations: true } },
+        _count: { select: { operations: true, cashMovements: true, reconciliations: true, usdtOperations: true } },
       },
       orderBy: { openedAt: 'desc' },
       take: 300,

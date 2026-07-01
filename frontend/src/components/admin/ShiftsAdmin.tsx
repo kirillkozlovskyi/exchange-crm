@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
 import { applyCashMovements } from '../../lib/cash-movements';
 import { netTransfers } from '../../lib/transfers';
+import { usdtCashDelta } from '../../lib/usdt';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   OPEN: { label: 'Відкрита', cls: 'bg-green-100 text-green-700' },
@@ -40,6 +41,7 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   const moves: any[] = d.cashMovements || [];
   const transfers: any[] = d.confirmedTransfers || [];
   const recons: any[] = d.reconciliations || [];
+  const usdtOps: any[] = d.usdtOperations || [];
 
   // Очікуваний залишок: для закритих — збережений calcBalance; для відкритих — рахуємо живий.
   const expected: Record<string, number> = closed
@@ -48,6 +50,8 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
         const b = applyCashMovements(computeCurrentBalance(start, ops), moves);
         const net = netTransfers(transfers, d.cashDeskId);
         for (const [c, a] of Object.entries(net)) b[c] = (b[c] ?? 0) + a;
+        const ud = usdtCashDelta(usdtOps);
+        for (const [c, a] of Object.entries(ud)) b[c] = (b[c] ?? 0) + a;
         return b;
       })();
   const actual: Record<string, number> | null = closed ? (d.endBalance || {}) : null;
@@ -192,6 +196,42 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
           )}
         </Section>
 
+        {/* USDT-операції */}
+        <Section title="USDT-операції" count={usdtOps.length}>
+          {usdtOps.length === 0 ? <p className="text-gray-400 text-sm py-2">Немає</p> : (
+            <div className="overflow-auto max-h-72">
+              <table className="w-full text-sm">
+                <thead className="sticky top-0 bg-white">
+                  <tr className="text-xs text-gray-400 border-b">
+                    <th className="text-left pb-1">Час</th><th className="text-left pb-1">Тип</th>
+                    <th className="text-right pb-1">USDT</th><th className="text-right pb-1">Готівка</th><th className="text-right pb-1">Маржа ₴</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...usdtOps].reverse().map((op) => {
+                    const isSell = op.side === 'SELL';
+                    return (
+                      <tr key={op.id} className="border-b last:border-0">
+                        <td className="py-1 text-gray-400 text-xs">{format(new Date(op.createdAt), 'HH:mm')}</td>
+                        <td className="py-1">
+                          <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-teal-100 text-teal-700">
+                            {isSell ? 'Продаж' : 'Купівля'}
+                          </span>
+                        </td>
+                        <td className={`py-1 text-right font-medium ${isSell ? 'text-red-600' : 'text-green-600'}`}>
+                          {isSell ? '−' : '+'}{fmt(op.usdtAmount)}
+                        </td>
+                        <td className="py-1 text-right text-gray-600">{fmt(op.settleAmount)} <span className="text-gray-400 text-xs">{op.settleCurrency}</span></td>
+                        <td className="py-1 text-right font-medium text-green-600">+{fmt(op.profitUah)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Section>
+
         {/* Проміжні звірки */}
         <Section title="Проміжні звірки" count={recons.length}>
           {recons.length === 0 ? <p className="text-gray-400 text-sm py-2">Не було</p> : (
@@ -288,7 +328,7 @@ export default function ShiftsAdmin() {
                     <div className="text-xs text-gray-400 mt-0.5">
                       {s.openedBy?.name} · відкрито {format(new Date(s.openedAt), 'dd.MM.yyyy HH:mm')}
                       {s.closedAt && <> · закрито {format(new Date(s.closedAt), 'HH:mm')}</>}
-                      {' · '}{s._count?.operations ?? 0} оп. · {s._count?.cashMovements ?? 0} рух · {s._count?.reconciliations ?? 0} звір.
+                      {' · '}{s._count?.operations ?? 0} оп. · {s._count?.cashMovements ?? 0} рух · {s._count?.usdtOperations ?? 0} USDT · {s._count?.reconciliations ?? 0} звір.
                     </div>
                   </div>
                   {s.status === 'CLOSED' && (
