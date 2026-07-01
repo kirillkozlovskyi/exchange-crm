@@ -205,6 +205,21 @@ function OpRow({
           <span className="text-red-500 text-[10px] font-semibold" title={op.cancelNote || 'Сторно'}>СТОРНО</span>
         ) : seq}
       </td>
+      <td className="w-10 py-1.5 px-0.5 text-center whitespace-nowrap">
+        {!op.cancelled && (
+          <button
+            onClick={() => onPrint(op)}
+            title={`Друк чека № ${op.number}`}
+            className="p-1 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition inline-flex"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="6 9 6 2 18 2 18 9" />
+              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+              <rect x="6" y="14" width="12" height="8" />
+            </svg>
+          </button>
+        )}
+      </td>
       <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{f.gaveAmt.toFixed(0)}</td>
       <td className="py-1.5 px-1"><CurCell cur={f.gaveCur} /></td>
       <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{f.gotAmt.toFixed(0)}</td>
@@ -216,32 +231,21 @@ function OpRow({
         )}
       </td>
       <td className="py-1.5 px-1 text-right text-xs text-gray-400 whitespace-nowrap">{format(new Date(op.createdAt), 'HH:mm')}</td>
-      <td className="w-16 py-1.5 px-0.5 text-center whitespace-nowrap">
-        <span className="inline-flex gap-0.5 items-center">
-          {!op.cancelled && (
-            <button
-              onClick={() => onPrint(op)}
-              title={`Друк чека № ${op.number}`}
-              className="p-1 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition inline-flex"
-            >
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="6 9 6 2 18 2 18 9" />
-                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-                <rect x="6" y="14" width="12" height="8" />
-              </svg>
-            </button>
-          )}
-          {!op.cancelled && canEdit && (
-            <button onClick={() => onEdit(op)}
-              className="p-1 rounded text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition text-sm leading-none font-bold"
-              title="Редагувати операцію">✎</button>
-          )}
-          {!op.cancelled && isLast && withinWindow && (
-            <button onClick={() => onStorno(op)}
-              className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 transition text-sm leading-none font-black"
-              title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}>✕</button>
-          )}
-        </span>
+      <td className="w-10 py-1.5 px-0.5 text-center whitespace-nowrap">
+        {!op.cancelled && (
+          <span className="inline-flex gap-0.5 items-center">
+            {canEdit && (
+              <button onClick={() => onEdit(op)}
+                className="p-1 rounded text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition text-sm leading-none font-bold"
+                title="Редагувати операцію">✎</button>
+            )}
+            {isLast && withinWindow && (
+              <button onClick={() => onStorno(op)}
+                className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 transition text-sm leading-none font-black"
+                title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}>✕</button>
+            )}
+          </span>
+        )}
       </td>
     </tr>
   );
@@ -260,13 +264,14 @@ function OpsBlock({
     <thead className="sticky top-0 bg-white z-10">
       <tr className="text-[11px] text-gray-900 uppercase tracking-wide border-b">
         <th className="w-10 py-1.5 px-1 text-center font-medium text-[10px]">№</th>
+        <th className="w-10 py-1.5 px-0.5 text-center font-medium text-[10px]">Чек</th>
         <th className="py-1.5 px-1 text-right font-medium">Видав</th>
         <th className="py-1.5 px-1 text-left font-medium">Валюта</th>
         <th className="py-1.5 px-1 text-right font-medium">Прийняв</th>
         <th className="py-1.5 px-1 text-left font-medium">Валюта</th>
         <th className="py-1.5 px-1 text-right font-medium">Курс</th>
         <th className="py-1.5 px-1 text-right font-medium">Час</th>
-        <th className="w-16 py-1.5 px-0.5 text-center font-medium text-[10px]">Чек / Дії</th>
+        <th className="w-10 py-1.5 px-0.5 text-center font-medium text-[10px]">Дії</th>
       </tr>
     </thead>
   );

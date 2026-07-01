@@ -108,6 +108,29 @@ export default function OperationForm({
 
   const rateNum = parseFloat(rateRaw) || 0;
 
+  // Якщо курси підвантажились ПІСЛЯ монтування, а валюта операції лишилась з
+  // дефолту (fallback 'USD') і її немає серед курсів точки — пере-ініціалізуємо
+  // на фактичний дефолт, інакше курс ніколи не підтягнеться (порожні rates).
+  useEffect(() => {
+    if (foreignCurrencies.length === 0) return;
+    if (foreignCurrencies.includes(qtyCur)) return;
+    const def = foreignCurrencies.includes('USD') ? 'USD' : foreignCurrencies[0];
+    setQtyCur(def);
+    setHSumCur(def);
+    if (mode === 'BUY') setClientCur(def);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [foreignCurrencies]);
+
+  // Підтягуємо ринковий курс у поле, коли він доступний і поле не редаговане
+  // вручну. Залежність від `rates`/`rateRaw` гарантує повтор після async-завантаження
+  // курсів (перше завантаження інколи не встигало заповнити поле).
+  useEffect(() => {
+    if (rateManual) return;
+    if (rateRaw !== '' ) return;
+    if (marketRate > 0) setRateRaw(fmtRate(marketRate));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rates, marketRate, rateManual, rateRaw]);
+
   // При зміні marketRate → оновити рядок курсу (якщо не ручний)
   useEffect(() => {
     if (marketRate > 0 && !rateManual) {

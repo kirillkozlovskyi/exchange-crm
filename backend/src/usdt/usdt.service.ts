@@ -91,6 +91,7 @@ export class UsdtService {
       usdtAmount: number;
       settleCurrency: string;
       settleAmount?: number; // необовʼязкове ручне коригування підсумкової суми
+      pct?: number;          // необовʼязковий % на цю операцію (інакше — з гаманця)
       note?: string;
     },
     userId: number,
@@ -118,7 +119,9 @@ export class UsdtService {
     const wallet = await this.getWallet(pointId);
     const rates = await this.pointRates(pointId);
 
-    const pct = side === 'SELL' ? Number(wallet.sellPct) : Number(wallet.buyPct);
+    // % — індивідуальний на операцію (якщо переданий), інакше з гаманця точки.
+    const defaultPct = side === 'SELL' ? Number(wallet.sellPct) : Number(wallet.buyPct);
+    const pct = dto.pct != null && Number(dto.pct) >= 0 ? Number(dto.pct) : defaultPct;
     const frac = pct / 100;
     // 1:1 до USD × (1 ± %): продаж дорожче для клієнта, купівля дешевше.
     const usdValue = side === 'SELL' ? usdtAmount * (1 + frac) : usdtAmount * (1 - frac);
