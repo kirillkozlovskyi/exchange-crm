@@ -178,9 +178,9 @@ export function printReceipt(op: Op, info: ReceiptInfo = {}) {
 }
 
 function OpRow({
-  op, rates, onEdit, onStorno, onPrint, isLast, canEdit, stornoWindowMin, now,
+  op, seq, rates, onEdit, onStorno, onPrint, isLast, canEdit, stornoWindowMin, now,
 }: {
-  op: Op; rates: Rate[]; onEdit: (op: Op) => void;
+  op: Op; seq: number; rates: Rate[]; onEdit: (op: Op) => void;
   onStorno: (op: Op) => void; onPrint: (op: Op) => void; isLast: boolean; canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
@@ -200,22 +200,10 @@ function OpRow({
 
   return (
     <tr className={`border-b border-gray-100 last:border-0 group ${op.cancelled ? 'opacity-50' : ''}`}>
-      <td className="w-10 py-1.5 px-0.5 text-center whitespace-nowrap" title={`№ транзакції: ${op.number}`}>
+      <td className={`w-10 py-1.5 px-0.5 text-center whitespace-nowrap tabular-nums text-xs font-semibold ${numStr}`} title={`№ транзакції: ${op.number}`}>
         {op.cancelled ? (
           <span className="text-red-500 text-[10px] font-semibold" title={op.cancelNote || 'Сторно'}>СТОРНО</span>
-        ) : (
-          <button
-            onClick={() => onPrint(op)}
-            title={`Друк чека № ${op.number}`}
-            className="p-1 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition inline-flex"
-          >
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="6 9 6 2 18 2 18 9" />
-              <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
-              <rect x="6" y="14" width="12" height="8" />
-            </svg>
-          </button>
-        )}
+        ) : seq}
       </td>
       <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{f.gaveAmt.toFixed(0)}</td>
       <td className="py-1.5 px-1"><CurCell cur={f.gaveCur} /></td>
@@ -228,30 +216,42 @@ function OpRow({
         )}
       </td>
       <td className="py-1.5 px-1 text-right text-xs text-gray-400 whitespace-nowrap">{format(new Date(op.createdAt), 'HH:mm')}</td>
-      <td className="w-10 py-1.5 px-0.5 text-center whitespace-nowrap">
-        {!op.cancelled && (
-          <span className="inline-flex gap-0.5">
-            {canEdit && (
-              <button onClick={() => onEdit(op)}
-                className="p-1 rounded text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition text-sm leading-none font-bold"
-                title="Редагувати операцію">✎</button>
-            )}
-            {isLast && withinWindow && (
-              <button onClick={() => onStorno(op)}
-                className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 transition text-sm leading-none font-black"
-                title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}>✕</button>
-            )}
-          </span>
-        )}
+      <td className="w-16 py-1.5 px-0.5 text-center whitespace-nowrap">
+        <span className="inline-flex gap-0.5 items-center">
+          {!op.cancelled && (
+            <button
+              onClick={() => onPrint(op)}
+              title={`Друк чека № ${op.number}`}
+              className="p-1 rounded text-gray-500 hover:text-blue-600 hover:bg-blue-50 transition inline-flex"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="6 9 6 2 18 2 18 9" />
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2" />
+                <rect x="6" y="14" width="12" height="8" />
+              </svg>
+            </button>
+          )}
+          {!op.cancelled && canEdit && (
+            <button onClick={() => onEdit(op)}
+              className="p-1 rounded text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition text-sm leading-none font-bold"
+              title="Редагувати операцію">✎</button>
+          )}
+          {!op.cancelled && isLast && withinWindow && (
+            <button onClick={() => onStorno(op)}
+              className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 transition text-sm leading-none font-black"
+              title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}>✕</button>
+          )}
+        </span>
       </td>
     </tr>
   );
 }
 
 function OpsBlock({
-  title, ops, colorClass, fullHeight, hideTitle, rates, onEdit, onStorno, onPrint, lastOpId, canEdit, stornoWindowMin, now,
+  title, ops, colorClass, fullHeight, hideTitle, seqMap, rates, onEdit, onStorno, onPrint, lastOpId, canEdit, stornoWindowMin, now,
 }: {
   title: string; ops: Op[]; colorClass: string; fullHeight?: boolean; hideTitle?: boolean;
+  seqMap: Map<number, number>;
   rates: Rate[]; onEdit: (op: Op) => void; onStorno: (op: Op) => void; onPrint: (op: Op) => void;
   lastOpId: number | null; canEdit: boolean;
   stornoWindowMin: number; now: number;
@@ -259,14 +259,14 @@ function OpsBlock({
   const head = (
     <thead className="sticky top-0 bg-white z-10">
       <tr className="text-[11px] text-gray-900 uppercase tracking-wide border-b">
-        <th className="w-10 py-1.5 px-1 text-center font-medium text-[10px]">Чек</th>
+        <th className="w-10 py-1.5 px-1 text-center font-medium text-[10px]">№</th>
         <th className="py-1.5 px-1 text-right font-medium">Видав</th>
         <th className="py-1.5 px-1 text-left font-medium">Валюта</th>
         <th className="py-1.5 px-1 text-right font-medium">Прийняв</th>
         <th className="py-1.5 px-1 text-left font-medium">Валюта</th>
         <th className="py-1.5 px-1 text-right font-medium">Курс</th>
         <th className="py-1.5 px-1 text-right font-medium">Час</th>
-        <th className="w-10 py-1.5 px-0.5 text-center font-medium text-[10px]">Сторно</th>
+        <th className="w-16 py-1.5 px-0.5 text-center font-medium text-[10px]">Чек / Дії</th>
       </tr>
     </thead>
   );
@@ -287,7 +287,7 @@ function OpsBlock({
             <tbody>
               {ops.map((op) => (
                 <OpRow
-                  key={op.id} op={op} rates={rates}
+                  key={op.id} op={op} seq={seqMap.get(op.id) ?? 0} rates={rates}
                   onEdit={onEdit} onStorno={onStorno} onPrint={onPrint}
                   isLast={op.id === lastOpId}
                   canEdit={canEdit}
@@ -423,10 +423,17 @@ export default function OperationsList({
 
   const allOps = ops;
 
-  // Унікальні валюти з усіх операцій зміни (для кнопок фільтру)
-  const usedCurrencies = Array.from(new Set(
-    allOps.flatMap((o) => [o.currency, o.payCurrency].filter(Boolean) as string[])
-  )).filter((c) => c !== 'UAH').sort();
+  // Нумерація операцій зміни в хронологічному порядку (перша операція = №1)
+  const seqMap = new Map<number, number>();
+  [...allOps]
+    .sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
+    .forEach((o, i) => seqMap.set(o.id, i + 1));
+
+  // Валюти для фільтру: усі валюти точки (з курсів) + будь-які, що трапились в операціях
+  const allCurrencies = Array.from(new Set([
+    ...rates.map((r) => r.currency),
+    ...allOps.flatMap((o) => [o.currency, o.payCurrency].filter(Boolean) as string[]),
+  ])).filter((c) => c !== 'UAH').sort();
 
   // Остання НЕ скасована операція зміни (ops відсортовані desc)
   const lastActiveOp = allOps.find(o => !o.cancelled);
@@ -444,7 +451,7 @@ export default function OperationsList({
 
   const handlePrint = (op: Op) => printReceipt(op, receipt);
 
-  const blockProps = { rates, onEdit: setEditingOp, onStorno: setStornoOp, onPrint: handlePrint, lastOpId, canEdit, stornoWindowMin, now };
+  const blockProps = { seqMap, rates, onEdit: setEditingOp, onStorno: setStornoOp, onPrint: handlePrint, lastOpId, canEdit, stornoWindowMin, now };
 
   return (
     <>
@@ -484,7 +491,7 @@ export default function OperationsList({
               </button>
             </div>
             {/* Фільтри */}
-            {usedCurrencies.length > 0 && (
+            {allCurrencies.length > 0 && (
               <div className="flex flex-wrap gap-1.5 mt-1.5">
                 <button
                   onClick={() => setFilterCurs([])}
@@ -495,7 +502,7 @@ export default function OperationsList({
                   }`}>
                   Всі
                 </button>
-                {usedCurrencies.map((c) => {
+                {allCurrencies.map((c) => {
                   const active = filterCurs.includes(c);
                   return (
                     <button key={c}

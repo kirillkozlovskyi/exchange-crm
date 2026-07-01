@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
 import { applyOperationsToBalance, operationsDelta } from '../common/balance.util';
-import { midRates, shiftProfit } from '../common/profit.util';
+import { midRates, valueOf, realizedProfit } from '../common/profit.util';
 import { netTransfers } from '../common/transfers.util';
 import { cashMovementsDelta } from '../common/cash-movements.util';
 
@@ -65,16 +65,19 @@ export class ShiftsService {
       calcBalance[cur] = (calcBalance[cur] ?? 0) + d;
     }
 
-    // Прибуток = приріст вартості каси за серединним курсом точки на момент закриття
-    // (а не сума спредів по операціях, яка подвійно рахує спред). Рахуємо за
-    // балансом ДО руху готівки — підкріплення/інкасації не є результатом зміни.
+    // Прибуток = реалізований спред «з відкупленого»: по кожній валюті
+    // відкуплено = min(куплено, продано) × (сер.курс продажу − сер.курс купівлі);
+    // непокрита позиція не оцінюється, крос — різниця за серединним курсом.
     const rates = await this.prisma.rate.findMany({
       where: { exchangePointId: shift.cashDesk.exchangePointId, status: 'ACTIVE' },
     });
     const valuation = midRates(
       rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
     );
-    const profit = shiftProfit(start, opsBalance, valuation);
+    const { total: profit, byCurrency: profitByCurrency } = realizedProfit(
+      shift.operations,
+      valuation,
+    );
 
     // Передачі між касами/точками — це рух готівки, а не торговий прибуток.
     // Вилучаємо їх із фактичного залишку, щоб отримана/відправлена валюта не
@@ -120,7 +123,10 @@ export class ShiftsService {
     for (const [cur, d] of Object.entries(moveDelta)) {
       factualEnd[cur] = (factualEnd[cur] ?? 0) - d; // IN(+)→прибираємо, OUT(−)→повертаємо
     }
-    const factualProfit = shiftProfit(start, factualEnd, valuation);
+    // Фактичний результат = реалізований прибуток + нестача/надлишок каси
+    // (різниця між фактично введеним і очікуваним залишком за серединним курсом).
+    const surplusShort = valueOf(factualEnd, valuation) - valueOf(opsBalance, valuation);
+    const factualProfit = profit + surplusShort;
 
     const updated = await this.prisma.shift.update({
       where: { id: shiftId },
@@ -134,7 +140,7 @@ export class ShiftsService {
     });
     // factualProfit, valuationRates, netTransfers і netCashMovements не зберігаються
     // (без зміни схеми) — повертаємо для звіту
-    return { ...updated, factualProfit, valuationRates: valuation, netTransfers: net, netCashMovements: moveDelta };
+    return { ...updated, factualProfit, profitByCurrency, valuationRates: valuation, netTransfers: net, netCashMovements: moveDelta };
   }
 
   // Залишок із закриття останньої зміни цієї каси — для префілу при відкритті нової.

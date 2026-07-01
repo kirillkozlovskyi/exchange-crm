@@ -3,7 +3,7 @@ import { ShiftsService } from './shifts.service';
 
 describe('ShiftsService — закриття та коригування', () => {
   describe('closeShift()', () => {
-    it('прибуток = приріст вартості каси за серединним курсом (без подвійного спреду)', async () => {
+    it('прибуток = реалізований спред «з відкупу» (відкуплено × спред)', async () => {
       const shift = {
         id: 1,
         status: 'OPEN',
@@ -29,11 +29,10 @@ describe('ShiftsService — закриття та коригування', () =>
 
       const res: any = await service.closeShift(1, { UAH: 7560, USD: 560 });
 
-      // calc: USD 560, UAH 7560. mid(USD)=41.25.
-      // profit = (7560 + 560×41.25) − (10000 + 500×41.25) = 30660 − 30625 = 35
-      // (реаліз. спред 40×0.5=20 + переоцінка відкритих 60 USD × 0.25 = 15)
-      expect(Number(res.profit)).toBeCloseTo(35);
-      expect(Number(res.factualProfit)).toBeCloseTo(35); // endBalance = calcBalance → без нестачі
+      // Реаліз. прибуток: куплено 100 @41, продано 40 @41.5.
+      // відкуплено = min(100,40)=40; 40×(41.5−41)=20. Відкриті 60 USD не оцінюються.
+      expect(Number(res.profit)).toBeCloseTo(20);
+      expect(Number(res.factualProfit)).toBeCloseTo(20); // endBalance = calcBalance → без нестачі
       expect(res.calcBalance).toEqual({ UAH: 7560, USD: 560 });
     });
 
@@ -50,9 +49,10 @@ describe('ShiftsService — закриття та коригування', () =>
       const service = new ShiftsService(prisma as any);
       // calc: USD 100, UAH 5900. Касир нарахував лише 90 USD (нестача 10).
       const res: any = await service.closeShift(1, { UAH: 5900, USD: 90 });
-      // торговий: (5900 + 100×41.25) − 10000 = 25 ; фактичний: (5900 + 90×41.25) − 10000 = -387.5
-      expect(Number(res.profit)).toBeCloseTo(25);
-      expect(Number(res.factualProfit)).toBeCloseTo(-387.5);
+      // Лише купівля (без продажу) → відкупу немає → торговий прибуток 0.
+      // Фактичний = 0 + нестача 10 USD × 41.25 = −412.5.
+      expect(Number(res.profit)).toBeCloseTo(0);
+      expect(Number(res.factualProfit)).toBeCloseTo(-412.5);
     });
 
     it('передачі між касами не входять у фактичний прибуток', async () => {
@@ -72,10 +72,10 @@ describe('ShiftsService — закриття та коригування', () =>
       const service = new ShiftsService(prisma as any);
       // Касир нарахував 300 USD (100 від операції + 200 передача), UAH 5900.
       const res: any = await service.closeShift(1, { UAH: 5900, USD: 300 });
-      // Торговий (передачі немає в calcBalance): (5900 + 100×41.25) − 10000 = 25
-      expect(Number(res.profit)).toBeCloseTo(25);
-      // Фактичний: вилучаємо 200 USD передачі → (5900 + (300−200)×41.25) − 10000 = 25 (без нестачі)
-      expect(Number(res.factualProfit)).toBeCloseTo(25);
+      // Лише купівля → відкупу немає → торговий прибуток 0.
+      expect(Number(res.profit)).toBeCloseTo(0);
+      // Фактичний: вилучаємо 200 USD передачі → залишок збігається з очікуваним → 0.
+      expect(Number(res.factualProfit)).toBeCloseTo(0);
       expect(res.netTransfers).toEqual({ USD: 200 });
     });
 
@@ -100,11 +100,11 @@ describe('ShiftsService — закриття та коригування', () =>
       const res: any = await service.closeShift(1, { UAH: 7900, USD: 60 });
       // Розрахунковий залишок враховує рух готівки.
       expect(res.calcBalance).toEqual({ UAH: 7900, USD: 60 });
-      // Торговий прибуток рахується ДО руху готівки: (5900 + 100×41.25) − 10000 = 25
-      expect(Number(res.profit)).toBeCloseTo(25);
+      // Лише купівля → відкупу немає → торговий прибуток 0 (рух готівки не впливає).
+      expect(Number(res.profit)).toBeCloseTo(0);
       // Фактичний: повертаємо інкасовані 40 USD і прибираємо 2000 UAH підкріплення →
-      // (5900 + (60+40)×41.25) − 10000 = 25 (без нестачі)
-      expect(Number(res.factualProfit)).toBeCloseTo(25);
+      // залишок збігається з очікуваним → 0 (без нестачі).
+      expect(Number(res.factualProfit)).toBeCloseTo(0);
       expect(res.netCashMovements).toEqual({ USD: -40, UAH: 2000 });
     });
 

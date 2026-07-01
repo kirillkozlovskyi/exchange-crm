@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
-import { midRates, shiftProfit } from '../../lib/profit';
+import { midRates, valueOf, realizedProfit } from '../../lib/profit';
 import { netTransfers, type TransferRow } from '../../lib/transfers';
 import { applyCashMovements, cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 
@@ -100,15 +100,12 @@ export default function CloseShiftForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // ── Прибуток = приріст вартості каси за серединним курсом ───────────────────
+  // ── Прибуток = реалізований спред «з відкупленого» ──────────────────────────
   const valuation = useMemo(() => midRates(rates), [rates]);
-  const startValued = useMemo(() => ({ UAH: 0, ...startBal }), [startBal]);
-  // Торговий — за залишком ДО інкасацій (вилучена готівка не є збитком);
-  // фактичний — за введеним касиром.
-  const tradingProfit = useMemo(
-    () => shiftProfit(startValued, opsBalance, valuation),
-    [startValued, opsBalance, valuation],
-  );
+  // Торговий прибуток: по кожній валюті відкуплено = min(куплено, продано) ×
+  // (сер.курс продажу − сер.курс купівлі); крос — різниця за серединним курсом.
+  const realized = useMemo(() => realizedProfit(shift.operations, valuation), [shift, valuation]);
+  const tradingProfit = realized.total;
   const endBalParsed = useMemo(
     () => Object.fromEntries(Object.entries(endBal).map(([k, v]) => [k, parseFloat(v) || 0])),
     [endBal],
@@ -121,46 +118,25 @@ export default function CloseShiftForm({
     for (const [cur, d] of Object.entries(moveNet)) eff[cur] = (eff[cur] ?? 0) - d; // IN(+)→прибрати, OUT(−)→повернути
     return eff;
   }, [endBalParsed, net, moveNet]);
-  const factualProfit = shiftProfit(startValued, factualEnd, valuation);
+  // Фактичний = реалізований прибуток + нестача/надлишок каси (за серединним курсом).
+  const factualProfit = tradingProfit + (valueOf(factualEnd, valuation) - valueOf(opsBalance, valuation));
 
   // Чи були передачі/рух готівки взагалі (для умовного показу колонки/рядка)
   const hasTransfers = Object.values(net).some((v) => Math.abs(v) >= 0.005);
   const hasMovements = Object.values(moveNet).some((v) => Math.abs(v) >= 0.005);
 
-  // Гривневий потік операцій по кожній валюті: купівля → каса платить UAH (−),
-  // продаж → отримує UAH (+). Крос (валюта↔валюта) гривні не зачіпає.
-  const uahFlow = useMemo(() => {
-    const flow: Record<string, number> = {};
-    for (const op of shift.operations) {
-      if (op.cancelled) continue;
-      const totalUah = Number(op.totalUah);
-      const payCur = op.payCurrency;
-      if (payCur && payCur !== 'UAH' && op.currency !== 'UAH') continue; // крос — без UAH
-      if (payCur && payCur !== 'UAH') {
-        flow[payCur] = (flow[payCur] ?? 0) - totalUah; // старий BUY: −UAH
-      } else {
-        const sign = op.type === 'BUY' ? 1 : -1;
-        flow[op.currency] = (flow[op.currency] ?? 0) - sign * totalUah;
-      }
-    }
-    return flow;
-  }, [shift]);
-
-  // Прибуток по кожній валюті = спред + переоцінка позиції:
-  //   (закриття − відкриття) × серединний курс + гривневий потік цієї валюти.
-  // UAH — валюта розрахунку (його рух рознесено по валютах), тож окремого рядка немає.
-  // Сума рядків точно дорівнює торговому прибутку. Передачі у прибуток не входять.
+  // Прибуток по кожній валюті = реалізований спред «з відкупу» (відкуплено ×
+  // (сер.продаж − сер.купівля)); крос — різниця за серединним курсом.
+  // Непокрита позиція не оцінюється. Сума рядків = торговий прибуток.
   const profitRows = useMemo(() => {
     return currencies
       .filter((cur) => cur !== 'UAH')
       .map((cur) => {
         const open = Number(startBal[cur] ?? 0);
         const close = calcBalance[cur] ?? 0;          // показуємо очікуваний (після руху готівки)
-        const opsClose = opsBalance[cur] ?? 0;        // для прибутку — до руху готівки
         const transfer = net[cur] ?? 0;
         const movement = moveNet[cur] ?? 0;           // рух готівки (підкр. +, інкас. −)
-        const mid = valuation[cur] ?? 0;
-        const profitUah = (opsClose - open) * mid + (uahFlow[cur] ?? 0);
+        const profitUah = realized.byCurrency[cur] ?? 0;
         return { cur, open, close, transfer, movement, profitUah };
       })
       .filter((r) =>
@@ -169,7 +145,7 @@ export default function CloseShiftForm({
         Math.abs(r.movement) >= 0.005 ||
         Math.abs(r.close - r.open) >= 0.005,
       );
-  }, [currencies, startBal, calcBalance, opsBalance, net, moveNet, valuation, uahFlow]);
+  }, [currencies, startBal, calcBalance, net, moveNet, realized]);
 
   const handleSubmit = async () => {
     setSaving(true);
@@ -285,7 +261,8 @@ export default function CloseShiftForm({
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold text-gray-800 mb-1">Прибуток за зміну</h3>
             <p className="text-xs text-gray-400 mb-3">
-              Прибуток по кожній валюті — спред і переоцінка позиції за серединним курсом.
+              Прибуток «з відкупу»: по кожній валюті відкуплено = min(куплено, продано) × спред.
+              Непокрита позиція не оцінюється (переходить як запас). Крос — за серединним курсом.
               {hasTransfers && ' Передачі між касами не входять у прибуток.'}
               {hasMovements && ' Підкріплення/інкасації не входять у прибуток.'}
             </p>
