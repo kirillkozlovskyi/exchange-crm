@@ -36,6 +36,11 @@ function WalletCard({ w, onSaved }: { w: Wallet; onSaved: () => void }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
+  // Синхронізуємо інпути з даними сервера після збереження/оновлення (щоб поля
+  // відображали фактично збережені значення, а не залишок локального стану).
+  useEffect(() => { setBuyPct(String(w.buyPct)); }, [w.buyPct]);
+  useEffect(() => { setSellPct(String(w.sellPct)); }, [w.sellPct]);
+
   const savePct = async () => {
     setBusy(true); setMsg('');
     try {
@@ -76,12 +81,12 @@ function WalletCard({ w, onSaved }: { w: Wallet; onSaved: () => void }) {
       <div className="grid grid-cols-2 gap-2 mb-2">
         <label className="text-xs text-gray-500">
           Комісія купівлі %
-          <input type="number" step="0.0001" min="0" value={buyPct} onChange={(e) => setBuyPct(e.target.value)}
+          <input type="number" step="0.0001" value={buyPct} onChange={(e) => setBuyPct(e.target.value)}
             className="mt-0.5 w-full border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
         </label>
         <label className="text-xs text-gray-500">
           Комісія продажу %
-          <input type="number" step="0.0001" min="0" value={sellPct} onChange={(e) => setSellPct(e.target.value)}
+          <input type="number" step="0.0001" value={sellPct} onChange={(e) => setSellPct(e.target.value)}
             className="mt-0.5 w-full border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
         </label>
       </div>

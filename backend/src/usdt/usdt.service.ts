@@ -39,10 +39,12 @@ export class UsdtService {
   }
 
   // Налаштування комісій (адмін): окремо купівля/продаж, до 4 знаків.
+  // Відʼємні відсотки дозволені (напр. знижка/від'ємна маржа).
   async setPct(exchangePointId: number, dto: { buyPct?: number; sellPct?: number }) {
     const buyPct = Number(dto.buyPct ?? 0);
     const sellPct = Number(dto.sellPct ?? 0);
-    if (buyPct < 0 || sellPct < 0) throw new BadRequestException('Відсоток не може бути відʼємним');
+    if (Number.isNaN(buyPct) || Number.isNaN(sellPct))
+      throw new BadRequestException('Некоректний відсоток');
     return this.prisma.usdtWallet.upsert({
       where: { exchangePointId },
       create: { exchangePointId, buyPct, sellPct },
@@ -120,8 +122,9 @@ export class UsdtService {
     const rates = await this.pointRates(pointId);
 
     // % — індивідуальний на операцію (якщо переданий), інакше з гаманця точки.
+    // Відʼємні відсотки дозволені.
     const defaultPct = side === 'SELL' ? Number(wallet.sellPct) : Number(wallet.buyPct);
-    const pct = dto.pct != null && Number(dto.pct) >= 0 ? Number(dto.pct) : defaultPct;
+    const pct = dto.pct != null && !Number.isNaN(Number(dto.pct)) ? Number(dto.pct) : defaultPct;
     const frac = pct / 100;
     // 1:1 до USD × (1 ± %): продаж дорожче для клієнта, купівля дешевше.
     const usdValue = side === 'SELL' ? usdtAmount * (1 + frac) : usdtAmount * (1 - frac);

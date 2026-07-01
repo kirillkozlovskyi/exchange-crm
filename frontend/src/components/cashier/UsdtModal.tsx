@@ -131,7 +131,7 @@ export default function UsdtModal({
             </div>
             <div className="w-28">
               <label className="block text-xs text-gray-500 mb-0.5">Комісія %</label>
-              <input type="number" min="0" step="0.0001" value={pctRaw}
+              <input type="number" step="0.0001" value={pctRaw}
                 onChange={(e) => { setPctRaw(e.target.value); setPctTouched(true); }}
                 placeholder="0.0000" className={inputCls} />
             </div>
