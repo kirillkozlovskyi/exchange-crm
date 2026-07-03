@@ -397,14 +397,20 @@ export default function OperationsList({
 
   useEffect(() => { load(); }, [shiftId, refresh]);
 
-  // Завантажуємо вікно сторно один раз
-  useEffect(() => {
+  // Перечитуємо вікно сторно: при монтуванні, після кожної операції та періодично,
+  // щоб зміна налаштування в адмінці підхоплювалась без перезавантаження сторінки
+  const loadStornoWindow = () => {
     api.get('/settings/storno-window').then(({ data }) => setStornoWindowMin(data.minutes));
-  }, []);
+  };
+  useEffect(() => { loadStornoWindow(); }, [refresh]);
 
-  // Оновлюємо `now` кожну хвилину щоб кнопка сторно зникала автоматично
+  // Оновлюємо `now` кожну хвилину щоб кнопка сторно зникала автоматично,
+  // і заразом підтягуємо актуальне вікно сторно
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000);
+    const id = setInterval(() => {
+      setNow(Date.now());
+      loadStornoWindow();
+    }, 30_000);
     return () => clearInterval(id);
   }, []);
 
