@@ -126,6 +126,37 @@ describe('OperationsService — грошова математика', () => {
       expect(Number(res.profit)).toBe(0); // немає курсу → спред невідомий
     });
 
+    it('кидає BadRequestException при крос із payAmount=0 (фантом: totalUah=0)', async () => {
+      const prisma = makePrisma();
+      const service = new OperationsService(prisma as any, settingsStub as any);
+
+      await expect(
+        service.create(
+          { shiftId: 1, currency: 'USD', amount: 13431, rate: 44.77, payCurrency: 'EUR', payAmount: 0, mode: 'BUY' },
+          7,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.operation.create).not.toHaveBeenCalled();
+    });
+
+    it('кидає BadRequestException при кількості <= 0', async () => {
+      const prisma = makePrisma();
+      const service = new OperationsService(prisma as any, settingsStub as any);
+
+      await expect(
+        service.create({ shiftId: 1, currency: 'USD', amount: 0, rate: 41.5, mode: 'SELL' }, 7),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('кидає BadRequestException при курсі <= 0', async () => {
+      const prisma = makePrisma();
+      const service = new OperationsService(prisma as any, settingsStub as any);
+
+      await expect(
+        service.create({ shiftId: 1, currency: 'USD', amount: 100, rate: 0, mode: 'SELL' }, 7),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
     it('кидає NotFoundException, якщо зміни немає', async () => {
       const prisma = makePrisma();
       prisma.shift.findUnique.mockResolvedValue(null);
@@ -230,6 +261,17 @@ describe('OperationsService — грошова математика', () => {
       const service = new OperationsService(prisma as any, settingsStub as any);
 
       await expect(service.update(5, { amount: 1, rate: 41 }, 9)).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('кидає BadRequestException при редагуванні на кількість 0 і не пише OperationEdit', async () => {
+      const prisma = prismaForUpdate({
+        id: 5, type: 'SELL', currency: 'USD', amount: 100, rate: 41.5, payCurrency: null, payAmount: null,
+      });
+      const service = new OperationsService(prisma as any, settingsStub as any);
+
+      await expect(service.update(5, { amount: 0, rate: 41.5 }, 9)).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.operationEdit.create).not.toHaveBeenCalled();
+      expect(prisma.operation.update).not.toHaveBeenCalled();
     });
   });
 

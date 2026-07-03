@@ -11,6 +11,22 @@ export class OperationsService {
     private settings: SettingsService,
   ) {}
 
+  /**
+   * Захист від «фантомних» записів (як 13:34 «Купівля 13 431 USD = 0 грн»):
+   * ненульова кількість валюти за курсом > 0 не може дати 0 грн. Ловить нульову/
+   * відʼємну кількість, нульовий курс і крос із payAmount=0 (тоді totalUah=0).
+   */
+  private assertValidAmounts(amount: number, rate: number, totalUah: number) {
+    if (!Number.isFinite(amount) || amount <= 0)
+      throw new BadRequestException('Кількість валюти має бути більшою за 0');
+    if (!Number.isFinite(rate) || rate <= 0)
+      throw new BadRequestException('Курс має бути більшим за 0');
+    if (!Number.isFinite(totalUah) || totalUah <= 0)
+      throw new BadRequestException(
+        'Сума операції в грн вийшла 0 — перевірте кількість, курс і суму до сплати',
+      );
+  }
+
   private async generateNumber(pointCode: string) {
     const date = format(new Date(), 'yyyyMMdd');
     const count = await this.prisma.operation.count();
@@ -59,6 +75,7 @@ export class OperationsService {
 
     const getRate = await this.buildRateLookup(exchangePointId, [dto.currency, dto.payCurrency]);
     const { type, totalUah, profit } = computeOperationTotals(dto, getRate);
+    this.assertValidAmounts(dto.amount, dto.rate, totalUah);
 
     const payCur = dto.payCurrency || 'UAH';
     const number = await this.generateNumber(shift.cashDesk.exchangePoint.code);
@@ -124,19 +141,6 @@ export class OperationsService {
 
     const exchangePointId = op.shift.cashDesk.exchangePointId;
 
-    // Зберігаємо запис про редагування
-    await this.prisma.operationEdit.create({
-      data: {
-        operationId: id,
-        editedById: editorId,
-        note: dto.note,
-        prevAmount: op.amount,
-        prevRate: op.rate,
-        newAmount: dto.amount,
-        newRate: dto.rate,
-      },
-    });
-
     // Перераховуємо totalUah та profit тією ж логікою, що й при створенні.
     // mode = op.type зберігає тип (важливо для крос-операцій, збережених як BUY/SELL).
     const getRate = await this.buildRateLookup(exchangePointId, [op.currency, op.payCurrency]);
@@ -151,6 +155,21 @@ export class OperationsService {
       },
       getRate,
     );
+    // Валідуємо ДО логування, щоб не лишати сирітський OperationEdit при помилці
+    this.assertValidAmounts(dto.amount, dto.rate, totalUah);
+
+    // Зберігаємо запис про редагування
+    await this.prisma.operationEdit.create({
+      data: {
+        operationId: id,
+        editedById: editorId,
+        note: dto.note,
+        prevAmount: op.amount,
+        prevRate: op.rate,
+        newAmount: dto.amount,
+        newRate: dto.rate,
+      },
+    });
 
     return this.prisma.operation.update({
       where: { id },
