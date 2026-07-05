@@ -192,6 +192,17 @@ export default function CashierPage() {
     return () => clearInterval(interval);
   }, [selectedDeskId, loadShift]);
 
+  // ── Live-курси: зміна курсу в адмінці підхоплюється без перезавантаження ──
+  // Перечитуємо активні курси точки кожні 15 с. Форма операції сама підставить
+  // новий ринковий курс, якщо касир не редагував його вручну (rateManual).
+  useEffect(() => {
+    if (!selectedPointId) return;
+    const interval = setInterval(() => {
+      loadRates(selectedPointId).catch(() => {});
+    }, 15000);
+    return () => clearInterval(interval);
+  }, [selectedPointId, loadRates]);
+
   const handleOpenShift = async (startBalance: Record<string, number>) => {
     await api.post('/shifts/open', { cashDeskId: selectedDeskId, startBalance });
     await loadShift(selectedDeskId!);
