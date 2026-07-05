@@ -1,14 +1,10 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
 import { format } from 'date-fns';
+import CompanyBalanceCard from './CompanyBalanceCard';
+import UsdtBankSection from './UsdtBankSection';
 
 type Balances = { currencies: { currency: string; amount: number }[]; usdt: number };
-type Company = {
-  bank: Record<string, number>;
-  desks: Record<string, number>;
-  total: Record<string, number>;
-  usdt: { global: number; points: number; total: number };
-};
 type Movement = {
   id: number;
   type: string;
@@ -29,10 +25,10 @@ const TYPE_LABEL: Record<string, string> = {
 
 export default function CashBankAdmin() {
   const [balances, setBalances] = useState<Balances>({ currencies: [], usdt: 0 });
-  const [company, setCompany] = useState<Company | null>(null);
   const [movements, setMovements] = useState<Movement[]>([]);
   const [currencies, setCurrencies] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshKey, setRefreshKey] = useState(0); // для CompanyBalanceCard
 
   const [currency, setCurrency] = useState('UAH');
   const [amount, setAmount] = useState('');
@@ -41,15 +37,14 @@ export default function CashBankAdmin() {
 
   const load = () => {
     setLoading(true);
+    setRefreshKey((k) => k + 1);
     Promise.all([
       api.get('/cash-bank'),
-      api.get('/cash-bank/company'),
       api.get('/cash-bank/movements'),
       api.get('/currencies'),
     ])
-      .then(([b, comp, m, c]) => {
+      .then(([b, m, c]) => {
         setBalances(b.data);
-        setCompany(comp.data);
         setMovements(m.data);
         setCurrencies(['UAH', ...c.data.filter((x: any) => x.active).map((x: any) => x.code)]);
       })
@@ -72,47 +67,10 @@ export default function CashBankAdmin() {
 
   const uniqCurrencies = Array.from(new Set([...currencies, ...balances.currencies.map((c) => c.currency)]));
 
-  const companyCurrencies = company
-    ? Array.from(new Set([...Object.keys(company.total)])).filter((c) => Math.abs(company.total[c]) >= 0.005).sort()
-    : [];
-
   return (
     <div className="space-y-4">
       {/* Загальний баланс компанії */}
-      {company && (
-        <div className="bg-gradient-to-br from-blue-50 to-white rounded-xl shadow p-5 border border-blue-100">
-          <h3 className="font-semibold text-lg mb-3">🧮 Загальний баланс компанії</h3>
-          <div className="overflow-x-auto">
-            <table className="text-sm border-collapse min-w-[420px]">
-              <thead>
-                <tr className="text-[11px] text-gray-500 uppercase tracking-wide border-b">
-                  <th className="py-1.5 px-3 text-left font-medium">Валюта</th>
-                  <th className="py-1.5 px-3 text-right font-medium">Банк</th>
-                  <th className="py-1.5 px-3 text-right font-medium">Каси</th>
-                  <th className="py-1.5 px-3 text-right font-medium">Разом</th>
-                </tr>
-              </thead>
-              <tbody>
-                {companyCurrencies.map((c) => (
-                  <tr key={c} className="border-b last:border-0">
-                    <td className="py-1.5 px-3 font-semibold text-gray-700">{c}</td>
-                    <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{(company.bank[c] ?? 0).toFixed(2)}</td>
-                    <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{(company.desks[c] ?? 0).toFixed(2)}</td>
-                    <td className="py-1.5 px-3 text-right tabular-nums font-bold text-blue-800">{(company.total[c] ?? 0).toFixed(2)}</td>
-                  </tr>
-                ))}
-                <tr className="border-t-2">
-                  <td className="py-1.5 px-3 font-semibold text-teal-700">USDT</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{company.usdt.global.toFixed(4)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{company.usdt.points.toFixed(4)}</td>
-                  <td className="py-1.5 px-3 text-right tabular-nums font-bold text-teal-700">{company.usdt.total.toFixed(4)}</td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-          <p className="text-xs text-gray-400 mt-2">Каси = поточна готівка відкритих змін + останній залишок закритих. USDT — глобальний гаманець + гаманці точок.</p>
-        </div>
-      )}
+      <CompanyBalanceCard refreshKey={refreshKey} />
 
       {/* Баланси банку */}
       <div className="bg-white rounded-xl shadow p-5">
@@ -156,10 +114,13 @@ export default function CashBankAdmin() {
           </div>
           {msg && <div className="text-xs text-gray-500 mt-1.5">{msg}</div>}
           <p className="text-xs text-gray-400 mt-2">
-            USDT керується на вкладці «₮ USDT». Підкріплення/інкасація кас із контрагентом «Банк» рухають баланс автоматично.
+            Підкріплення/інкасація кас із джерелом «Банк» рухають цей баланс автоматично. USDT-банк — нижче на цій сторінці.
           </p>
         </div>
       </div>
+
+      {/* USDT — частина банку: керування гаманцем + швидкі суми */}
+      <UsdtBankSection />
 
       {/* Журнал рухів банку */}
       <div className="bg-white rounded-xl shadow p-5">

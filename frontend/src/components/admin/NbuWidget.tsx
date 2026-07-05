@@ -4,7 +4,7 @@ import { WORLD_CURRENCIES } from '../../data/currencyMeta';
 
 type NbuRate = { cc: string; rate: number; exchangedate: string };
 
-export default function NbuWidget() {
+export default function NbuWidget({ inline = false }: { inline?: boolean }) {
   const [rates, setRates] = useState<NbuRate[]>([]);
   const [activeCodes, setActiveCodes] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
@@ -34,7 +34,9 @@ export default function NbuWidget() {
   useEffect(() => { load(); }, []);
 
   return (
-    <div className="fixed bottom-4 right-4 z-50 shadow-2xl rounded-xl overflow-hidden w-44 border border-gray-200">
+    <div className={inline
+      ? 'rounded-xl overflow-hidden shadow border border-gray-200 w-full'
+      : 'fixed bottom-4 right-4 z-50 shadow-2xl rounded-xl overflow-hidden w-44 border border-gray-200'}>
       {/* header */}
       <button
         onClick={() => setOpen((v) => !v)}
