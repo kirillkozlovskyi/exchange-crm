@@ -4,12 +4,14 @@ import { SettingsService } from '../settings/settings.service';
 import { format } from 'date-fns';
 import { computeOperationTotals, RateLookup } from './operations.math';
 import { nextDocNumber } from '../common/number-seq.util';
+import { TelegramService } from '../telegram/telegram.service';
 
 @Injectable()
 export class OperationsService {
   constructor(
     private prisma: PrismaService,
     private settings: SettingsService,
+    private telegram?: TelegramService,
   ) {}
 
   /**
@@ -85,6 +87,25 @@ export class OperationsService {
 
     const payCur = dto.payCurrency || 'UAH';
     const number = await this.generateNumber(shift.cashDesk.exchangePoint.code);
+
+    // Операція понад поріг → Telegram (fire-and-forget; 0 = вимкнено).
+    void (async () => {
+      const threshold = await this.settings.getLargeOpUah();
+      if (threshold > 0 && totalUah >= threshold) {
+        const user = await this.prisma.user.findUnique({
+          where: { id: cashierId },
+          select: { name: true },
+        });
+        await this.telegram?.notifyLargeOperation(
+          shift.cashDesk.exchangePoint.name,
+          user?.name ?? '',
+          type,
+          dto.amount,
+          dto.currency,
+          totalUah,
+        );
+      }
+    })().catch(() => {});
 
     return this.prisma.operation.create({
       data: {

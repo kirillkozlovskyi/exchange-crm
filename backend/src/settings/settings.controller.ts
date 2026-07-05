@@ -45,6 +45,18 @@ export class SettingsController {
     return this.settingsService.setBalanceEditEnabled(body.enabled).then(() => ({ enabled: body.enabled }));
   }
 
+  @Get('large-op')
+  getLargeOp() {
+    return this.settingsService.getLargeOpUah().then((amount) => ({ amount }));
+  }
+
+  @Put('large-op')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setLargeOp(@Body() body: { amount: number }) {
+    return this.settingsService.setLargeOpUah(body.amount).then(() => ({ amount: body.amount }));
+  }
+
   @Get('cashier-see-bank')
   getCashierSeeBank() {
     return this.settingsService.getCashierCanSeeBank().then((enabled) => ({ enabled }));

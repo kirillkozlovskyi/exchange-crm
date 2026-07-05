@@ -28,6 +28,13 @@ export class AuthController {
     return this.authService.setupFirstAdmin(dto);
   }
 
+  // Ковзне подовження сесії (фронт викликає у фоні, коли токен «старіє»).
+  @UseGuards(JwtAuthGuard)
+  @Post('refresh')
+  refresh(@CurrentUser() user: any) {
+    return this.authService.refresh(user);
+  }
+
   @UseGuards(JwtAuthGuard)
   @Get('me')
   getMe(@CurrentUser() user: any) {

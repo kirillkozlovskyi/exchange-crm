@@ -40,6 +40,19 @@ export class AuthService {
     };
   }
 
+  // Ковзне подовження сесії: видаємо свіжий токен на новий строк. Актуальність
+  // користувача (active/role) вже перевірила JwtStrategy на цьому ж запиті.
+  async refresh(payload: { sub: number; login: string; role: string; exchangePointId: number | null; name: string }) {
+    const fresh = {
+      sub: payload.sub,
+      login: payload.login,
+      role: payload.role,
+      exchangePointId: payload.exchangePointId,
+      name: payload.name,
+    };
+    return { access_token: this.jwt.sign(fresh) };
+  }
+
   async getMe(userId: number) {
     return this.prisma.user.findUnique({
       where: { id: userId },

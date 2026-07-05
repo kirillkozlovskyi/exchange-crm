@@ -27,11 +27,51 @@ export class TelegramService {
     await this.send(`🟢 <b>Зміна відкрита</b>\n📍 ${pointName}\n👤 ${cashierName}\n🔢 ${shiftNumber}`);
   }
 
-  async notifyShiftClosed(shiftNumber: string, cashierName: string, profit: number) {
-    await this.send(`🔴 <b>Зміна закрита</b>\n👤 ${cashierName}\n🔢 ${shiftNumber}\n💰 Прибуток: ${profit.toFixed(2)} UAH`);
+  async notifyShiftClosed(
+    shiftNumber: string,
+    cashierName: string,
+    profit: number,
+    factualProfit?: number,
+  ) {
+    const lines = [
+      `🔴 <b>Зміна закрита</b>`,
+      `👤 ${cashierName}`,
+      `🔢 ${shiftNumber}`,
+      `💰 Торговий прибуток: <b>${profit.toFixed(2)} ₴</b>`,
+    ];
+    if (factualProfit != null) {
+      const diff = factualProfit - profit;
+      lines.push(`📊 Фактичний результат: <b>${factualProfit.toFixed(2)} ₴</b>`);
+      if (Math.abs(diff) >= 0.01)
+        lines.push(`⚠️ Нестача/надлишок каси: <b>${diff >= 0 ? '+' : ''}${diff.toFixed(2)} ₴</b>`);
+    }
+    await this.send(lines.join('\n'));
   }
 
   async notifyTransfer(from: string, to: string, currency: string, amount: number) {
     await this.send(`💸 <b>Передача грошей</b>\n📤 ${from} → 📥 ${to}\n${amount} ${currency}`);
+  }
+
+  // Розбіжність у проміжній звірці касира.
+  async notifyDiscrepancy(pointName: string, cashierName: string, diffs: string[]) {
+    await this.send(
+      `⚠️ <b>Розбіжність у звірці</b>\n📍 ${pointName}\n👤 ${cashierName}\n` + diffs.join('\n'),
+    );
+  }
+
+  // Операція понад поріг (налаштування «Поріг великої операції»).
+  async notifyLargeOperation(
+    pointName: string,
+    cashierName: string,
+    type: string,
+    amount: number,
+    currency: string,
+    totalUah: number,
+  ) {
+    const kind = type === 'BUY' ? 'Купівля' : 'Продаж';
+    await this.send(
+      `💵 <b>Велика операція</b>\n📍 ${pointName}\n👤 ${cashierName}\n` +
+        `${kind} <b>${amount.toFixed(2)} ${currency}</b> ≈ ${totalUah.toFixed(2)} ₴`,
+    );
   }
 }

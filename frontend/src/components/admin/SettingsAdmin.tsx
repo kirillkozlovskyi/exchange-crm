@@ -135,6 +135,7 @@ function OperationsSettings() {
   const [minutes, setMinutes] = useState<number>(5);
   const [balanceEdit, setBalanceEdit] = useState<boolean>(true);
   const [seeBank, setSeeBank] = useState<boolean>(false);
+  const [largeOp, setLargeOp] = useState<number>(0);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -143,10 +144,12 @@ function OperationsSettings() {
       api.get('/settings/storno-window'),
       api.get('/settings/balance-edit'),
       api.get('/settings/cashier-see-bank'),
-    ]).then(([s, b, k]) => {
+      api.get('/settings/large-op'),
+    ]).then(([s, b, k, l]) => {
       setMinutes(s.data.minutes);
       setBalanceEdit(b.data.enabled);
       setSeeBank(k.data.enabled);
+      setLargeOp(l.data.amount);
     });
   }, []);
 
@@ -158,6 +161,7 @@ function OperationsSettings() {
         api.put('/settings/storno-window', { minutes }),
         api.put('/settings/balance-edit', { enabled: balanceEdit }),
         api.put('/settings/cashier-see-bank', { enabled: seeBank }),
+        api.put('/settings/large-op', { amount: largeOp }),
       ]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -214,6 +218,21 @@ function OperationsSettings() {
             </p>
           </div>
           <Toggle enabled={seeBank} onChange={setSeeBank} />
+        </div>
+
+        <div className="border-t border-gray-100" />
+
+        {/* Поріг великої операції (Telegram) */}
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-700">Поріг великої операції, ₴</label>
+          <p className="text-xs text-gray-400">
+            Операції з гривневою сумою від цього порога надсилаються в Telegram власнику. 0 — вимкнено.
+          </p>
+          <input
+            type="number" min="0" step="1000" value={largeOp}
+            onChange={(e) => setLargeOp(Math.max(0, parseFloat(e.target.value) || 0))}
+            className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-right font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
         </div>
 
         <div className="flex items-center gap-3 pt-1">

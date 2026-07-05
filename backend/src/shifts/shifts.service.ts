@@ -8,9 +8,15 @@ import { usdtCashDelta, usdtProfit } from '../common/usdt.util';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
 import { nextDocNumber } from '../common/number-seq.util';
 
+import { TelegramService } from '../telegram/telegram.service';
+
 @Injectable()
 export class ShiftsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // optional: юніт-тести створюють сервіс без телеграма
+    private telegram?: TelegramService,
+  ) {}
 
   private async generateNumber(pointCode: string) {
     const date = format(new Date(), 'yyyyMMdd');
@@ -34,7 +40,7 @@ export class ShiftsService {
     const number = await this.generateNumber(desk.exchangePoint.code);
 
     try {
-      return await this.prisma.shift.create({
+      const created = await this.prisma.shift.create({
         data: {
           number,
           cashDeskId,
@@ -43,6 +49,13 @@ export class ShiftsService {
         },
         include: { cashDesk: { include: { exchangePoint: true } }, openedBy: true },
       });
+      // Сповіщення в Telegram (fire-and-forget; без токена — просто лог-скіп)
+      void this.telegram?.notifyShiftOpened(
+        created.number,
+        created.openedBy?.name ?? '',
+        created.cashDesk?.exchangePoint?.name ?? '',
+      );
+      return created;
     } catch (e: any) {
       // Unique-індекс Shift_desk_open_key: гонка подвійного відкриття (подвійний клік).
       if (e?.code === 'P2002')
@@ -59,7 +72,13 @@ export class ShiftsService {
   ) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
-      include: { operations: true, cashMovements: true, usdtOperations: true, cashDesk: true },
+      include: {
+        operations: true,
+        cashMovements: true,
+        usdtOperations: true,
+        cashDesk: true,
+        openedBy: { select: { name: true } },
+      },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна вже закрита');
@@ -153,6 +172,14 @@ export class ShiftsService {
         valuationRates: valuation,
       },
     });
+    // Сповіщення в Telegram (fire-and-forget)
+    void this.telegram?.notifyShiftClosed(
+      shift.number,
+      (shift as any).openedBy?.name ?? '',
+      profit,
+      factualProfit,
+    );
+
     return { ...updated, netTransfers: net, netCashMovements: moveDelta, netUsdt: usdtDelta, usdtProfit: usdtMargin };
   }
 

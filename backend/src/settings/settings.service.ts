@@ -54,6 +54,17 @@ export class SettingsService {
     await this.set('cashier_can_edit_balance', String(enabled));
   }
 
+  // Поріг «великої операції» в грн для Telegram-сповіщення (0 = вимкнено).
+  async getLargeOpUah(): Promise<number> {
+    const v = await this.get('large_op_uah');
+    const n = v !== null ? parseFloat(v) : 0;
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
+  async setLargeOpUah(amount: number): Promise<void> {
+    await this.set('large_op_uah', String(Number(amount) || 0));
+  }
+
   // Чи бачить касир баланс глобального банку готівки (за замовчуванням — ні).
   async getCashierCanSeeBank(): Promise<boolean> {
     const v = await this.get('cashier_can_see_bank');
