@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
+import { nextDocNumber } from '../common/number-seq.util';
 import { CashBankService } from '../cash-bank/cash-bank.service';
 
 type Direction = 'IN' | 'OUT';
@@ -17,8 +18,11 @@ export class CashMovementsService {
   private async generateNumber(direction: Direction) {
     const date = format(new Date(), 'yyyyMMdd');
     const prefix = direction === 'IN' ? 'REP' : 'INC';
-    const count = await this.prisma.cashMovement.count({ where: { direction } });
-    return `${prefix}-${date}-${String(count + 1).padStart(4, '0')}`;
+    const seq = await nextDocNumber(
+      this.prisma,
+      direction === 'IN' ? 'cash_movement_in_seq' : 'cash_movement_out_seq',
+    );
+    return `${prefix}-${date}-${String(seq).padStart(4, '0')}`;
   }
 
   // Касир створює рух готівки на відкритій зміні своєї каси.

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
+import { nextDocNumber } from '../common/number-seq.util';
 
 type Side = 'BUY' | 'SELL';
 
@@ -164,8 +165,8 @@ export class UsdtService {
 
   private async generateNumber() {
     const date = format(new Date(), 'yyyyMMdd');
-    const count = await this.prisma.usdtOperation.count();
-    return `USDT-${date}-${String(count + 1).padStart(4, '0')}`;
+    const seq = await nextDocNumber(this.prisma, 'usdt_number_seq');
+    return `USDT-${date}-${String(seq).padStart(4, '0')}`;
   }
 
   // Курси точки як мапа currency → { buy, sell, mid }. UAH = 1.

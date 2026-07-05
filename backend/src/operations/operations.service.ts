@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { format } from 'date-fns';
 import { computeOperationTotals, RateLookup } from './operations.math';
+import { nextDocNumber } from '../common/number-seq.util';
 
 @Injectable()
 export class OperationsService {
@@ -29,8 +30,8 @@ export class OperationsService {
 
   private async generateNumber(pointCode: string) {
     const date = format(new Date(), 'yyyyMMdd');
-    const count = await this.prisma.operation.count();
-    return `${pointCode}-${date}-${String(count + 1).padStart(6, '0')}`;
+    const seq = await nextDocNumber(this.prisma, 'operation_number_seq');
+    return `${pointCode}-${date}-${String(seq).padStart(6, '0')}`;
   }
 
   /** Лукап активних курсів точки для валют, що беруть участь в операції. */

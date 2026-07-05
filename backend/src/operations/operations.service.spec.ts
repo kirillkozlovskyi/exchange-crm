@@ -31,13 +31,14 @@ function makePrisma(opts: { ratesPresent?: boolean } = {}) {
       }),
     },
     operation: {
-      count: jest.fn().mockResolvedValue(0),
       // повертаємо data назад, щоб перевіряти обчислені totalUah/profit/type
       create: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })),
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })),
     },
+    // Нумерація через sequence (див. common/number-seq.util).
+    $queryRawUnsafe: jest.fn().mockResolvedValue([{ nextval: 1n }]),
     operationEdit: {
       create: jest.fn().mockResolvedValue({ id: 1 }),
     },

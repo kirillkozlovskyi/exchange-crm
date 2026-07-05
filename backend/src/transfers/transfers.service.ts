@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
+import { nextDocNumber } from '../common/number-seq.util';
 
 @Injectable()
 export class TransfersService {
@@ -8,8 +9,8 @@ export class TransfersService {
 
   private async generateNumber() {
     const date = format(new Date(), 'yyyyMMdd');
-    const count = await this.prisma.transfer.count();
-    return `TR-${date}-${String(count + 1).padStart(4, '0')}`;
+    const seq = await nextDocNumber(this.prisma, 'transfer_number_seq');
+    return `TR-${date}-${String(seq).padStart(4, '0')}`;
   }
 
   async create(dto: {

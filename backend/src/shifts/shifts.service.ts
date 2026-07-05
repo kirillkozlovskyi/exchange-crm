@@ -6,6 +6,7 @@ import { midRates, valueOf, realizedProfit } from '../common/profit.util';
 import { cashMovementsDelta } from '../common/cash-movements.util';
 import { usdtCashDelta, usdtProfit } from '../common/usdt.util';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
+import { nextDocNumber } from '../common/number-seq.util';
 
 @Injectable()
 export class ShiftsService {
@@ -13,10 +14,9 @@ export class ShiftsService {
 
   private async generateNumber(pointCode: string) {
     const date = format(new Date(), 'yyyyMMdd');
-    const count = await this.prisma.shift.count({
-      where: { cashDesk: { exchangePoint: { code: pointCode } } },
-    });
-    return `${pointCode}-${date}-${String(count + 1).padStart(2, '0')}`;
+    // Глобальна sequence (раніше — count по точці, що гонило дублікати номерів).
+    const seq = await nextDocNumber(this.prisma, 'shift_number_seq');
+    return `${pointCode}-${date}-${String(seq).padStart(2, '0')}`;
   }
 
   async openShift(cashDeskId: number, userId: number, startBalance: object) {
