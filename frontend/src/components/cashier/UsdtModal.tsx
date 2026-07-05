@@ -17,7 +17,7 @@ export default function UsdtModal({
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [wallet, setWallet] = useState<{ balance: number; buyPct: number; sellPct: number } | null>(null);
+  const [wallet, setWallet] = useState<{ balance: number } | null>(null);
   const [config, setConfig] = useState<{ source: 'POINT' | 'GLOBAL'; globalBalance: number } | null>(null);
   const [side, setSide] = useState<UsdtSide>('BUY');
   const [usdtAmount, setUsdtAmount] = useState('');
@@ -33,8 +33,8 @@ export default function UsdtModal({
 
   useEffect(() => {
     api.get(`/usdt/wallet/${pointId}`).then(({ data }) =>
-      setWallet({ balance: Number(data.balance), buyPct: Number(data.buyPct), sellPct: Number(data.sellPct) }),
-    ).catch(() => setWallet({ balance: 0, buyPct: 0, sellPct: 0 }));
+      setWallet({ balance: Number(data.balance) }),
+    ).catch(() => setWallet({ balance: 0 }));
     api.get('/usdt/config').then(({ data }) =>
       setConfig({ source: data.source, globalBalance: Number(data.globalBalance) }),
     ).catch(() => setConfig({ source: 'POINT', globalBalance: 0 }));
@@ -84,7 +84,22 @@ export default function UsdtModal({
   }, [suggested, touchedSettle]);
 
   const settle = parseFloat(settleAmount) || 0;
-  const profitUah = usdt * (pct / 100) * usdMid;
+
+  // Маржа — з ФАКТИЧНОЇ суми розрахунку проти бази 1:1 (дзеркало бекенду):
+  // касир може вписати будь-яку суму — прибуток завжди відповідає реальним грошам.
+  const profitUah = useMemo(() => {
+    if (!usdt || !settle) return 0;
+    const midOf = (cur: string) => {
+      const r = rates.find((x) => x.currency === cur);
+      return r ? (Number(r.buy) + Number(r.sell)) / 2 : 0;
+    };
+    const settleUsd =
+      settleCurrency === 'USD' ? settle
+      : settleCurrency === 'UAH' ? (usdMid > 0 ? settle / usdMid : NaN)
+      : usdMid > 0 && midOf(settleCurrency) > 0 ? (settle * midOf(settleCurrency)) / usdMid : NaN;
+    const marginUsd = side === 'SELL' ? settleUsd - usdt : usdt - settleUsd;
+    return Number.isFinite(marginUsd) ? marginUsd * usdMid : 0;
+  }, [usdt, settle, settleCurrency, side, rates, usdMid]);
 
   // Нестача USDT (продаж) → підсвічуємо поле «Сума USDT»;
   // нестача готівки розрахунку (купівля) → підсвічуємо поле «Клієнт платить/Каса видає».
@@ -217,8 +232,10 @@ export default function UsdtModal({
           )}
 
           <div className="flex justify-between text-sm border-t pt-1.5">
-            <span className="text-gray-500">Маржа (прибуток):</span>
-            <span className="font-semibold text-green-600">+{profitUah.toFixed(2)} ₴</span>
+            <span className="text-gray-500">Маржа (прибуток, з фактичної суми):</span>
+            <span className={`font-semibold ${profitUah >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+              {profitUah >= 0 ? '+' : '−'}{Math.abs(profitUah).toFixed(2)} ₴
+            </span>
           </div>
 
           <div>

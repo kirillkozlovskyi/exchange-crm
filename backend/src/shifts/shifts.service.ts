@@ -147,11 +147,13 @@ export class ShiftsService {
         endBalance,
         calcBalance,
         profit,
+        // Звіт закриття зберігаємо: історія не залежить від подальших курсів.
+        factualProfit,
+        profitByCurrency,
+        valuationRates: valuation,
       },
     });
-    // factualProfit, valuationRates, netTransfers і netCashMovements не зберігаються
-    // (без зміни схеми) — повертаємо для звіту
-    return { ...updated, factualProfit, profitByCurrency, valuationRates: valuation, netTransfers: net, netCashMovements: moveDelta, netUsdt: usdtDelta, usdtProfit: usdtMargin };
+    return { ...updated, netTransfers: net, netCashMovements: moveDelta, netUsdt: usdtDelta, usdtProfit: usdtMargin };
   }
 
   // Залишок із закриття останньої зміни цієї каси — для префілу при відкритті нової.

@@ -158,6 +158,19 @@ describe('OperationsService — грошова математика', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('блокує USDT в основній формі — лише через вікно ₮ USDT', async () => {
+      const prisma = makePrisma();
+      const service = new OperationsService(prisma as any, settingsStub as any);
+
+      await expect(
+        service.create({ shiftId: 1, currency: 'USDT', amount: 100, rate: 44.7, mode: 'BUY' }, 7),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(
+        service.create({ shiftId: 1, currency: 'USD', amount: 100, rate: 1, payCurrency: 'USDT', payAmount: 100, mode: 'BUY' }, 7),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.operation.create).not.toHaveBeenCalled();
+    });
+
     it('кидає NotFoundException, якщо зміни немає', async () => {
       const prisma = makePrisma();
       prisma.shift.findUnique.mockResolvedValue(null);

@@ -7,8 +7,6 @@ type Wallet = {
   pointName: string;
   pointCode: string;
   balance: number;
-  buyPct: number;
-  sellPct: number;
 };
 
 type UsdtOp = {
@@ -125,59 +123,6 @@ function GlobalCard({
   );
 }
 
-// Налаштування комісій точки. Баланс/розподіл гаманця точки приховані, поки
-// глобальний банк — єдине джерело (комісії досі застосовуються в операціях).
-function WalletCard({ w, onSaved }: { w: Wallet; onSaved: () => void }) {
-  const [buyPct, setBuyPct] = useState(String(w.buyPct));
-  const [sellPct, setSellPct] = useState(String(w.sellPct));
-  const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState('');
-
-  // Синхронізуємо інпути з даними сервера після збереження/оновлення (щоб поля
-  // відображали фактично збережені значення, а не залишок локального стану).
-  useEffect(() => { setBuyPct(String(w.buyPct)); }, [w.buyPct]);
-  useEffect(() => { setSellPct(String(w.sellPct)); }, [w.sellPct]);
-
-  const savePct = async () => {
-    setBusy(true); setMsg('');
-    try {
-      await api.put(`/usdt/wallet/${w.exchangePointId}/pct`, {
-        buyPct: parseFloat(buyPct) || 0,
-        sellPct: parseFloat(sellPct) || 0,
-      });
-      setMsg('Збережено'); onSaved();
-    } catch (e: any) {
-      setMsg(e.response?.data?.message ?? 'Помилка');
-    } finally { setBusy(false); }
-  };
-
-  return (
-    <div className="border border-gray-200 rounded-xl p-4">
-      <div className="font-semibold text-gray-800 mb-2">
-        <span className="text-gray-400 font-normal">{w.pointCode} · </span>{w.pointName}
-      </div>
-
-      <div className="grid grid-cols-2 gap-2 mb-2">
-        <label className="text-xs text-gray-500">
-          Комісія купівлі %
-          <input type="number" step="0.0001" value={buyPct} onChange={(e) => setBuyPct(e.target.value)}
-            className="mt-0.5 w-full border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
-        </label>
-        <label className="text-xs text-gray-500">
-          Комісія продажу %
-          <input type="number" step="0.0001" value={sellPct} onChange={(e) => setSellPct(e.target.value)}
-            className="mt-0.5 w-full border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
-        </label>
-      </div>
-      <button onClick={savePct} disabled={busy}
-        className="w-full py-1.5 rounded bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium disabled:opacity-50">
-        Зберегти комісії
-      </button>
-      {msg && <div className="text-xs text-gray-500 mt-2">{msg}</div>}
-    </div>
-  );
-}
-
 // Окремі швидкі суми для USDT-операцій (кнопки −/+ у вікні каси).
 function UsdtQuickAmountsSettings() {
   const [amounts, setAmounts] = useState<number[]>([]);
@@ -281,22 +226,6 @@ export default function UsdtAdmin() {
 
       {/* Окремі швидкі суми для USDT-операцій */}
       <UsdtQuickAmountsSettings />
-
-      {/* Комісії точок — приховано (display:none), поки глобальний банк єдиний */}
-      <div className="hidden bg-white rounded-xl shadow p-5">
-        <h3 className="font-semibold text-lg mb-3">₮ USDT — комісії точок</h3>
-        {loading ? (
-          <div className="text-center py-6 text-gray-400">Завантаження...</div>
-        ) : wallets.length === 0 ? (
-          <p className="text-gray-400 text-sm">Немає точок</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {wallets.map((w) => (
-              <WalletCard key={w.exchangePointId} w={w} onSaved={load} />
-            ))}
-          </div>
-        )}
-      </div>
 
       {/* Історія операцій */}
       <div className="bg-white rounded-xl shadow p-5">

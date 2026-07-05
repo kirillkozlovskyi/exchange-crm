@@ -33,7 +33,8 @@ export default function OperationForm({
   onCreated: () => void;
   receipt?: ReceiptInfo;
 }) {
-  const foreignCurrencies = rates.map((r) => r.currency);
+  // USDT торгується лише через вікно ₮ USDT — в основній формі його немає.
+  const foreignCurrencies = rates.map((r) => r.currency).filter((c) => c !== 'USDT');
   const allCurrencies = ['UAH', ...foreignCurrencies];
   // Валюта за замовчуванням — долар (якщо є серед курсів), інакше перша зі списку
   const defForeign = foreignCurrencies.includes('USD') ? 'USD' : (foreignCurrencies[0] ?? 'USD');

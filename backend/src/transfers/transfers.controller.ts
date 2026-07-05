@@ -28,12 +28,12 @@ export class TransfersController {
 
   @Post()
   create(@Body() dto: any, @CurrentUser() user: any) {
-    return this.service.create(dto, user.sub);
+    return this.service.create(dto, user.sub, { sub: user.sub, role: user.role });
   }
 
   @Patch(':id/confirm')
   confirm(@Param('id', ParseIntPipe) id: number, @CurrentUser() user: any) {
-    return this.service.confirm(id, user.sub);
+    return this.service.confirm(id, user.sub, { sub: user.sub, role: user.role });
   }
 
   @Patch(':id/reject')
@@ -42,6 +42,6 @@ export class TransfersController {
     @Body() body: { rejectNote?: string },
     @CurrentUser() user: any,
   ) {
-    return this.service.reject(id, user.sub, body.rejectNote);
+    return this.service.reject(id, user.sub, body.rejectNote, { sub: user.sub, role: user.role });
   }
 }

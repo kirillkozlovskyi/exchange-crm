@@ -133,6 +133,13 @@ model Shift {
   calcBalance     Json        @default("{}")
 
   profit          Decimal     @default(0) @db.Decimal(15, 2)
+  // Звіт закриття — зберігається при closeShift, щоб історичні звіти
+  // відтворювались точно (не залежали від подальших змін курсів):
+  // фактичний прибуток (з нестачею/надлишком), розбивка по валютах,
+  // серединні курси оцінки на момент закриття.
+  factualProfit    Decimal?   @db.Decimal(15, 2)
+  profitByCurrency Json       @default("{}")
+  valuationRates   Json       @default("{}")
   note            String?
 
   cashDesk        CashDesk    @relation(fields: [cashDeskId], references: [id])
@@ -327,8 +334,6 @@ model UsdtWallet {
   exchangePoint   ExchangePoint @relation(fields: [exchangePointId], references: [id], onDelete: Cascade)
   exchangePointId Int           @unique
   balance         Decimal       @default(0) @db.Decimal(18, 4)
-  buyPct          Decimal       @default(0) @db.Decimal(8, 4)  // % коли каса купує USDT (клієнт отримує менше)
-  sellPct         Decimal       @default(0) @db.Decimal(8, 4)  // % коли каса продає USDT (клієнт платить більше)
   updatedAt       DateTime      @updatedAt
 }
 

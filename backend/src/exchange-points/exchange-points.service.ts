@@ -40,7 +40,15 @@ export class ExchangePointsService {
         const shiftIds = shifts.map((s) => s.id);
 
         if (shiftIds.length > 0) {
+          // Залежні від операцій та змін записи — спочатку (інакше FK-падіння):
+          // журнал редагувань, звірки, рух готівки, USDT-операції.
+          await tx.operationEdit.deleteMany({
+            where: { operation: { shiftId: { in: shiftIds } } },
+          });
           await tx.operation.deleteMany({ where: { shiftId: { in: shiftIds } } });
+          await tx.reconciliation.deleteMany({ where: { shiftId: { in: shiftIds } } });
+          await tx.cashMovement.deleteMany({ where: { shiftId: { in: shiftIds } } });
+          await tx.usdtOperation.deleteMany({ where: { shiftId: { in: shiftIds } } });
           await tx.shift.deleteMany({ where: { id: { in: shiftIds } } });
         }
 
@@ -48,6 +56,8 @@ export class ExchangePointsService {
         await tx.transfer.deleteMany({ where: { fromDeskId: { in: deskIds } } });
         await tx.transfer.deleteMany({ where: { toDeskId: { in: deskIds } } });
 
+        // Рухи банку каси не видаляємо — журнал банку зберігається
+        // (cashDeskId має onDelete: SET NULL і відв'яжеться сам).
         await tx.cashDesk.deleteMany({ where: { exchangePointId: id } });
       }
 

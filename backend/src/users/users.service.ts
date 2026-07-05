@@ -8,7 +8,7 @@ export class UsersService {
 
   async findAll() {
     return this.prisma.user.findMany({
-      select: { id: true, name: true, login: true, role: true, exchangePointId: true, exchangePoint: true },
+      select: { id: true, name: true, login: true, role: true, active: true, exchangePointId: true, exchangePoint: true },
       orderBy: { name: 'asc' },
     });
   }
@@ -32,17 +32,19 @@ export class UsersService {
     });
   }
 
-  async update(id: number, dto: { name?: string; role?: string; exchangePointId?: number; password?: string }) {
+  async update(id: number, dto: { name?: string; role?: string; exchangePointId?: number; password?: string; active?: boolean }) {
     const data: any = {};
     if (dto.name) data.name = dto.name;
     if (dto.role) data.role = dto.role;
     if (dto.exchangePointId !== undefined) data.exchangePointId = dto.exchangePointId;
     if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 10);
+    // Деактивація діє миттєво: JwtStrategy звіряє active на кожен запит.
+    if (dto.active !== undefined) data.active = dto.active;
 
     return this.prisma.user.update({
       where: { id },
       data,
-      select: { id: true, name: true, login: true, role: true, exchangePointId: true },
+      select: { id: true, name: true, login: true, role: true, active: true, exchangePointId: true },
     });
   }
 

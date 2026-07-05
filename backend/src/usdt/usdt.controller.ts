@@ -56,16 +56,6 @@ export class UsdtController {
     return this.service.getWallet(pointId);
   }
 
-  @Put('wallet/:pointId/pct')
-  @UseGuards(RolesGuard)
-  @Roles('ADMIN')
-  setPct(
-    @Param('pointId', ParseIntPipe) pointId: number,
-    @Body() dto: { buyPct?: number; sellPct?: number },
-  ) {
-    return this.service.setPct(pointId, dto);
-  }
-
   @Post('wallet/:pointId/adjust')
   @UseGuards(RolesGuard)
   @Roles('ADMIN')

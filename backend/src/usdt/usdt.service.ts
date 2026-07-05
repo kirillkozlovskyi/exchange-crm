@@ -32,23 +32,7 @@ export class UsdtService {
       pointName: p.name,
       pointCode: p.code,
       balance: p.usdtWallet ? Number(p.usdtWallet.balance) : 0,
-      buyPct: p.usdtWallet ? Number(p.usdtWallet.buyPct) : 0,
-      sellPct: p.usdtWallet ? Number(p.usdtWallet.sellPct) : 0,
     }));
-  }
-
-  // Налаштування комісій (адмін): окремо купівля/продаж, до 4 знаків.
-  // Відʼємні відсотки дозволені (напр. знижка/від'ємна маржа).
-  async setPct(exchangePointId: number, dto: { buyPct?: number; sellPct?: number }) {
-    const buyPct = Number(dto.buyPct ?? 0);
-    const sellPct = Number(dto.sellPct ?? 0);
-    if (Number.isNaN(buyPct) || Number.isNaN(sellPct))
-      throw new BadRequestException('Некоректний відсоток');
-    return this.prisma.usdtWallet.upsert({
-      where: { exchangePointId },
-      create: { exchangePointId, buyPct, sellPct },
-      update: { buyPct, sellPct },
-    });
   }
 
   // Ручне коригування балансу гаманця (адмін): депозит/зняття USDT.
@@ -221,10 +205,9 @@ export class UsdtService {
     const wallet = await this.getWallet(pointId);
     const rates = await this.pointRates(pointId);
 
-    // % — індивідуальний на операцію (якщо переданий), інакше з гаманця точки.
-    // Відʼємні відсотки дозволені.
-    const defaultPct = side === 'SELL' ? Number(wallet.sellPct) : Number(wallet.buyPct);
-    const pct = dto.pct != null && !Number.isNaN(Number(dto.pct)) ? Number(dto.pct) : defaultPct;
+    // % — індивідуальний на операцію (дефолт 0; відʼємні дозволені). Це лише
+    // калькулятор запропонованої суми — прибуток рахується з ФАКТУ нижче.
+    const pct = dto.pct != null && !Number.isNaN(Number(dto.pct)) ? Number(dto.pct) : 0;
     const frac = pct / 100;
     // 1:1 до USD × (1 ± %): продаж дорожче для клієнта, купівля дешевше.
     const usdValue = side === 'SELL' ? usdtAmount * (1 + frac) : usdtAmount * (1 - frac);
@@ -252,8 +235,19 @@ export class UsdtService {
       throw new BadRequestException('Не вдалося визначити суму розрахунку — вкажіть її вручну');
     const settleRate = usdValue !== 0 ? settleAmount / usdValue : 0;
 
-    // Чиста маржа (%) у гривні: usdtAmount × % × серединний курс USD.
-    const profitUah = round2(usdtAmount * frac * usd.mid);
+    // Прибуток — з ФАКТИЧНИХ грошей, а не з поля «%»: фізична сума розрахунку
+    // проти бази 1:1. Касир продав 300 USDT за 305 USD (хай і з %=0) → маржа
+    // 5 USD; продав рівно 1:1 → 0. Раніше маржа рахувалась із %, і ручні
+    // корекції суми не потрапляли у прибуток.
+    const settleUsd =
+      settleCurrency === 'USD'
+        ? settleAmount
+        : settleCurrency === 'UAH'
+          ? usd.mid > 0 ? settleAmount / usd.mid : NaN
+          : tgt && usd.mid > 0 ? (settleAmount * tgt.mid) / usd.mid : NaN;
+    const marginUsd = side === 'SELL' ? settleUsd - usdtAmount : usdtAmount - settleUsd;
+    // Немає курсу для конвертації — маржу не оцінюємо (0), щоб не вигадувати.
+    const profitUah = Number.isFinite(marginUsd) ? round2(marginUsd * usd.mid) : 0;
 
     // Джерело USDT: гаманець точки чи глобальний банк (налаштування).
     const source = await this.getSource();

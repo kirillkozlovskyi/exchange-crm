@@ -72,6 +72,11 @@ export class OperationsService {
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна закрита');
 
+    // USDT має єдиний шлях — вікно ₮ USDT (віртуальний гаманець + фізична
+    // готівка). Другий шлях через основну форму давав подвійний облік.
+    if (dto.currency === 'USDT' || dto.payCurrency === 'USDT')
+      throw new BadRequestException('USDT торгується лише через вікно ₮ USDT');
+
     const exchangePointId = shift.cashDesk.exchangePointId;
 
     const getRate = await this.buildRateLookup(exchangePointId, [dto.currency, dto.payCurrency]);
