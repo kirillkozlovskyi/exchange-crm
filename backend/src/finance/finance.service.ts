@@ -11,7 +11,8 @@ export class FinanceService {
     const to = endOfDay(date);
 
     const operations = await this.prisma.operation.findMany({
-      where: { createdAt: { gte: from, lte: to } },
+      // Скасовані (сторно) не входять у фінансові підсумки.
+      where: { createdAt: { gte: from, lte: to }, cancelled: false },
       include: { shift: { include: { cashDesk: { include: { exchangePoint: true } } } } },
     });
 
@@ -23,7 +24,7 @@ export class FinanceService {
     const to = endOfWeek(date, { weekStartsOn: 1 });
 
     const operations = await this.prisma.operation.findMany({
-      where: { createdAt: { gte: from, lte: to } },
+      where: { createdAt: { gte: from, lte: to }, cancelled: false },
       include: { shift: { include: { cashDesk: { include: { exchangePoint: true } } } } },
     });
 
@@ -35,7 +36,7 @@ export class FinanceService {
     const to = endOfMonth(date);
 
     const operations = await this.prisma.operation.findMany({
-      where: { createdAt: { gte: from, lte: to } },
+      where: { createdAt: { gte: from, lte: to }, cancelled: false },
       include: { shift: { include: { cashDesk: { include: { exchangePoint: true } } } } },
     });
 
@@ -47,6 +48,7 @@ export class FinanceService {
     let totalProfit = 0;
 
     for (const op of operations) {
+      if (op.cancelled) continue; // подвійний захист від сторнованих
       const point = op.shift?.cashDesk?.exchangePoint;
       if (!point) continue;
 

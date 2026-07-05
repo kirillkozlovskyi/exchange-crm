@@ -16,8 +16,13 @@ export class ShiftsController {
   }
 
   @Patch(':id/close')
-  close(@Param('id', ParseIntPipe) id: number, @Body() body: { endBalance: object }) {
-    return this.shiftsService.closeShift(id, body.endBalance);
+  close(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { endBalance: object },
+    @CurrentUser() user: any,
+  ) {
+    // Касир закриває лише свою зміну (перевірка в сервісі), адмін/старший — будь-яку.
+    return this.shiftsService.closeShift(id, body.endBalance, { sub: user.sub, role: user.role });
   }
 
   @Get('my')
@@ -50,7 +55,10 @@ export class ShiftsController {
     return this.shiftsService.getLastEndBalance(cashDeskId);
   }
 
+  // Коригування залишку зміни — лише адмін (жоден UI касира це не викликає).
   @Patch(':id/adjust-balance')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
   adjustBalance(
     @Param('id', ParseIntPipe) id: number,
     @Body() body: { balance: Record<string, number> },

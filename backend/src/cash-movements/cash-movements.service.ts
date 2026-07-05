@@ -1,14 +1,17 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
-import { applyOperationsToBalance } from '../common/balance.util';
-import { applyCashMovements } from '../common/cash-movements.util';
+import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
+import { CashBankService } from '../cash-bank/cash-bank.service';
 
 type Direction = 'IN' | 'OUT';
 
 @Injectable()
 export class CashMovementsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private cashBank: CashBankService,
+  ) {}
 
   // Окрема нумерація для підкріплень (REP-) та інкасацій (INC-).
   private async generateNumber(direction: Direction) {
@@ -28,28 +31,37 @@ export class CashMovementsService {
       currency: string;
       amount: number;
       source?: string;
+      counterparty?: string; // 'BANK' | 'EXTERNAL' — контрагент руху
       note?: string;
     },
     userId: number,
   ) {
     const amount = Number(dto.amount);
     const direction: Direction = dto.direction === 'IN' ? 'IN' : 'OUT';
+    const counterparty = dto.counterparty === 'BANK' ? 'BANK' : 'EXTERNAL';
     if (!dto.currency) throw new BadRequestException('Не вказано валюту');
     if (!(amount > 0)) throw new BadRequestException('Сума має бути більшою за 0');
 
     const shift = await this.prisma.shift.findUnique({
       where: { id: dto.shiftId },
-      include: { operations: true, cashMovements: true },
+      include: { operations: true, cashMovements: true, usdtOperations: true },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status !== 'OPEN')
       throw new BadRequestException('Рух готівки можливий лише при відкритій зміні');
 
     if (direction === 'OUT') {
-      // Поточний залишок каси = початок + операції + рух готівки.
-      const start = shift.startBalance as Record<string, number>;
-      const afterOps = applyOperationsToBalance(start, shift.operations);
-      const available = applyCashMovements(afterOps, shift.cashMovements);
+      // Поточний залишок каси — єдиний ledger-розрахунок (операції + рух готівки +
+      // USDT-готівка + передачі), той самий, що бачить касир на екрані.
+      const available = shiftCashBalance(
+        {
+          startBalance: shift.startBalance as Record<string, number>,
+          operations: shift.operations,
+          cashMovements: shift.cashMovements,
+          usdtOperations: shift.usdtOperations as any,
+        },
+        await confirmedTransfersNetForDesk(this.prisma, shift.cashDeskId, shift.openedAt),
+      );
       const have = available[dto.currency] ?? 0;
       if (have < amount) {
         throw new BadRequestException(
@@ -59,19 +71,40 @@ export class CashMovementsService {
     }
 
     const number = await this.generateNumber(direction);
-    return this.prisma.cashMovement.create({
-      data: {
-        number,
-        direction,
-        currency: dto.currency,
-        amount,
-        source: dto.source,
-        note: dto.note,
-        shiftId: shift.id,
-        cashDeskId: shift.cashDeskId,
-        createdById: userId,
-      },
-      include: { createdBy: { select: { name: true } } },
+
+    // Рух банку (контрагент BANK) і рух готівки каси — ОДНА транзакція: якщо
+    // створення CashMovement впаде (напр., гонка нумерації), рух банку
+    // відкотиться разом із ним, і баланс компанії не розʼїдеться.
+    return this.prisma.$transaction(async (tx) => {
+      if (counterparty === 'BANK') {
+        await this.cashBank.applyForCashMovement(
+          {
+            direction,
+            currency: dto.currency,
+            amount,
+            cashDeskId: shift.cashDeskId,
+            userId,
+            note: dto.note,
+          },
+          tx,
+        );
+      }
+
+      return tx.cashMovement.create({
+        data: {
+          number,
+          direction,
+          currency: dto.currency,
+          amount,
+          source: dto.source,
+          counterparty,
+          note: dto.note,
+          shiftId: shift.id,
+          cashDeskId: shift.cashDeskId,
+          createdById: userId,
+        },
+        include: { createdBy: { select: { name: true } } },
+      });
     });
   }
 

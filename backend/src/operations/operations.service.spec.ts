@@ -263,6 +263,17 @@ describe('OperationsService — грошова математика', () => {
       await expect(service.update(5, { amount: 1, rate: 41 }, 9)).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('кидає BadRequestException при редагуванні сторнованої операції', async () => {
+      const prisma = prismaForUpdate({
+        id: 5, type: 'SELL', currency: 'USD', amount: 100, rate: 41.5,
+        payCurrency: null, payAmount: null, cancelled: true,
+      });
+      const service = new OperationsService(prisma as any, settingsStub as any);
+
+      await expect(service.update(5, { amount: 200, rate: 42 }, 9)).rejects.toBeInstanceOf(BadRequestException);
+      expect(prisma.operationEdit.create).not.toHaveBeenCalled();
+    });
+
     it('кидає BadRequestException при редагуванні на кількість 0 і не пише OperationEdit', async () => {
       const prisma = prismaForUpdate({
         id: 5, type: 'SELL', currency: 'USD', amount: 100, rate: 41.5, payCurrency: null, payAmount: null,
@@ -296,10 +307,14 @@ describe('OperationsService — грошова математика', () => {
       expect(res.cancelled).toBe(true);
     });
 
-    it('забороняє сторно не останньої операції зміни', async () => {
+    it('дозволяє сторно НЕ останньої операції в межах вікна', async () => {
       const op = { id: 10, shiftId: 1, cancelled: false, createdAt: new Date(), shift: { status: 'OPEN' } };
-      const { service } = setup(op, { id: 11 }); // остання — інша
-      await expect(service.storno(10, 7)).rejects.toBeInstanceOf(BadRequestException);
+      const { prisma, service } = setup(op, { id: 11 }); // остання — інша, але це вже не блокує
+      const res: any = await service.storno(10, 7);
+      expect(prisma.operation.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { cancelled: true, cancelNote: null } }),
+      );
+      expect(res.cancelled).toBe(true);
     });
 
     it('забороняє сторно вже скасованої операції', async () => {

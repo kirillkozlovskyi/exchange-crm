@@ -128,6 +128,8 @@ describe('ShiftsService — закриття та коригування', () =>
       const shift = {
         id: 1,
         status: 'OPEN',
+        cashDeskId: 7,
+        openedAt: new Date(),
         startBalance: { UAH: 10000, USD: 500 },
         operations: [
           { type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, cancelled: false },
@@ -138,6 +140,7 @@ describe('ShiftsService — закриття та коригування', () =>
           findUnique: jest.fn().mockResolvedValue(shift),
           update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })),
         },
+        transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
       const service = new ShiftsService(prisma as any);
 
@@ -145,6 +148,71 @@ describe('ShiftsService — закриття та коригування', () =>
 
       // USD: 600 − (+100) = 500 ; UAH: 5900 − (−4100) = 10000
       expect(res.startBalance).toEqual({ UAH: 10000, USD: 500 });
+    });
+
+    it('враховує USDT-готівку і передачі (раніше коригування їх ігнорувало)', async () => {
+      const shift = {
+        id: 1,
+        status: 'OPEN',
+        cashDeskId: 7,
+        openedAt: new Date(),
+        startBalance: { UAH: 1000 },
+        operations: [],
+        cashMovements: [],
+        // Продаж USDT приніс у касу 5000 UAH фізичної готівки.
+        usdtOperations: [{ side: 'SELL', settleCurrency: 'UAH', settleAmount: 5000 }],
+      };
+      const prisma = {
+        shift: {
+          findUnique: jest.fn().mockResolvedValue(shift),
+          update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })),
+        },
+        // Отримана передача +200 USD.
+        transfer: {
+          findMany: jest.fn().mockResolvedValue([
+            { currency: 'USD', amount: 200, fromDeskId: 9, toDeskId: 7, counterCurrency: null, counterAmount: null },
+          ]),
+        },
+      };
+      const service = new ShiftsService(prisma as any);
+
+      // Касир каже: по факту UAH 6100, USD 250.
+      const res: any = await service.adjustBalance(1, { UAH: 6100, USD: 250 });
+
+      // UAH: 6100 − 5000 (USDT) = 1100 ; USD: 250 − 200 (передача) = 50
+      expect(res.startBalance).toEqual({ UAH: 1100, USD: 50 });
+    });
+  });
+
+  describe('closeShift() — власність зміни', () => {
+    function makePrisma(shift: any) {
+      return {
+        shift: {
+          findUnique: jest.fn().mockResolvedValue(shift),
+          update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })),
+        },
+        rate: { findMany: jest.fn().mockResolvedValue([]) },
+        transfer: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+    }
+    const baseShift = {
+      id: 1, status: 'OPEN', cashDeskId: 7, openedAt: new Date(), openedById: 5,
+      startBalance: {}, operations: [], cashDesk: { exchangePointId: 1 },
+    };
+
+    it('касир НЕ може закрити чужу зміну', async () => {
+      const service = new ShiftsService(makePrisma(baseShift) as any);
+      await expect(
+        service.closeShift(1, {}, { sub: 99, role: 'CASHIER' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('касир закриває СВОЮ зміну; адмін — будь-чию', async () => {
+      const own = new ShiftsService(makePrisma(baseShift) as any);
+      await expect(own.closeShift(1, {}, { sub: 5, role: 'CASHIER' })).resolves.toBeDefined();
+
+      const admin = new ShiftsService(makePrisma(baseShift) as any);
+      await expect(admin.closeShift(1, {}, { sub: 99, role: 'ADMIN' })).resolves.toBeDefined();
     });
   });
 });

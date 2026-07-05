@@ -17,6 +17,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { ReconciliationsModule } from './reconciliations/reconciliations.module';
 import { CashMovementsModule } from './cash-movements/cash-movements.module';
 import { UsdtModule } from './usdt/usdt.module';
+import { CashBankModule } from './cash-bank/cash-bank.module';
 import { SeedService } from './seed.service';
 
 @Module({
@@ -39,6 +40,7 @@ import { SeedService } from './seed.service';
     ReconciliationsModule,
     CashMovementsModule,
     UsdtModule,
+    CashBankModule,
   ],
   providers: [SeedService],
 })

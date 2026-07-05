@@ -1,11 +1,11 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
-import { applyOperationsToBalance, operationsDelta } from '../common/balance.util';
+import { applyOperationsToBalance } from '../common/balance.util';
 import { midRates, valueOf, realizedProfit } from '../common/profit.util';
-import { netTransfers } from '../common/transfers.util';
 import { cashMovementsDelta } from '../common/cash-movements.util';
 import { usdtCashDelta, usdtProfit } from '../common/usdt.util';
+import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
 
 @Injectable()
 export class ShiftsService {
@@ -33,24 +33,43 @@ export class ShiftsService {
 
     const number = await this.generateNumber(desk.exchangePoint.code);
 
-    return this.prisma.shift.create({
-      data: {
-        number,
-        cashDeskId,
-        openedById: userId,
-        startBalance,
-      },
-      include: { cashDesk: { include: { exchangePoint: true } }, openedBy: true },
-    });
+    try {
+      return await this.prisma.shift.create({
+        data: {
+          number,
+          cashDeskId,
+          openedById: userId,
+          startBalance,
+        },
+        include: { cashDesk: { include: { exchangePoint: true } }, openedBy: true },
+      });
+    } catch (e: any) {
+      // Unique-індекс Shift_desk_open_key: гонка подвійного відкриття (подвійний клік).
+      if (e?.code === 'P2002')
+        throw new BadRequestException('Зміна вже відкрита на цій касі');
+      throw e;
+    }
   }
 
-  async closeShift(shiftId: number, endBalance?: object) {
+  async closeShift(
+    shiftId: number,
+    endBalance?: object,
+    // Хто закриває: касир може закрити лише СВОЮ зміну; адмін/старший — будь-яку.
+    actor?: { sub: number; role: string },
+  ) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
       include: { operations: true, cashMovements: true, usdtOperations: true, cashDesk: true },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна вже закрита');
+    if (
+      actor &&
+      actor.role !== 'ADMIN' &&
+      actor.role !== 'SENIOR_CASHIER' &&
+      shift.openedById !== actor.sub
+    )
+      throw new BadRequestException('Закрити можна лише власну зміну');
 
     const start = shift.startBalance as Record<string, number>;
 
@@ -63,15 +82,6 @@ export class ShiftsService {
     // USDT-операції рухають фізичну готівку каси (settleCurrency) — це торгова
     // готівка (входить у прибуток окремою маржею), на відміну від руху готівки.
     const usdtDelta = usdtCashDelta((shift.usdtOperations as any) ?? []);
-
-    // Розрахунковий залишок у касі = операції + USDT-готівка + рух готівки.
-    const calcBalance: Record<string, number> = { ...opsBalance };
-    for (const [cur, d] of Object.entries(usdtDelta)) {
-      calcBalance[cur] = (calcBalance[cur] ?? 0) + d;
-    }
-    for (const [cur, d] of Object.entries(moveDelta)) {
-      calcBalance[cur] = (calcBalance[cur] ?? 0) + d;
-    }
 
     // Прибуток = реалізований спред «з відкупленого»: по кожній валюті
     // відкуплено = min(куплено, продано) × (сер.курс продажу − сер.курс купівлі);
@@ -92,34 +102,19 @@ export class ShiftsService {
     // Передачі між касами/точками — це рух готівки, а не торговий прибуток.
     // Вилучаємо їх із фактичного залишку, щоб отримана/відправлена валюта не
     // спотворювала фактичний результат зміни.
-    const transfers = await this.prisma.transfer.findMany({
-      where: {
-        status: 'CONFIRMED',
-        confirmedAt: { gte: shift.openedAt },
-        OR: [{ fromDeskId: shift.cashDeskId }, { toDeskId: shift.cashDeskId }],
-      },
-      select: {
-        currency: true, amount: true, fromDeskId: true, toDeskId: true,
-        counterCurrency: true, counterAmount: true,
-      },
-    });
-    const net = netTransfers(
-      transfers.map((t) => ({
-        currency: t.currency,
-        amount: Number(t.amount),
-        fromDeskId: t.fromDeskId,
-        toDeskId: t.toDeskId,
-        counterCurrency: t.counterCurrency,
-        counterAmount: t.counterAmount != null ? Number(t.counterAmount) : null,
-      })),
-      shift.cashDeskId,
-    );
+    const net = await confirmedTransfersNetForDesk(this.prisma, shift.cashDeskId, shift.openedAt);
 
-    // Б1: підтверджені передачі/свопи рухають очікуваний залишок каси
-    // (раніше їх не додавали — звідси фантомні розбіжності).
-    for (const [cur, amt] of Object.entries(net)) {
-      calcBalance[cur] = (calcBalance[cur] ?? 0) + amt;
-    }
+    // Розрахунковий (очікуваний фізичний) залишок — єдиний ledger-розрахунок:
+    // операції + USDT-готівка + рух готівки + підтверджені передачі/свопи (Б1).
+    const calcBalance = shiftCashBalance(
+      {
+        startBalance: start,
+        operations: shift.operations,
+        cashMovements: shift.cashMovements ?? [],
+        usdtOperations: (shift.usdtOperations as any) ?? [],
+      },
+      net,
+    );
 
     // Фактичний результат (з нестачею/надлишком касира) — за введеним залишком,
     // з якого вилучаємо нетто-передачі та рух готівки (підкріплення/інкасації):
@@ -254,20 +249,29 @@ export class ShiftsService {
   async adjustBalance(shiftId: number, newCurrentBalance: Record<string, number>) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
-      include: { operations: true, cashMovements: true },
+      include: { operations: true, cashMovements: true, usdtOperations: true },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна закрита');
 
-    // Поточний залишок = початок + операції + рух готівки. Тож
-    // newStartBalance[cur] = newCurrentBalance[cur] − opsDelta[cur] − moveDelta[cur].
-    const opsDelta = operationsDelta(shift.operations);
-    const moveDelta = cashMovementsDelta(shift.cashMovements ?? []);
+    // Поточний залишок — єдиний ledger-розрахунок (операції + рух готівки +
+    // USDT-готівка + передачі). Дельта = ledger із нульовим стартом, тож
+    // newStartBalance[cur] = newCurrentBalance[cur] − delta[cur].
+    // (Раніше USDT/передачі не враховувались — коригування псувало startBalance.)
+    const delta = shiftCashBalance(
+      {
+        startBalance: {},
+        operations: shift.operations,
+        cashMovements: shift.cashMovements ?? [],
+        usdtOperations: (shift.usdtOperations as any) ?? [],
+      },
+      await confirmedTransfersNetForDesk(this.prisma, shift.cashDeskId, shift.openedAt),
+    );
 
     const startBalance = shift.startBalance as Record<string, number>;
     const newStartBalance: Record<string, number> = { ...startBalance };
     for (const [cur, newAmt] of Object.entries(newCurrentBalance)) {
-      newStartBalance[cur] = newAmt - (opsDelta[cur] ?? 0) - (moveDelta[cur] ?? 0);
+      newStartBalance[cur] = newAmt - (delta[cur] ?? 0);
     }
 
     return this.prisma.shift.update({

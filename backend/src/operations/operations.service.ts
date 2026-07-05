@@ -138,6 +138,8 @@ export class OperationsService {
     if (!op) throw new NotFoundException('Операцію не знайдено');
     if (op.shift.status === 'CLOSED')
       throw new BadRequestException('Зміна закрита — редагування неможливе');
+    if (op.cancelled)
+      throw new BadRequestException('Операцію скасовано (сторно) — редагування неможливе');
 
     const exchangePointId = op.shift.cashDesk.exchangePointId;
 
@@ -188,15 +190,9 @@ export class OperationsService {
     if (op.cancelled)
       throw new BadRequestException('Операцію вже скасовано');
 
-    // Сторно дозволено тільки якщо операція є ОСТАННЬОЮ ВЗАГАЛІ в зміні
-    const overallLastOp = await this.prisma.operation.findFirst({
-      where: { shiftId: op.shiftId },
-      orderBy: { createdAt: 'desc' },
-    });
-    if (!overallLastOp || overallLastOp.id !== id)
-      throw new BadRequestException('Сторно дозволено тільки для останньої операції зміни');
-
-    // Перевірка часового вікна сторно
+    // Сторно дозволено для будь-якої операції в межах часового вікна (не лише
+    // останньої) — баланс і прибуток скрізь пропускають cancelled, тож скасування
+    // операції з середини зміни перераховується коректно.
     const windowMinutes = await this.settings.getStornoWindowMinutes();
     const ageMs = Date.now() - new Date(op.createdAt).getTime();
     if (ageMs > windowMinutes * 60 * 1000)
@@ -222,6 +218,7 @@ export class OperationsService {
     return this.prisma.operation.findMany({
       where: type ? { type } : undefined,
       orderBy: { createdAt: 'desc' },
+      take: 500, // адмінська стрічка: без ліміту віддавала б усю історію
       include: {
         cashier: { select: { name: true } },
         shift: {

@@ -178,10 +178,10 @@ export function printReceipt(op: Op, info: ReceiptInfo = {}) {
 }
 
 function OpRow({
-  op, seq, rates, onEdit, onStorno, onPrint, isLast, canEdit, stornoWindowMin, now,
+  op, seq, rates, onEdit, onStorno, onPrint, canEdit, stornoWindowMin, now,
 }: {
   op: Op; seq: number; rates: Rate[]; onEdit: (op: Op) => void;
-  onStorno: (op: Op) => void; onPrint: (op: Op) => void; isLast: boolean; canEdit: boolean;
+  onStorno: (op: Op) => void; onPrint: (op: Op) => void; canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
   const isCross  = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
@@ -239,7 +239,7 @@ function OpRow({
                 className="p-1 rounded text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition text-sm leading-none font-bold"
                 title="Редагувати операцію">✎</button>
             )}
-            {isLast && withinWindow && (
+            {withinWindow && (
               <button onClick={() => onStorno(op)}
                 className="p-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 transition text-sm leading-none font-black"
                 title={`Сторно — дозволено ${stornoWindowMin} хв після операції`}>✕</button>
@@ -252,12 +252,12 @@ function OpRow({
 }
 
 function OpsBlock({
-  title, ops, colorClass, fullHeight, hideTitle, seqMap, rates, onEdit, onStorno, onPrint, lastOpId, canEdit, stornoWindowMin, now,
+  title, ops, colorClass, fullHeight, hideTitle, seqMap, rates, onEdit, onStorno, onPrint, canEdit, stornoWindowMin, now,
 }: {
   title: string; ops: Op[]; colorClass: string; fullHeight?: boolean; hideTitle?: boolean;
   seqMap: Map<number, number>;
   rates: Rate[]; onEdit: (op: Op) => void; onStorno: (op: Op) => void; onPrint: (op: Op) => void;
-  lastOpId: number | null; canEdit: boolean;
+  canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
   const head = (
@@ -294,7 +294,6 @@ function OpsBlock({
                 <OpRow
                   key={op.id} op={op} seq={seqMap.get(op.id) ?? 0} rates={rates}
                   onEdit={onEdit} onStorno={onStorno} onPrint={onPrint}
-                  isLast={op.id === lastOpId}
                   canEdit={canEdit}
                   stornoWindowMin={stornoWindowMin}
                   now={now}
@@ -446,12 +445,6 @@ export default function OperationsList({
     ...allOps.flatMap((o) => [o.currency, o.payCurrency].filter(Boolean) as string[]),
   ])).filter((c) => c !== 'UAH').sort();
 
-  // Остання НЕ скасована операція зміни (ops відсортовані desc)
-  const lastActiveOp = allOps.find(o => !o.cancelled);
-  // Сторно тільки якщо lastActiveOp є також НАЙНОВІШОЮ операцією взагалі
-  const stornoAllowed = lastActiveOp != null && allOps[0]?.id === lastActiveOp.id;
-  const lastOpId = stornoAllowed ? lastActiveOp.id : null;
-
   // Мультіселект фільтр: показуємо якщо currency або payCurrency входить у вибрані
   const filteredOps = filterCurs.length === 0
     ? allOps
@@ -462,7 +455,7 @@ export default function OperationsList({
 
   const handlePrint = (op: Op) => printReceipt(op, receipt);
 
-  const blockProps = { seqMap, rates, onEdit: setEditingOp, onStorno: setStornoOp, onPrint: handlePrint, lastOpId, canEdit, stornoWindowMin, now };
+  const blockProps = { seqMap, rates, onEdit: setEditingOp, onStorno: setStornoOp, onPrint: handlePrint, canEdit, stornoWindowMin, now };
 
   return (
     <>

@@ -9,10 +9,8 @@ import TransferPanel from '../components/cashier/TransferPanel';
 import OpenShiftForm from '../components/cashier/OpenShiftForm';
 import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
-import { computeCurrentBalance } from '../lib/balance';
-import { applyCashMovements, type CashDirection } from '../lib/cash-movements';
-import { netTransfers } from '../lib/transfers';
-import { usdtCashDelta } from '../lib/usdt';
+import { type CashDirection } from '../lib/cash-movements';
+import { shiftCashBalanceWithTransfers } from '../lib/shift-balance';
 import UsdtModal from '../components/cashier/UsdtModal';
 
 type Tab = 'operations' | 'transfers';
@@ -274,21 +272,22 @@ export default function CashierPage() {
   };
 
   // ── Поточний баланс каси (хук ПЕРЕД будь-якими early return) ────────────
-  // Залишок = початок + операції + рух готівки + підтверджені передачі/свопи.
-  const currentBalance = useMemo(() => {
-    const base = applyCashMovements(
-      computeCurrentBalance(shift?.startBalance, shift?.operations),
-      shift?.cashMovements,
-    );
-    if (shift?.cashDeskId) {
-      const net = netTransfers(shift.confirmedTransfers ?? [], shift.cashDeskId);
-      for (const [cur, amt] of Object.entries(net)) base[cur] = (base[cur] ?? 0) + amt;
-    }
-    // Фізична готівка від USDT-операцій (settleCurrency).
-    const usdtD = usdtCashDelta(shift?.usdtOperations ?? []);
-    for (const [cur, amt] of Object.entries(usdtD)) base[cur] = (base[cur] ?? 0) + amt;
-    return base;
-  }, [shift]);
+  // Єдиний ledger-розрахунок: початок + операції + рух готівки + USDT-готівка +
+  // підтверджені передачі/свопи (дзеркало бекенду).
+  const currentBalance = useMemo(
+    () =>
+      shiftCashBalanceWithTransfers(
+        {
+          startBalance: shift?.startBalance,
+          operations: shift?.operations,
+          cashMovements: shift?.cashMovements,
+          usdtOperations: shift?.usdtOperations,
+        },
+        shift?.confirmedTransfers ?? [],
+        shift?.cashDeskId,
+      ),
+    [shift],
+  );
 
   // ── Синхронізація інфо зміни в хедер ─────────────────────────────────────
   useEffect(() => {
@@ -758,6 +757,20 @@ function CashMovementModal({
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Баланс банку — показуємо касиру лише якщо ввімкнено в налаштуваннях і обрано «Банк».
+  const [bankBalances, setBankBalances] = useState<Record<string, number> | null>(null);
+
+  useEffect(() => {
+    api.get('/settings/cashier-see-bank').then(({ data }) => {
+      if (data.enabled) {
+        api.get('/cash-bank').then(({ data: b }) => {
+          const map: Record<string, number> = {};
+          for (const c of b.currencies) map[c.currency] = c.amount;
+          setBankBalances(map);
+        }).catch(() => {});
+      }
+    }).catch(() => {});
+  }, []);
 
   const have = balance[currency] ?? 0;
   const parsed = parseFloat(amount) || 0;
@@ -774,6 +787,8 @@ function CashMovementModal({
       await api.post('/cash-movements', {
         shiftId, direction, currency, amount: parsed,
         source: source || undefined,
+        // Контрагент «Банк» рухає глобальний банк готівки; решта — зовнішні мітки.
+        counterparty: source === 'Банк' ? 'BANK' : 'EXTERNAL',
         note: note || undefined,
       });
       onSaved();
@@ -835,6 +850,11 @@ function CashMovementModal({
             >
               {SOURCE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
             </select>
+            {source === 'Банк' && bankBalances && (
+              <p className="text-xs text-gray-500 mt-1">
+                У банку: <span className="font-semibold">{(bankBalances[currency] ?? 0).toFixed(2)} {currency}</span>
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm text-gray-600 mb-1">Примітка (необов'язково)</label>

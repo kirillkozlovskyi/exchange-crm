@@ -45,6 +45,18 @@ export class SettingsController {
     return this.settingsService.setBalanceEditEnabled(body.enabled).then(() => ({ enabled: body.enabled }));
   }
 
+  @Get('cashier-see-bank')
+  getCashierSeeBank() {
+    return this.settingsService.getCashierCanSeeBank().then((enabled) => ({ enabled }));
+  }
+
+  @Put('cashier-see-bank')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setCashierSeeBank(@Body() body: { enabled: boolean }) {
+    return this.settingsService.setCashierCanSeeBank(body.enabled).then(() => ({ enabled: body.enabled }));
+  }
+
   @Get('currency-order')
   getCurrencyOrder() {
     return this.settingsService.getCurrencyOrder();
@@ -67,6 +79,18 @@ export class SettingsController {
   @Roles('ADMIN')
   setQuickAmounts(@Body() body: { amounts: number[] }) {
     return this.settingsService.setQuickAmounts(body.amounts).then(() => body.amounts);
+  }
+
+  @Get('usdt-quick-amounts')
+  getUsdtQuickAmounts() {
+    return this.settingsService.getUsdtQuickAmounts();
+  }
+
+  @Put('usdt-quick-amounts')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setUsdtQuickAmounts(@Body() body: { amounts: number[] }) {
+    return this.settingsService.setUsdtQuickAmounts(body.amounts).then(() => body.amounts);
   }
 
   @Get('org-name')

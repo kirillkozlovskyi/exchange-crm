@@ -19,7 +19,7 @@ export default function UsdtModal({
 }) {
   const [wallet, setWallet] = useState<{ balance: number; buyPct: number; sellPct: number } | null>(null);
   const [config, setConfig] = useState<{ source: 'POINT' | 'GLOBAL'; globalBalance: number } | null>(null);
-  const [side, setSide] = useState<UsdtSide>('SELL');
+  const [side, setSide] = useState<UsdtSide>('BUY');
   const [usdtAmount, setUsdtAmount] = useState('');
   const [pctRaw, setPctRaw] = useState('');
   const [pctTouched, setPctTouched] = useState(false);
@@ -29,6 +29,7 @@ export default function UsdtModal({
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const [quickAmounts, setQuickAmounts] = useState<number[]>([]);
 
   useEffect(() => {
     api.get(`/usdt/wallet/${pointId}`).then(({ data }) =>
@@ -39,12 +40,17 @@ export default function UsdtModal({
     ).catch(() => setConfig({ source: 'POINT', globalBalance: 0 }));
   }, [pointId]);
 
+  // Окремі швидкі суми USDT (налаштовуються в адмінці USDT).
+  useEffect(() => {
+    api.get('/settings/usdt-quick-amounts').then(({ data }) => setQuickAmounts(data)).catch(() => {});
+  }, []);
+
   // Доступний баланс USDT для продажу — залежно від джерела (точка/глобал).
   const isGlobal = config?.source === 'GLOBAL';
   const availableUsdt = isGlobal ? (config?.globalBalance ?? 0) : (wallet?.balance ?? 0);
 
-  const defaultPct = side === 'SELL' ? (wallet?.sellPct ?? 0) : (wallet?.buyPct ?? 0);
-  // Доки касир не редагував % вручну — тримаємо дефолт гаманця для поточної сторони.
+  // Комісія за замовчуванням 0 (касир за потреби вводить вручну).
+  const defaultPct = 0;
   useEffect(() => {
     if (!pctTouched) setPctRaw(String(defaultPct));
   }, [defaultPct, pctTouched]);
@@ -57,12 +63,18 @@ export default function UsdtModal({
   const pct = parseFloat(pctRaw) || 0;
   const usdt = parseFloat(usdtAmount) || 0;
 
+  // Кнопки −/+ швидких сум: додають/віднімають число від «Сума USDT» (не менше 0).
+  const addUsdt = (delta: number) => {
+    const next = Math.max(0, Math.round(((parseFloat(usdtAmount) || 0) + delta) * 10000) / 10000);
+    setUsdtAmount(next ? String(next) : '');
+  };
+
   const usdMid = useMemo(() => {
     const r = rates.find((x) => x.currency === 'USD');
     return r ? (Number(r.buy) + Number(r.sell)) / 2 : 0;
   }, [rates]);
 
-  const { usdValue, settleAmount: suggested } = useMemo(
+  const { settleAmount: suggested } = useMemo(
     () => suggestUsdtSettle({ side, usdtAmount: usdt, pct, settleCurrency, rates }),
     [side, usdt, pct, settleCurrency, rates],
   );
@@ -74,13 +86,15 @@ export default function UsdtModal({
   const settle = parseFloat(settleAmount) || 0;
   const profitUah = usdt * (pct / 100) * usdMid;
 
-  const warning = (() => {
-    if (side === 'SELL' && config && usdt > availableUsdt)
-      return `Недостатньо USDT у ${isGlobal ? 'глобальному банку' : 'гаманці точки'}: є ${availableUsdt.toFixed(4)}, продаєте ${usdt.toFixed(4)}`;
-    if (side === 'BUY' && settle > (balance[settleCurrency] ?? 0))
-      return `Недостатньо ${settleCurrency} у касі: є ${(balance[settleCurrency] ?? 0).toFixed(2)}, видаєте ${settle.toFixed(2)}`;
-    return '';
-  })();
+  // Нестача USDT (продаж) → підсвічуємо поле «Сума USDT»;
+  // нестача готівки розрахунку (купівля) → підсвічуємо поле «Клієнт платить/Каса видає».
+  const insufficientUsdt = side === 'SELL' && !!config && usdt > availableUsdt;
+  const insufficientSettle = side === 'BUY' && settle > (balance[settleCurrency] ?? 0);
+  const warning = insufficientUsdt
+    ? `Недостатньо USDT у ${isGlobal ? 'глобальному банку' : 'гаманці точки'}: є ${availableUsdt.toFixed(4)}, продаєте ${usdt.toFixed(4)}`
+    : insufficientSettle
+    ? `Недостатньо ${settleCurrency} у касі: є ${(balance[settleCurrency] ?? 0).toFixed(2)}, видаєте ${settle.toFixed(2)}`
+    : '';
 
   const handleSave = async () => {
     if (!usdt || !settle || warning) return;
@@ -100,58 +114,78 @@ export default function UsdtModal({
     }
   };
 
-  const sideBtn = (s: UsdtSide, label: string, hint: string) => (
-    <button
-      onClick={() => { setSide(s); setPctTouched(false); setTouchedSettle(false); }}
-      className={`flex-1 rounded px-2 py-1.5 text-sm font-semibold border transition ${
-        side === s ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-      }`}
-    >
-      {label}
-      <span className={`block text-[10px] font-normal ${side === s ? 'text-teal-50' : 'text-gray-400'}`}>{hint}</span>
-    </button>
-  );
+  const sideBtn = (s: UsdtSide, label: string) => {
+    const active = side === s;
+    const isBuy = s === 'BUY';
+    // Купівля — бірюзова, Продаж — червона. Неактивні — бордер у відповідному кольорі.
+    const cls = active
+      ? isBuy ? 'bg-teal-600 text-white border-teal-600' : 'bg-red-600 text-white border-red-600'
+      : isBuy ? 'border-teal-600 text-teal-700 hover:bg-teal-50' : 'border-red-600 text-red-700 hover:bg-red-50';
+    return (
+      <button
+        onClick={() => { setSide(s); setPctTouched(false); setTouchedSettle(false); }}
+        className={`flex-1 rounded px-2 py-2 text-sm font-semibold border transition ${cls}`}
+      >
+        {label}
+      </button>
+    );
+  };
 
   const inputCls = 'w-full border border-gray-300 rounded px-2 py-1 text-right text-sm font-medium focus:outline-none focus:ring-2 focus:ring-teal-500';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={onClose}>
-      <div className="bg-white rounded shadow-xl w-full max-w-md flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
-        <div className="p-3 pb-2 border-b border-gray-100">
-          <div className="text-sm font-semibold text-teal-700 uppercase tracking-wider">₮ USDT — операція</div>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Гаманець 1:1 до USD, торгівля через %-комісію.
-            {config && (
-              <> Джерело: <span className="font-semibold text-gray-700">{isGlobal ? 'глобальний банк' : 'гаманець точки'}</span>
-                {' · '}баланс: <span className="font-semibold text-gray-700">{availableUsdt.toFixed(4)} USDT</span>.</>
-            )}
-          </p>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3">
+      <div className="bg-white rounded shadow-xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+        <div className="p-4 pb-2 border-b border-gray-100 relative">
+          <button onClick={onClose} aria-label="Закрити"
+            className="absolute top-2.5 right-2.5 w-7 h-7 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100 text-2xl leading-none">
+            ×
+          </button>
+          <div className="text-sm font-semibold text-teal-700 uppercase tracking-wider pr-8">₮ USDT — операція</div>
+          {config && (
+            <p className="text-xs text-gray-500 mt-1">
+              Джерело: <span className="font-semibold text-gray-700">{isGlobal ? 'глобальний банк' : 'гаманець точки'}</span>
+              {' · '}баланс: <span className="text-lg font-bold text-teal-700">{availableUsdt.toFixed(4)} USDT</span>
+            </p>
+          )}
         </div>
 
         <div className="p-3 space-y-2 overflow-y-auto">
           <div className="flex gap-2">
-            {sideBtn('SELL', 'Продаж USDT', 'каса приймає готівку')}
-            {sideBtn('BUY', 'Купівля USDT', 'каса видає готівку')}
+            {sideBtn('BUY', 'Купівля USDT')}
+            {sideBtn('SELL', 'Продаж USDT')}
           </div>
 
           <div className="flex gap-2">
             <div className="flex-1">
               <label className="block text-xs text-gray-500 mb-0.5">Сума USDT</label>
               <input type="number" min="0" step="0.0001" value={usdtAmount}
-                onChange={(e) => setUsdtAmount(e.target.value)} placeholder="0.0000" className={inputCls} />
+                onChange={(e) => setUsdtAmount(e.target.value)} placeholder="0.0000"
+                className={`w-full border rounded px-2 py-1 text-right text-sm font-medium focus:outline-none focus:ring-2 ${
+                  insufficientUsdt ? 'border-red-300 focus:ring-red-400 bg-red-50' : 'border-gray-300 focus:ring-teal-500'
+                }`} />
             </div>
             <div className="w-28">
               <label className="block text-xs text-gray-500 mb-0.5">Комісія %</label>
-              <input type="number" step="0.0001" value={pctRaw}
+              <input type="number" step="0.01" value={pctRaw}
                 onChange={(e) => { setPctRaw(e.target.value); setPctTouched(true); }}
                 placeholder="0.0000" className={inputCls} />
             </div>
           </div>
 
-          <div className="bg-teal-50 rounded px-2 py-1.5 text-xs text-teal-800 flex justify-between">
-            <span>USD-еквівалент {side === 'SELL' ? '(+%)' : '(−%)'}:</span>
-            <span className="font-bold">{usdValue.toFixed(2)} USD</span>
-          </div>
+          {quickAmounts.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 justify-between">
+              {quickAmounts.map((v) => (
+                <div key={v} className="flex items-stretch rounded-lg border border-gray-200 overflow-hidden">
+                  <button type="button" onClick={() => addUsdt(-v)}
+                    className="px-2 bg-red-50 text-red-600 hover:bg-red-100 font-bold text-sm">−</button>
+                  <span className="px-1 py-1 text-sm font-semibold text-gray-700 text-center tabular-nums">{v}</span>
+                  <button type="button" onClick={() => addUsdt(v)}
+                    className="px-2 bg-green-50 text-green-600 hover:bg-green-100 font-bold text-sm">+</button>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="flex gap-2">
             <div className="flex-1">
@@ -172,7 +206,7 @@ export default function UsdtModal({
                 onChange={(e) => { setSettleAmount(e.target.value); setTouchedSettle(true); }}
                 placeholder="0.00"
                 className={`w-full border rounded px-2 py-1 text-right text-sm font-medium focus:outline-none focus:ring-2 ${
-                  warning ? 'border-red-300 focus:ring-red-400 bg-red-50' : 'border-gray-300 focus:ring-teal-500'
+                  insufficientSettle ? 'border-red-300 focus:ring-red-400 bg-red-50' : 'border-gray-300 focus:ring-teal-500'
                 }`} />
             </div>
           </div>
@@ -202,7 +236,9 @@ export default function UsdtModal({
             Скасувати
           </button>
           <button onClick={handleSave} disabled={saving || !usdt || !settle || !!warning}
-            className="flex-1 py-1.5 rounded bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold disabled:opacity-50">
+            className={`flex-1 py-1.5 rounded text-white text-sm font-semibold disabled:opacity-50 ${
+              side === 'SELL' ? 'bg-red-600 hover:bg-red-700' : 'bg-teal-600 hover:bg-teal-700'
+            }`}>
             {saving ? 'Збереження...' : side === 'SELL' ? 'Продати USDT' : 'Купити USDT'}
           </button>
         </div>

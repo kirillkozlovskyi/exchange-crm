@@ -134,6 +134,7 @@ function OrgSettings() {
 function OperationsSettings() {
   const [minutes, setMinutes] = useState<number>(5);
   const [balanceEdit, setBalanceEdit] = useState<boolean>(true);
+  const [seeBank, setSeeBank] = useState<boolean>(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -141,9 +142,11 @@ function OperationsSettings() {
     Promise.all([
       api.get('/settings/storno-window'),
       api.get('/settings/balance-edit'),
-    ]).then(([s, b]) => {
+      api.get('/settings/cashier-see-bank'),
+    ]).then(([s, b, k]) => {
       setMinutes(s.data.minutes);
       setBalanceEdit(b.data.enabled);
+      setSeeBank(k.data.enabled);
     });
   }, []);
 
@@ -154,6 +157,7 @@ function OperationsSettings() {
       await Promise.all([
         api.put('/settings/storno-window', { minutes }),
         api.put('/settings/balance-edit', { enabled: balanceEdit }),
+        api.put('/settings/cashier-see-bank', { enabled: seeBank }),
       ]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -197,6 +201,19 @@ function OperationsSettings() {
             </p>
           </div>
           <Toggle enabled={balanceEdit} onChange={setBalanceEdit} />
+        </div>
+
+        <div className="border-t border-gray-100" />
+
+        {/* Видимість банку для касира */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-700">Касир бачить баланс банку</p>
+            <p className="text-xs text-gray-400">
+              Показувати касиру залишок глобального банку при виборі джерела «Банк». Рухати банк касир може завжди.
+            </p>
+          </div>
+          <Toggle enabled={seeBank} onChange={setSeeBank} />
         </div>
 
         <div className="flex items-center gap-3 pt-1">

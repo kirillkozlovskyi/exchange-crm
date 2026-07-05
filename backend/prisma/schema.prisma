@@ -97,6 +97,7 @@ model User {
   reconciliations Reconciliation[]
   cashMovements   CashMovement[] @relation("CreatedCashMovements")
   usdtOperations  UsdtOperation[] @relation("CreatedUsdtOperations")
+  cashBankMovements CashBankMovement[] @relation("CashBankMovements")
 }
 
 model CashDesk {
@@ -114,6 +115,7 @@ model CashDesk {
   reconciliations Reconciliation[]
   cashMovements   CashMovement[]
   usdtOperations  UsdtOperation[]
+  cashBankMovements CashBankMovement[]
 }
 
 model Shift {
@@ -156,6 +158,9 @@ model CashMovement {
   currency    String
   amount      Decimal               @db.Decimal(15, 2)
   source      String?               // категорія: Банк/Офіс/Власник/Інша каса/Інше
+  // Контрагент руху: BANK — рухає глобальний банк готівки; EXTERNAL — зовні
+  // (власник/офіс/карман), змінює загальний баланс компанії. NULL = історичні записи.
+  counterparty String?
   note        String?
   createdAt   DateTime              @default(now())
 
@@ -359,5 +364,32 @@ model UsdtOperation {
   cashDeskId  Int
 
   createdBy   User     @relation("CreatedUsdtOperations", fields: [createdById], references: [id])
+  createdById Int
+}
+
+// Глобальний банк готівки компанії — мультивалютний резерв. Звідси готівка
+// розподіляється на каси (підкріплення) і сюди інкасується. Один рядок на валюту
+// (атомарні інкременти). USDT ведеться в UsdtGlobalWallet, але показується поруч
+// на сторінці «Банк».
+model CashBankBalance {
+  currency  String   @id            // UAH, USD, EUR...
+  amount    Decimal  @default(0) @db.Decimal(15, 2)
+  updatedAt DateTime @updatedAt
+}
+
+// Журнал рухів банку готівки: депозит/зняття ззовні (адмін) та підкріплення/
+// інкасація кас (контрагент BANK). Знаковий delta: + до банку, − з банку.
+model CashBankMovement {
+  id          Int      @id @default(autoincrement())
+  type        String   // DEPOSIT | WITHDRAW | REPLENISH | COLLECT
+  currency    String
+  delta       Decimal  @db.Decimal(15, 2)
+  note        String?
+  createdAt   DateTime @default(now())
+
+  cashDesk    CashDesk? @relation(fields: [cashDeskId], references: [id])
+  cashDeskId  Int?
+
+  createdBy   User     @relation("CashBankMovements", fields: [createdById], references: [id])
   createdById Int
 }

@@ -29,39 +29,39 @@ type UsdtOp = {
 
 type SideFilter = 'all' | 'BUY' | 'SELL';
 
-// Глобальний банк USDT + вибір джерела для операцій кас.
+// Глобальний банк USDT — єдине джерело для всіх кас.
 function GlobalCard({
-  source, globalBalance, onSetSource, onSaved,
+  globalBalance, onSaved,
 }: {
-  source: 'POINT' | 'GLOBAL';
   globalBalance: number;
-  onSetSource: (s: 'POINT' | 'GLOBAL') => void;
   onSaved: () => void;
 }) {
-  const [adjust, setAdjust] = useState('');
+  const [balanceRaw, setBalanceRaw] = useState(String(globalBalance));
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
+  const [confirm, setConfirm] = useState(false);
 
-  const applyAdjust = async (sign: 1 | -1) => {
-    const delta = (parseFloat(adjust) || 0) * sign;
-    if (!delta) return;
+  // Тримаємо поле синхронним із фактичним балансом банку (після завантаження/збереження).
+  useEffect(() => { setBalanceRaw(String(globalBalance)); }, [globalBalance]);
+
+  const newBalance = parseFloat(balanceRaw);
+  const valid = !Number.isNaN(newBalance);
+  const delta = valid ? newBalance - globalBalance : 0;
+  const changed = valid && Math.abs(delta) > 1e-9;
+  const wouldGoNegative = valid && newBalance < 0;
+
+  const applyAdjust = async () => {
+    if (!changed) return;
     setBusy(true); setMsg('');
     try {
+      // API приймає дельту; поле — цільовий баланс, тож шлемо різницю.
       await api.post('/usdt/global/adjust', { delta });
-      setAdjust(''); setMsg('Баланс оновлено'); onSaved();
+      setMsg('Баланс оновлено'); setConfirm(false); onSaved();
     } catch (e: any) {
       setMsg(e.response?.data?.message ?? 'Помилка');
+      setConfirm(false);
     } finally { setBusy(false); }
   };
-
-  const srcBtn = (s: 'POINT' | 'GLOBAL', label: string) => (
-    <button onClick={() => onSetSource(s)}
-      className={`flex-1 rounded px-3 py-1.5 text-sm font-semibold border transition ${
-        source === s ? 'bg-teal-600 text-white border-teal-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
-      }`}>
-      {label}
-    </button>
-  );
 
   return (
     <div className="bg-white rounded-xl shadow p-5">
@@ -73,43 +73,63 @@ function GlobalCard({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div>
-          <div className="text-xs text-gray-500 mb-1">Джерело USDT для операцій кас</div>
-          <div className="flex gap-2">
-            {srcBtn('POINT', 'Гаманець точки')}
-            {srcBtn('GLOBAL', 'Глобальний банк')}
-          </div>
-          <p className="text-xs text-gray-400 mt-1.5">
-            {source === 'GLOBAL'
-              ? 'Каси беруть/повертають USDT напряму з глобального банку.'
-              : 'Каси працюють із гаманцем своєї точки (поповнюйте його розподілом нижче).'}
-          </p>
-        </div>
+      <p className="text-xs text-gray-400 mb-3">
+        Єдине джерело USDT для всіх кас — касири беруть наявність напряму з глобального банку.
+      </p>
 
-        <div>
-          <div className="text-xs text-gray-500 mb-1">Коригування балансу (депозит/зняття USDT)</div>
-          <div className="flex gap-1.5">
-            <input type="number" step="0.0001" min="0" value={adjust} onChange={(e) => setAdjust(e.target.value)}
-              placeholder="0.0000"
-              className="flex-1 border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
-            <button onClick={() => applyAdjust(1)} disabled={busy}
-              className="px-3 py-1 rounded bg-green-100 text-green-700 font-semibold text-sm hover:bg-green-200 disabled:opacity-50">+ Депозит</button>
-            <button onClick={() => applyAdjust(-1)} disabled={busy}
-              className="px-3 py-1 rounded bg-red-100 text-red-700 font-semibold text-sm hover:bg-red-200 disabled:opacity-50">− Зняти</button>
-          </div>
-          {msg && <div className="text-xs text-gray-500 mt-1.5">{msg}</div>}
+      <div>
+        <div className="text-xs text-gray-500 mb-1">Баланс банку (коригування)</div>
+        <div className="flex gap-1.5 max-w-md">
+          <input type="number" step="0.0001" value={balanceRaw} onChange={(e) => setBalanceRaw(e.target.value)}
+            placeholder="0.0000"
+            className="flex-1 border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
+          <button onClick={() => changed && setConfirm(true)} disabled={busy || !changed}
+            className="px-4 py-1 rounded bg-teal-600 hover:bg-teal-700 text-white font-semibold text-sm disabled:opacity-50">
+            Зберегти
+          </button>
         </div>
+        {msg && <div className="text-xs text-gray-500 mt-1.5">{msg}</div>}
       </div>
+
+      {confirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3" onClick={() => setConfirm(false)}>
+          <div className="bg-white rounded shadow-xl w-full max-w-sm p-4" onClick={(e) => e.stopPropagation()}>
+            <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Підтвердження коригування</div>
+            <p className="text-sm text-gray-700">
+              Встановити баланс глобального банку.
+            </p>
+            <p className="text-sm text-gray-500 mt-1">
+              Баланс: <span className="font-medium">{globalBalance.toFixed(4)}</span> →{' '}
+              <span className={`font-semibold ${wouldGoNegative ? 'text-red-600' : 'text-teal-700'}`}>{valid ? newBalance.toFixed(4) : '—'}</span> USDT
+              {changed && <span className="text-gray-400"> ({delta > 0 ? '+' : '−'}{Math.abs(delta).toFixed(4)})</span>}
+            </p>
+            {wouldGoNegative && (
+              <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1.5 mt-2">
+                Баланс не може бути відʼємним.
+              </p>
+            )}
+            <div className="flex gap-2 mt-4">
+              <button onClick={() => setConfirm(false)}
+                className="flex-1 py-1.5 rounded border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50">
+                Скасувати
+              </button>
+              <button onClick={applyAdjust} disabled={busy || wouldGoNegative}
+                className="flex-1 py-1.5 rounded bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold disabled:opacity-50">
+                {busy ? 'Збереження...' : 'Підтвердити'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function WalletCard({ w, globalBalance, onSaved }: { w: Wallet; globalBalance: number; onSaved: () => void }) {
+// Налаштування комісій точки. Баланс/розподіл гаманця точки приховані, поки
+// глобальний банк — єдине джерело (комісії досі застосовуються в операціях).
+function WalletCard({ w, onSaved }: { w: Wallet; onSaved: () => void }) {
   const [buyPct, setBuyPct] = useState(String(w.buyPct));
   const [sellPct, setSellPct] = useState(String(w.sellPct));
-  const [adjust, setAdjust] = useState('');
-  const [distr, setDistr] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -131,41 +151,10 @@ function WalletCard({ w, globalBalance, onSaved }: { w: Wallet; globalBalance: n
     } finally { setBusy(false); }
   };
 
-  const applyAdjust = async (sign: 1 | -1) => {
-    const delta = (parseFloat(adjust) || 0) * sign;
-    if (!delta) return;
-    setBusy(true); setMsg('');
-    try {
-      await api.post(`/usdt/wallet/${w.exchangePointId}/adjust`, { delta });
-      setAdjust(''); setMsg('Баланс оновлено'); onSaved();
-    } catch (e: any) {
-      setMsg(e.response?.data?.message ?? 'Помилка');
-    } finally { setBusy(false); }
-  };
-
-  // Розподіл: sign=+1 — з глобального у точку; sign=−1 — з точки в глобальний.
-  const applyDistribute = async (sign: 1 | -1) => {
-    const amount = (parseFloat(distr) || 0) * sign;
-    if (!amount) return;
-    setBusy(true); setMsg('');
-    try {
-      await api.post(`/usdt/wallet/${w.exchangePointId}/distribute`, { amount });
-      setDistr(''); setMsg('Розподілено'); onSaved();
-    } catch (e: any) {
-      setMsg(e.response?.data?.message ?? 'Помилка');
-    } finally { setBusy(false); }
-  };
-
   return (
     <div className="border border-gray-200 rounded-xl p-4">
-      <div className="flex items-baseline justify-between mb-2">
-        <div className="font-semibold text-gray-800">
-          <span className="text-gray-400 font-normal">{w.pointCode} · </span>{w.pointName}
-        </div>
-        <div className="text-right">
-          <div className="text-xs text-gray-400">Баланс гаманця</div>
-          <div className="font-bold text-teal-700">{w.balance.toFixed(4)} USDT</div>
-        </div>
+      <div className="font-semibold text-gray-800 mb-2">
+        <span className="text-gray-400 font-normal">{w.pointCode} · </span>{w.pointName}
       </div>
 
       <div className="grid grid-cols-2 gap-2 mb-2">
@@ -181,40 +170,70 @@ function WalletCard({ w, globalBalance, onSaved }: { w: Wallet; globalBalance: n
         </label>
       </div>
       <button onClick={savePct} disabled={busy}
-        className="w-full mb-3 py-1.5 rounded bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium disabled:opacity-50">
+        className="w-full py-1.5 rounded bg-teal-600 hover:bg-teal-700 text-white text-sm font-medium disabled:opacity-50">
         Зберегти комісії
       </button>
-
-      <div className="border-t pt-2">
-        <div className="text-xs text-gray-500 mb-1">Коригування балансу (депозит/зняття USDT)</div>
-        <div className="flex gap-1.5">
-          <input type="number" step="0.0001" min="0" value={adjust} onChange={(e) => setAdjust(e.target.value)}
-            placeholder="0.0000"
-            className="flex-1 border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
-          <button onClick={() => applyAdjust(1)} disabled={busy}
-            className="px-3 py-1 rounded bg-green-100 text-green-700 font-semibold text-sm hover:bg-green-200 disabled:opacity-50">+ Депозит</button>
-          <button onClick={() => applyAdjust(-1)} disabled={busy}
-            className="px-3 py-1 rounded bg-red-100 text-red-700 font-semibold text-sm hover:bg-red-200 disabled:opacity-50">− Зняти</button>
-        </div>
-      </div>
-
-      <div className="border-t pt-2 mt-2">
-        <div className="text-xs text-gray-500 mb-1">
-          Розподіл із глобального банку <span className="text-gray-400">(у банку {globalBalance.toFixed(4)})</span>
-        </div>
-        <div className="flex gap-1.5">
-          <input type="number" step="0.0001" min="0" value={distr} onChange={(e) => setDistr(e.target.value)}
-            placeholder="0.0000"
-            className="flex-1 border border-gray-300 rounded px-2 py-1 text-right focus:outline-none focus:ring-2 focus:ring-teal-500" />
-          <button onClick={() => applyDistribute(1)} disabled={busy}
-            title="З глобального банку → у точку"
-            className="px-3 py-1 rounded bg-teal-100 text-teal-700 font-semibold text-sm hover:bg-teal-200 disabled:opacity-50">← у точку</button>
-          <button onClick={() => applyDistribute(-1)} disabled={busy}
-            title="З точки → у глобальний банк"
-            className="px-3 py-1 rounded bg-gray-100 text-gray-700 font-semibold text-sm hover:bg-gray-200 disabled:opacity-50">у банк →</button>
-        </div>
-      </div>
       {msg && <div className="text-xs text-gray-500 mt-2">{msg}</div>}
+    </div>
+  );
+}
+
+// Окремі швидкі суми для USDT-операцій (кнопки −/+ у вікні каси).
+function UsdtQuickAmountsSettings() {
+  const [amounts, setAmounts] = useState<number[]>([]);
+  const [newVal, setNewVal] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/usdt-quick-amounts').then(({ data }) => setAmounts(data)).catch(() => {});
+  }, []);
+
+  const save = async (next: number[]) => {
+    setSaving(true);
+    try {
+      await api.put('/settings/usdt-quick-amounts', { amounts: next });
+      setAmounts([...next].sort((a, b) => a - b));
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally { setSaving(false); }
+  };
+
+  const handleAdd = () => {
+    const v = parseFloat(newVal);
+    if (!v || v <= 0 || amounts.includes(v)) { setNewVal(''); return; }
+    save([...amounts, v]);
+    setNewVal('');
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow p-5">
+      <h3 className="font-semibold text-lg">⚡ Швидкі суми USDT</h3>
+      <p className="text-xs text-gray-400 mt-0.5 mb-3">Кнопки −/+ для поля «Сума USDT» у вікні операції каси.</p>
+
+      <div className="flex flex-wrap gap-2 mb-3">
+        {amounts.map((v) => (
+          <div key={v} className="flex items-center gap-1 bg-teal-50 border border-teal-200 rounded-lg px-3 py-1.5">
+            <span className="font-semibold text-teal-800 text-sm">{v}</span>
+            <button onClick={() => save(amounts.filter((a) => a !== v))}
+              className="text-teal-300 hover:text-red-500 transition font-bold text-base leading-none ml-1">×</button>
+          </div>
+        ))}
+        {amounts.length === 0 && <span className="text-gray-400 text-sm italic">Список порожній</span>}
+      </div>
+
+      <div className="flex gap-2 max-w-md">
+        <input type="number" min="1" value={newVal}
+          onChange={(e) => setNewVal(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder="Нова сума"
+          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
+        <button onClick={handleAdd} disabled={saving || !newVal}
+          className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
+          Додати
+        </button>
+      </div>
+      {saved && <p className="text-green-600 text-sm mt-2">✓ Збережено</p>}
     </div>
   );
 }
@@ -252,24 +271,20 @@ export default function UsdtAdmin() {
   const chip = (active: boolean) =>
     `px-3 py-1 rounded text-sm font-medium transition ${active ? 'bg-white shadow text-teal-700' : 'text-gray-600'}`;
 
-  const setSource = async (source: 'POINT' | 'GLOBAL') => {
-    await api.put('/usdt/source', { source }).catch(() => {});
-    load();
-  };
-
   return (
     <div className="space-y-4">
-      {/* Глобальний банк + джерело USDT */}
+      {/* Глобальний банк — єдине джерело USDT */}
       <GlobalCard
-        source={config.source}
         globalBalance={config.globalBalance}
-        onSetSource={setSource}
         onSaved={load}
       />
 
-      {/* Гаманці точок + налаштування */}
-      <div className="bg-white rounded-xl shadow p-5">
-        <h3 className="font-semibold text-lg mb-3">₮ USDT — гаманці точок</h3>
+      {/* Окремі швидкі суми для USDT-операцій */}
+      <UsdtQuickAmountsSettings />
+
+      {/* Комісії точок — приховано (display:none), поки глобальний банк єдиний */}
+      <div className="hidden bg-white rounded-xl shadow p-5">
+        <h3 className="font-semibold text-lg mb-3">₮ USDT — комісії точок</h3>
         {loading ? (
           <div className="text-center py-6 text-gray-400">Завантаження...</div>
         ) : wallets.length === 0 ? (
@@ -277,7 +292,7 @@ export default function UsdtAdmin() {
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {wallets.map((w) => (
-              <WalletCard key={w.exchangePointId} w={w} globalBalance={config.globalBalance} onSaved={load} />
+              <WalletCard key={w.exchangePointId} w={w} onSaved={load} />
             ))}
           </div>
         )}

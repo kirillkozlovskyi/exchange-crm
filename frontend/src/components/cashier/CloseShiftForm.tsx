@@ -3,8 +3,9 @@ import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
 import { midRates, valueOf, realizedProfit } from '../../lib/profit';
 import { netTransfers, type TransferRow } from '../../lib/transfers';
-import { applyCashMovements, cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
+import { cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 import { usdtCashDelta, usdtProfit, type UsdtOpRow } from '../../lib/usdt';
+import { shiftCashBalance } from '../../lib/shift-balance';
 
 type Operation = {
   id: number;
@@ -82,13 +83,22 @@ export default function CloseShiftForm({
   );
 
   // ── Розрахунковий (очікуваний фізичний) залишок ───────────────────────────
-  // = операції + USDT-готівка + рух готівки + підтверджені передачі/свопи (Б1).
-  const calcBalance = useMemo(() => {
-    const b = applyCashMovements(opsBalance, cashMovements);
-    for (const [cur, amt] of Object.entries(usdtNet)) b[cur] = (b[cur] ?? 0) + amt;
-    for (const [cur, amt] of Object.entries(net)) b[cur] = (b[cur] ?? 0) + amt;
-    return b;
-  }, [opsBalance, cashMovements, usdtNet, net]);
+  // Єдиний ledger-розрахунок: операції + USDT-готівка + рух готівки +
+  // підтверджені передачі/свопи (Б1). Дзеркало backend shift-ledger.util.
+  const calcBalance = useMemo(
+    () =>
+      shiftCashBalance(
+        {
+          startBalance: { UAH: 0, ...startBal },
+          operations: shift.operations,
+          cashMovements,
+          usdtOperations,
+        },
+        net,
+      ),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [shift, cashMovements, usdtOperations, net],
+  );
 
   // Очікувана торгова готівка (для нестачі/надлишку) = операції + USDT-готівка.
   const expectedTrading = useMemo(() => {

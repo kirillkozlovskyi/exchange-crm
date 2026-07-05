@@ -54,6 +54,16 @@ export class SettingsService {
     await this.set('cashier_can_edit_balance', String(enabled));
   }
 
+  // Чи бачить касир баланс глобального банку готівки (за замовчуванням — ні).
+  async getCashierCanSeeBank(): Promise<boolean> {
+    const v = await this.get('cashier_can_see_bank');
+    return v === 'true'; // default false
+  }
+
+  async setCashierCanSeeBank(enabled: boolean): Promise<void> {
+    await this.set('cashier_can_see_bank', String(enabled));
+  }
+
   async getCurrencyOrder(): Promise<string[]> {
     const v = await this.get('currency_order');
     if (!v) return [];
@@ -72,6 +82,17 @@ export class SettingsService {
 
   async setQuickAmounts(amounts: number[]): Promise<void> {
     await this.set('quick_amounts', JSON.stringify([...amounts].sort((a, b) => a - b)));
+  }
+
+  // Окремий набір швидких сум для USDT-операцій (кнопки −/+ у вікні USDT).
+  async getUsdtQuickAmounts(): Promise<number[]> {
+    const v = await this.get('usdt_quick_amounts');
+    if (!v) return [100, 500, 1000];
+    try { return JSON.parse(v); } catch { return [100, 500, 1000]; }
+  }
+
+  async setUsdtQuickAmounts(amounts: number[]): Promise<void> {
+    await this.set('usdt_quick_amounts', JSON.stringify([...amounts].sort((a, b) => a - b)));
   }
 
   // Назва організації (для чеків). Порожньо = не друкувати.
