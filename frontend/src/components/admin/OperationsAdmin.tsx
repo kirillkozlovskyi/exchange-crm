@@ -91,6 +91,30 @@ export default function OperationsAdmin() {
       .finally(() => setLoading(false));
   }, [tab]);
 
+  // Експорт поточного списку в CSV (BOM + «;» — відкривається в Excel як є).
+  const exportCsv = () => {
+    const head = ['Номер', 'Дата', 'Тип', 'Валюта', 'Кількість', 'Курс', 'Сума UAH', 'Дав (валюта)', 'Дав (сума)', 'Сторно', 'Точка', 'Касир'];
+    const rows = ops.map((o) => [
+      o.number,
+      format(new Date(o.createdAt), 'dd.MM.yyyy HH:mm'),
+      o.type === 'BUY' ? 'Купівля' : 'Продаж',
+      o.currency, o.amount, o.rate, o.totalUah,
+      o.payCurrency ?? '', o.payAmount ?? '',
+      o.cancelled ? 'так' : '',
+      o.shift?.cashDesk?.exchangePoint?.name ?? '',
+      o.cashier?.name ?? '',
+    ]);
+    const csv = '﻿' + [head, ...rows]
+      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';'))
+      .join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `operations_${tab}_${format(new Date(), 'yyyyMMdd_HHmm')}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   return (
     <>
       {historyOp && (
@@ -102,7 +126,7 @@ export default function OperationsAdmin() {
       )}
 
       <div className="bg-white rounded-xl shadow p-4 space-y-4">
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
           <button
             onClick={() => setTab('BUY')}
             className={`px-4 py-2 rounded-lg font-medium text-sm ${tab === 'BUY' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
@@ -114,6 +138,14 @@ export default function OperationsAdmin() {
             className={`px-4 py-2 rounded-lg font-medium text-sm ${tab === 'SELL' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200'}`}
           >
             Продаж
+          </button>
+          <button
+            onClick={exportCsv}
+            disabled={loading || ops.length === 0}
+            className="ml-auto px-4 py-2 rounded-lg font-medium text-sm border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            title="Експорт поточного списку в CSV (Excel)"
+          >
+            ⬇ CSV
           </button>
         </div>
 

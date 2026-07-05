@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth } from 'date-fns';
+import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, format } from 'date-fns';
 import { midRates, realizedProfit } from '../common/profit.util';
 import { usdtProfit } from '../common/usdt.util';
 
@@ -24,6 +24,60 @@ export class FinanceService {
 
   async getMonthlySummary(date: Date = new Date()) {
     return this.summary(startOfMonth(date), endOfMonth(date));
+  }
+
+  /**
+   * Серія «прибуток по днях» за останні N днів (для дашборда). Та сама модель,
+   * що й summary: realizedProfit по точках + маржа USDT, згруповано по днях.
+   */
+  async getDailySeries(days = 14) {
+    const n = Math.min(Math.max(Math.trunc(days) || 14, 1), 90);
+    const to = endOfDay(new Date());
+    const from = startOfDay(subDays(new Date(), n - 1));
+
+    const [operations, usdtOps, rates] = await Promise.all([
+      this.prisma.operation.findMany({
+        where: { createdAt: { gte: from, lte: to }, cancelled: false },
+        include: { shift: { include: { cashDesk: { select: { exchangePointId: true } } } } },
+      }),
+      this.prisma.usdtOperation.findMany({
+        where: { createdAt: { gte: from, lte: to } },
+        select: { createdAt: true, profitUah: true },
+      }),
+      this.prisma.rate.findMany({ where: { status: 'ACTIVE' } }),
+    ]);
+
+    const valuationByPoint: Record<number, Record<string, number>> = {};
+    for (const r of rates) {
+      (valuationByPoint[r.exchangePointId] ??= { UAH: 1 });
+      valuationByPoint[r.exchangePointId][r.currency] = (Number(r.buy) + Number(r.sell)) / 2;
+    }
+
+    // Групуємо по днях, всередині дня — по точках (для правильної оцінки кросів).
+    const dayKey = (d: Date | string) => format(new Date(d), 'yyyy-MM-dd');
+    const opsByDay: Record<string, Record<number, typeof operations>> = {};
+    for (const op of operations) {
+      const pid = op.shift?.cashDesk?.exchangePointId;
+      if (pid == null) continue;
+      ((opsByDay[dayKey(op.createdAt)] ??= {})[pid] ??= []).push(op);
+    }
+    const usdtByDay: Record<string, number> = {};
+    for (const u of usdtOps) {
+      usdtByDay[dayKey(u.createdAt)] = (usdtByDay[dayKey(u.createdAt)] ?? 0) + Number(u.profitUah);
+    }
+
+    const series: { date: string; profit: number; operations: number }[] = [];
+    for (let i = n - 1; i >= 0; i--) {
+      const key = format(subDays(new Date(), i), 'yyyy-MM-dd');
+      let profit = usdtByDay[key] ?? 0;
+      let count = 0;
+      for (const [pid, ops] of Object.entries(opsByDay[key] ?? {})) {
+        profit += realizedProfit(ops, valuationByPoint[Number(pid)] ?? { UAH: 1 }).total;
+        count += ops.length;
+      }
+      series.push({ date: key, profit: Math.round(profit * 100) / 100, operations: count });
+    }
+    return series;
   }
 
   private async summary(from: Date, to: Date) {

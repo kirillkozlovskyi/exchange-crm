@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useShiftHeader } from '../context/ShiftHeaderContext';
 import api from '../api/axios';
@@ -246,11 +246,15 @@ export default function CashierPage() {
   };
 
   // ── Polling кількості вхідних передач (бедж завжди актуальний) ───────────
+  // Нова вхідна передача → короткий звуковий сигнал, щоб касир не пропустив.
+  const prevPendingRef = useRef(0);
   useEffect(() => {
     if (!selectedDeskId) return;
     const poll = async () => {
       try {
         const { data } = await api.get(`/transfers/pending?deskId=${selectedDeskId}`);
+        if (data.length > prevPendingRef.current) playTransferBeep();
+        prevPendingRef.current = data.length;
         setPendingCount(data.length);
       } catch {}
     };
@@ -745,6 +749,24 @@ type MovementItem = {
 // «Інша каса» прибрано: для переміщень між касами є Передачі (з підтвердженням
 // отримувачем); «Офіс»/«Власник» злиті в «Інше».
 const SOURCE_CATEGORIES = ['Банк', 'Інше'];
+
+// Короткий двотональний сигнал про нову вхідну передачу (WebAudio, без файлів).
+function playTransferBeep() {
+  try {
+    const ctx = new AudioContext();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 880;
+    gain.gain.setValueAtTime(0.12, ctx.currentTime);
+    osc.start();
+    osc.frequency.setValueAtTime(1175, ctx.currentTime + 0.12);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
+    osc.stop(ctx.currentTime + 0.45);
+    osc.onended = () => ctx.close();
+  } catch { /* без звуку — не критично */ }
+}
 
 function CashMovementModal({
   shiftId, direction, balance, movements, currencies, onClose, onSaved,

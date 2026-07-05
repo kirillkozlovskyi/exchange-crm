@@ -3,6 +3,34 @@ import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcryptjs';
 
+// Захист від перебору пароля: після MAX_ATTEMPTS невдалих спроб по одному
+// логіну — блокування на LOCK_MS. In-memory (скидається рестартом) — цього
+// достатньо проти онлайн-брутфорсу без зовнішніх залежностей.
+const MAX_ATTEMPTS = 5;
+const WINDOW_MS = 15 * 60 * 1000;
+const LOCK_MS = 15 * 60 * 1000;
+const attempts = new Map<string, { count: number; firstAt: number; lockedUntil: number }>();
+
+function checkThrottle(key: string) {
+  const rec = attempts.get(key);
+  if (!rec) return;
+  if (rec.lockedUntil > Date.now()) {
+    const min = Math.ceil((rec.lockedUntil - Date.now()) / 60_000);
+    throw new UnauthorizedException(`Забагато невдалих спроб. Спробуйте через ${min} хв`);
+  }
+}
+
+function noteFailure(key: string) {
+  const now = Date.now();
+  const rec = attempts.get(key);
+  if (!rec || now - rec.firstAt > WINDOW_MS) {
+    attempts.set(key, { count: 1, firstAt: now, lockedUntil: 0 });
+    return;
+  }
+  rec.count += 1;
+  if (rec.count >= MAX_ATTEMPTS) rec.lockedUntil = now + LOCK_MS;
+}
+
 @Injectable()
 export class AuthService {
   constructor(
@@ -11,14 +39,23 @@ export class AuthService {
   ) {}
 
   async login(login: string, password: string) {
+    checkThrottle(login);
+
     const user = await this.prisma.user.findUnique({
       where: { login },
       include: { exchangePoint: true },
     });
 
-    if (!user || !user.active) throw new UnauthorizedException('Невірний логін або пароль');
+    if (!user || !user.active) {
+      noteFailure(login);
+      throw new UnauthorizedException('Невірний логін або пароль');
+    }
     const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) throw new UnauthorizedException('Невірний логін або пароль');
+    if (!valid) {
+      noteFailure(login);
+      throw new UnauthorizedException('Невірний логін або пароль');
+    }
+    attempts.delete(login); // успішний вхід скидає лічильник
 
     const payload = {
       sub: user.id,

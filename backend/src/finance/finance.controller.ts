@@ -21,4 +21,10 @@ export class FinanceController {
   monthly(@Query('date') date?: string) {
     return this.service.getMonthlySummary(date ? new Date(date) : new Date());
   }
+
+  // Серія прибутку по днях (дашборд «Огляд»); days ≤ 90.
+  @Get('series')
+  series(@Query('days') days?: string) {
+    return this.service.getDailySeries(days ? Number(days) : 14);
+  }
 }
