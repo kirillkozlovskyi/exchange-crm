@@ -6,6 +6,8 @@ import { applyCashMovements } from '../../lib/cash-movements';
 import { netTransfers } from '../../lib/transfers';
 import { usdtCashDelta } from '../../lib/usdt';
 import { printReceipt } from '../cashier/OperationsList';
+import { midRates, realizedProfit } from '../../lib/profit';
+import { usdtProfit } from '../../lib/usdt';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   OPEN: { label: 'Відкрита', cls: 'bg-green-100 text-green-700' },
@@ -33,6 +35,7 @@ function Section({ title, count, actions, children }: { title: string; count?: n
 function ShiftDetail({ shiftId }: { shiftId: number }) {
   const [d, setD] = useState<any>(null);
   const [orgName, setOrgName] = useState('');
+  const [rates, setRates] = useState<any[]>([]);
   // Фільтри таблиці операцій зміни.
   const [fType, setFType] = useState<'all' | 'BUY' | 'SELL'>('all');
   const [fCur, setFCur] = useState<string>('all');
@@ -44,6 +47,13 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   useEffect(() => {
     api.get('/settings/org-name').then(({ data }) => setOrgName(data.name ?? '')).catch(() => {});
   }, []);
+
+  // Курси точки — для оцінки крос-операцій у прибутку звіту.
+  const pointId = d?.cashDesk?.exchangePointId;
+  useEffect(() => {
+    if (!pointId) return;
+    api.get(`/rates/point/${pointId}`).then(({ data }) => setRates(data)).catch(() => {});
+  }, [pointId]);
 
   if (!d) return <div className="text-sm text-gray-400 py-3 px-1">Завантаження деталей...</div>;
 
@@ -80,8 +90,155 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
     deskNo: d.cashDeskId,
   };
 
+  // ── Друк звіту по зміні (А4) — той самий склад, що й у касира при закритті ──
+  const printShiftReport = () => {
+    const n2 = (v: any, dd = 2) => Number(v ?? 0).toFixed(dd);
+    const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
+    const valuation = midRates(rates.map((r: any) => ({ currency: r.currency, buy: r.buy, sell: r.sell })));
+
+    // Купівля/продаж по валютах (дзеркало tradeStats касира).
+    const stats: Record<string, { boughtQty: number; boughtUah: number; soldQty: number; soldUah: number }> = {};
+    const ensure = (c: string) => (stats[c] ??= { boughtQty: 0, boughtUah: 0, soldQty: 0, soldUah: 0 });
+    for (const op of ops) {
+      if (op.cancelled) continue;
+      const amount = num(op.amount); const totalUah = num(op.totalUah);
+      const payCur = op.payCurrency; const payAmount = op.payAmount != null ? num(op.payAmount) : 0;
+      if (payCur && payCur !== 'UAH' && op.currency !== 'UAH') {
+        const b = ensure(payCur); b.boughtQty += payAmount; b.boughtUah += totalUah;
+        const s = ensure(op.currency); s.soldQty += amount; s.soldUah += totalUah;
+      } else if (payCur && payCur !== 'UAH') {
+        const b = ensure(payCur); b.boughtQty += payAmount; b.boughtUah += totalUah;
+      } else if (op.type === 'BUY') {
+        const b = ensure(op.currency); b.boughtQty += amount; b.boughtUah += totalUah;
+      } else {
+        const s = ensure(op.currency); s.soldQty += amount; s.soldUah += totalUah;
+      }
+    }
+    const tradeStats = Object.entries(stats).map(([cur, s]) => ({
+      cur, ...s,
+      avgBuy: s.boughtQty > 0 ? s.boughtUah / s.boughtQty : 0,
+      avgSell: s.soldQty > 0 ? s.soldUah / s.soldQty : 0,
+    })).sort((a, b) => a.cur.localeCompare(b.cur));
+
+    const realized = realizedProfit(ops as any, valuation);
+    const usdtMargin = usdtProfit(usdtOps as any);
+    const tradingProfit = realized.total + usdtMargin;
+
+    const tradeRows = tradeStats.map((r) => `
+      <tr><td class="b">${r.cur}</td>
+        <td class="num">${r.boughtQty > 0 ? n2(r.boughtQty) : '—'}</td>
+        <td class="num">${r.boughtQty > 0 ? n2(r.avgBuy, 4) : '—'}</td>
+        <td class="num">${r.boughtQty > 0 ? n2(r.boughtUah) : '—'}</td>
+        <td class="num">${r.soldQty > 0 ? n2(r.soldQty) : '—'}</td>
+        <td class="num">${r.soldQty > 0 ? n2(r.avgSell, 4) : '—'}</td>
+        <td class="num">${r.soldQty > 0 ? n2(r.soldUah) : '—'}</td>
+      </tr>`).join('');
+
+    const profitCurs = Object.keys(realized.byCurrency).filter((c) => Math.abs(realized.byCurrency[c]) >= 0.005).sort();
+    const profitRows = profitCurs.map((c) => `
+      <tr><td class="b">${c}</td><td class="num">${(realized.byCurrency[c] > 0 ? '+' : '') + n2(realized.byCurrency[c])}</td></tr>`).join('')
+      + (Math.abs(usdtMargin) >= 0.005 ? `<tr><td class="b">USDT</td><td class="num">${(usdtMargin > 0 ? '+' : '') + n2(usdtMargin)}</td></tr>` : '');
+
+    const balanceRows = currencies.map((c) => {
+      const o = Math.round(num(start[c])); const e = Math.round(num(expected[c]));
+      const a = actual ? Math.round(num(actual[c])) : null;
+      if (!o && !e && !(a ?? 0)) return '';
+      const diff = a != null ? a - e : null;
+      return `<tr><td class="b">${c}</td><td class="num">${o}</td><td class="num">${e}</td>` +
+        (closed ? `<td class="num">${a}</td><td class="num${diff ? ' warn' : ''}">${diff ? (diff > 0 ? '+' : '') + diff : '—'}</td>` : '') +
+        `</tr>`;
+    }).join('');
+
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Звіт по зміні ${d.number}</title>
+    <style>
+      @page { size: A4; margin: 12mm; }
+      * { box-sizing: border-box; }
+      body { font: 12px/1.45 Arial, sans-serif; color: #111; margin: 0; }
+      h1 { font-size: 17px; margin: 0 0 2px; }
+      .meta { color: #555; font-size: 11.5px; margin-bottom: 10px; }
+      h2 { font-size: 13px; margin: 14px 0 4px; padding-bottom: 3px; border-bottom: 1.5px solid #111; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #bbb; padding: 3.5px 6px; font-size: 11.5px; }
+      th { background: #f0f1f3; font-size: 10px; text-transform: uppercase; letter-spacing: .03em; text-align: right; }
+      th:first-child { text-align: left; }
+      td.num { text-align: right; font-variant-numeric: tabular-nums; }
+      td.b { font-weight: 700; }
+      td.warn { color: #b91c1c; font-weight: 700; }
+      .section { page-break-inside: avoid; }
+      .totals { margin-top: 12px; page-break-inside: avoid; }
+      .totals div { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12.5px; }
+      .totals .line { border-top: 1.5px solid #111; margin-top: 4px; padding-top: 6px; font-weight: 700; font-size: 14px; }
+      .sign { margin-top: 26px; display: flex; gap: 40px; page-break-inside: avoid; }
+      .sign div { flex: 1; border-top: 1px solid #111; padding-top: 4px; font-size: 11px; color: #555; text-align: center; }
+    </style></head><body>
+      <h1>Звіт по зміні №${d.number}${closed ? '' : ' (відкрита)'}</h1>
+      <div class="meta">
+        ${orgName ? orgName + ' · ' : ''}${d.cashDesk?.exchangePoint?.name ?? ''} · ${d.cashDesk?.name ?? ''}
+        · Касир: ${d.openedBy?.name ?? '—'}<br>
+        Відкрита: ${dt(d.openedAt)}${d.closedAt ? ` · Закрита: ${dt(d.closedAt)}` : ''}
+        · Звіт сформовано: ${format(new Date(), 'dd.MM.yyyy HH:mm')}
+        · Операцій: ${ops.filter((o: any) => !o.cancelled).length}
+      </div>
+
+      <div class="section">
+        <h2>Купівля / продаж по валютах</h2>
+        <table>
+          <thead><tr><th>Валюта</th><th>Куплено</th><th>Сер. курс</th><th>Куплено, ₴</th><th>Продано</th><th>Сер. курс</th><th>Продано, ₴</th></tr></thead>
+          <tbody>${tradeRows || '<tr><td colspan="7" style="text-align:center;color:#888">Операцій не було</td></tr>'}</tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <h2>Прибуток за зміну (по валютах)</h2>
+        <table>
+          <thead><tr><th>Валюта</th><th>Прибуток, ₴</th></tr></thead>
+          <tbody>${profitRows || '<tr><td colspan="2" style="text-align:center;color:#888">—</td></tr>'}</tbody>
+        </table>
+      </div>
+
+      <div class="section">
+        <h2>Залишки каси</h2>
+        <table>
+          <thead><tr><th>Валюта</th><th>На початок</th><th>Очікувано</th>${closed ? '<th>Фактично</th><th>Різниця</th>' : ''}</tr></thead>
+          <tbody>${balanceRows || '<tr><td colspan="' + (closed ? 5 : 3) + '" style="text-align:center;color:#888">—</td></tr>'}</tbody>
+        </table>
+      </div>
+
+      <div class="totals">
+        <div><span>Торговий прибуток (спред + USDT)</span><span>${tradingProfit >= 0 ? '+' : ''}${n2(tradingProfit)} ₴</span></div>
+        ${Math.abs(usdtMargin) >= 0.005 ? `<div><span>у т.ч. маржа USDT</span><span>${usdtMargin >= 0 ? '+' : ''}${n2(usdtMargin)} ₴</span></div>` : ''}
+        ${closed ? `<div class="line"><span>Прибуток зміни (збережено)</span><span>${num(d.profit) >= 0 ? '+' : ''}${n2(d.profit)} ₴</span></div>` : ''}
+      </div>
+
+      <div class="sign">
+        <div>Касир (підпис, ПІБ)</div>
+        <div>Перевірив (підпис, ПІБ)</div>
+      </div>
+    </body></html>`;
+
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(iframe);
+    const doc = iframe.contentWindow?.document;
+    if (!doc) { document.body.removeChild(iframe); return; }
+    doc.open(); doc.write(html); doc.close();
+    const win = iframe.contentWindow!;
+    win.focus();
+    win.onafterprint = () => { try { document.body.removeChild(iframe); } catch { /* removed */ } };
+    setTimeout(() => { win.print(); setTimeout(() => { try { document.body.removeChild(iframe); } catch { /* noop */ } }, 60_000); }, 150);
+  };
+
   return (
     <div className="bg-gray-50 border-t border-gray-200 p-3 space-y-3">
+      <div className="flex justify-end">
+        <button
+          onClick={printShiftReport}
+          className="px-3 py-1.5 rounded-lg font-medium text-sm bg-blue-700 text-white hover:bg-blue-800"
+        >
+          🖨 Друк звіту по зміні
+        </button>
+      </div>
+
       {/* Залишки */}
       <Section title="Залишок каси">
         <table className="w-full text-sm">
