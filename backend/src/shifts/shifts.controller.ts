@@ -37,7 +37,7 @@ export class ShiftsController {
 
   @Get('list')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SENIOR_CASHIER')
+  @Roles('ADMIN')
   list(@Query('pointId') pointId?: string, @Query('deskId') deskId?: string) {
     return this.shiftsService.listShifts(
       pointId ? Number(pointId) : undefined,

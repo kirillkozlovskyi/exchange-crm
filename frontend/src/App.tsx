@@ -32,7 +32,7 @@ export default function App() {
             <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
               <Route index element={<HomeRedirect />} />
               <Route path="cashier" element={
-                <ProtectedRoute roles={['CASHIER', 'SENIOR_CASHIER']}>
+                <ProtectedRoute roles={['CASHIER']}>
                   <CashierPage />
                 </ProtectedRoute>
               } />

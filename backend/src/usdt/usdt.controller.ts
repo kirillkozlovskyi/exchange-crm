@@ -46,7 +46,7 @@ export class UsdtController {
   // ── Гаманці / налаштування ──────────────────────────────────────────────
   @Get('wallets')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SENIOR_CASHIER')
+  @Roles('ADMIN')
   getWallets() {
     return this.service.getWallets();
   }
@@ -69,7 +69,7 @@ export class UsdtController {
   // ── Операції ────────────────────────────────────────────────────────────
   @Get()
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SENIOR_CASHIER')
+  @Roles('ADMIN')
   getAll(
     @Query('exchangePointId') exchangePointId?: string,
     @Query('cashDeskId') cashDeskId?: string,

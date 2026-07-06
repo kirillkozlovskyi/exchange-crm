@@ -39,7 +39,6 @@ export default function ProfilePage() {
 
   const roleLabel: Record<string, string> = {
     CASHIER: 'Касир',
-    SENIOR_CASHIER: 'Старший касир',
     ADMIN: 'Адміністратор',
   };
 

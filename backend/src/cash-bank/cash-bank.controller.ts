@@ -19,14 +19,14 @@ export class CashBankController {
 
   @Get('company')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SENIOR_CASHIER')
+  @Roles('ADMIN')
   getCompanyBalance() {
     return this.service.getCompanyBalance();
   }
 
   @Get('movements')
   @UseGuards(RolesGuard)
-  @Roles('ADMIN', 'SENIOR_CASHIER')
+  @Roles('ADMIN')
   getMovements() {
     return this.service.getMovements();
   }

@@ -5,7 +5,7 @@ import { nextDocNumber } from '../common/number-seq.util';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
 
 type Actor = { sub: number; role: string };
-const isSupervisor = (a?: Actor) => a?.role === 'ADMIN' || a?.role === 'SENIOR_CASHIER';
+const isSupervisor = (a?: Actor) => a?.role === 'ADMIN';
 
 @Injectable()
 export class TransfersService {

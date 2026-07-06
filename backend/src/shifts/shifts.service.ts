@@ -82,12 +82,7 @@ export class ShiftsService {
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна вже закрита');
-    if (
-      actor &&
-      actor.role !== 'ADMIN' &&
-      actor.role !== 'SENIOR_CASHIER' &&
-      shift.openedById !== actor.sub
-    )
+    if (actor && actor.role !== 'ADMIN' && shift.openedById !== actor.sub)
       throw new BadRequestException('Закрити можна лише власну зміну');
 
     const start = shift.startBalance as Record<string, number>;

@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
 
-const ROLES = ['CASHIER', 'SENIOR_CASHIER', 'ADMIN'];
+const ROLES = ['CASHIER', 'ADMIN'];
 const ROLE_LABEL: Record<string, string> = {
   CASHIER: 'Касир',
-  SENIOR_CASHIER: 'Старший касир',
   ADMIN: 'Адміністратор',
 };
 

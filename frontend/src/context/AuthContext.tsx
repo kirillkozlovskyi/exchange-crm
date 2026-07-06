@@ -5,7 +5,7 @@ interface User {
   sub: number;
   login: string;
   name: string;
-  role: 'CASHIER' | 'SENIOR_CASHIER' | 'ADMIN';
+  role: 'CASHIER' | 'ADMIN';
   exchangePointId: number | null;
 }
 

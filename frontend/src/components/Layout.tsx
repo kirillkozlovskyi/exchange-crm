@@ -28,7 +28,6 @@ export default function Layout() {
 
   const roleLabel: Record<string, string> = {
     CASHIER: 'Касир',
-    SENIOR_CASHIER: 'Старший касир',
     ADMIN: 'Адміністратор',
   };
 
