@@ -58,6 +58,23 @@ export default function ExpensesAdmin() {
   const total = items.reduce((s, e) => s + Number(e.amount), 0);
   const inputCls = 'border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400';
 
+  const exportCsv = () => {
+    const head = ['Дата', 'Категорія', 'Точка', 'Примітка', 'Сума ₴'];
+    const rows = items.map((e) => [
+      format(new Date(e.date), 'dd.MM.yyyy'), e.category,
+      e.exchangePoint?.name ?? '', e.note ?? '', Number(e.amount).toFixed(2),
+    ]);
+    const csv = '﻿' + [head, ...rows]
+      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';'))
+      .join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `expenses_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   return (
     <div className="space-y-4">
       {/* Додати витрату */}
@@ -86,10 +103,16 @@ export default function ExpensesAdmin() {
       <div className="bg-white rounded-xl shadow p-4">
         <div className="flex items-center justify-between flex-wrap gap-2 mb-3">
           <h3 className="font-semibold text-lg">Витрати <span className="text-gray-400 font-normal text-sm">· разом {fmt(total)} ₴</span></h3>
-          <select value={pointFilter} onChange={(e) => setPointFilter(e.target.value)} className={inputCls}>
-            <option value="">Усі точки</option>
-            {points.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+          <div className="flex items-center gap-2">
+            <select value={pointFilter} onChange={(e) => setPointFilter(e.target.value)} className={inputCls}>
+              <option value="">Усі точки</option>
+              {points.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+            <button onClick={exportCsv} disabled={items.length === 0}
+              className="px-3 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50">
+              ⬇ CSV
+            </button>
+          </div>
         </div>
         {loading ? (
           <div className="text-center py-8 text-gray-400">Завантаження...</div>

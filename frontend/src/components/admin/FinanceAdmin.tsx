@@ -15,10 +15,40 @@ export default function FinanceAdmin() {
 
   const periodLabel = { daily: 'За сьогодні', weekly: 'За тиждень', monthly: 'За місяць' };
 
+  // Експорт для бухгалтерії: точка · валюта · обсяг · прибуток; підсумок по касах;
+  // рядок витрат і чистого прибутку. BOM + «;» — відкривається в Excel як є.
+  const exportCsv = () => {
+    if (!data) return;
+    const rows: (string | number)[][] = [['Точка', 'Каса/Валюта', 'Обсяг', 'Прибуток ₴']];
+    for (const pt of data.points ?? []) {
+      for (const [cur, d] of Object.entries<any>(pt.byCurrency ?? {})) {
+        rows.push([pt.pointName, cur, Number(d.volume).toFixed(2), Number(d.profit).toFixed(2)]);
+      }
+      for (const dk of pt.byDesk ?? []) {
+        rows.push([pt.pointName, `Каса: ${dk.deskName}`, '', Number(dk.profit).toFixed(2)]);
+      }
+      rows.push([pt.pointName, 'Витрати', '', (-Number(pt.expenses ?? 0)).toFixed(2)]);
+      rows.push([pt.pointName, 'Чистий прибуток', '', Number(pt.netProfit ?? pt.totalProfit).toFixed(2)]);
+    }
+    rows.push([]);
+    rows.push(['Мережа', 'Валовий прибуток', '', Number(data.totalProfit).toFixed(2)]);
+    rows.push(['Мережа', 'Витрати', '', (-Number(data.totalExpenses ?? 0)).toFixed(2)]);
+    rows.push(['Мережа', 'Чистий прибуток', '', Number(data.totalNetProfit ?? data.totalProfit).toFixed(2)]);
+    const csv = '﻿' + rows
+      .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';'))
+      .join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = `finance_${period}_${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  };
+
   return (
     <div className="space-y-4">
       {/* Period selector */}
-      <div className="bg-white rounded-xl shadow p-4 flex gap-2">
+      <div className="bg-white rounded-xl shadow p-4 flex gap-2 items-center">
         {(['daily', 'weekly', 'monthly'] as Period[]).map((p) => (
           <button
             key={p}
@@ -30,6 +60,14 @@ export default function FinanceAdmin() {
             {periodLabel[p]}
           </button>
         ))}
+        <button
+          onClick={exportCsv}
+          disabled={!data}
+          className="ml-auto px-4 py-2 rounded-lg text-sm font-medium border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          title="Експорт для бухгалтерії (CSV/Excel)"
+        >
+          ⬇ CSV
+        </button>
       </div>
 
       {loading && <div className="text-center py-10 text-gray-400">Завантаження...</div>}
