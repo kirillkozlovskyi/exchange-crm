@@ -19,6 +19,7 @@ import { CashMovementsModule } from './cash-movements/cash-movements.module';
 import { UsdtModule } from './usdt/usdt.module';
 import { CashBankModule } from './cash-bank/cash-bank.module';
 import { ExpensesModule } from './expenses/expenses.module';
+import { ProfitModule } from './profit/profit.module';
 import { SeedService } from './seed.service';
 
 @Module({
@@ -43,6 +44,7 @@ import { SeedService } from './seed.service';
     UsdtModule,
     CashBankModule,
     ExpensesModule,
+    ProfitModule,
   ],
   providers: [SeedService],
 })

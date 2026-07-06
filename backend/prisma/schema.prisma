@@ -317,6 +317,19 @@ model Setting {
   value String
 }
 
+// Перехідна собівартість позиції каси по валюті (модель прибутку WAC, Варіант 1).
+// Зберігає лише середню собівартість (грн/од.), що переноситься між змінами;
+// кількість щоразу беремо з фактичного залишку (startBalance) на відкритті зміни.
+// Оновлюється при закритті зміни. Порожньо → старт за поточним курсом купівлі.
+model DeskCostBasis {
+  cashDeskId Int
+  currency   String
+  avgCost    Decimal  @db.Decimal(18, 6)
+  updatedAt  DateTime @updatedAt
+
+  @@id([cashDeskId, currency])
+}
+
 model Notification {
   id        Int      @id @default(autoincrement())
   message   String

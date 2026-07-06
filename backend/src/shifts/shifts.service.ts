@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
 import { applyOperationsToBalance } from '../common/balance.util';
-import { midRates, valueOf, realizedProfit } from '../common/profit.util';
+import { midRates, valueOf } from '../common/profit.util';
 import { cashMovementsDelta } from '../common/cash-movements.util';
 import { usdtCashDelta, usdtProfit } from '../common/usdt.util';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
@@ -10,11 +10,13 @@ import { nextDocNumber } from '../common/number-seq.util';
 
 import { TelegramService } from '../telegram/telegram.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ProfitService } from '../profit/profit.service';
 
 @Injectable()
 export class ShiftsService {
   constructor(
     private prisma: PrismaService,
+    private profit: ProfitService,
     // optional: юніт-тести створюють сервіс без телеграма/сповіщень
     private telegram?: TelegramService,
     private notifications?: NotificationsService,
@@ -99,21 +101,27 @@ export class ShiftsService {
     // готівка (входить у прибуток окремою маржею), на відміну від руху готівки.
     const usdtDelta = usdtCashDelta((shift.usdtOperations as any) ?? []);
 
-    // Прибуток = реалізований спред «з відкупленого»: по кожній валюті
-    // відкуплено = min(куплено, продано) × (сер.курс продажу − сер.курс купівлі);
-    // непокрита позиція не оцінюється, крос — різниця за серединним курсом.
+    // Прибуток за WAC (Варіант 1): продаж реалізується проти ковзної собівартості,
+    // яка ПЕРЕНОСИТЬСЯ між змінами. Продаж наявного запасу дає прибуток одразу,
+    // навіть без купівлі в цій зміні. Непроданий запас не переоцінюється.
     const rates = await this.prisma.rate.findMany({
       where: { exchangePointId: shift.cashDesk.exchangePointId, status: 'ACTIVE' },
     });
+    // Серединні курси — лише для оцінки нестачі/надлишку каси (не для прибутку).
     const valuation = midRates(
       rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
     );
-    const realized = realizedProfit(shift.operations, valuation);
+    const wac = await this.profit.computeShift({
+      cashDeskId: shift.cashDeskId,
+      exchangePointId: shift.cashDesk.exchangePointId,
+      startBalance: start,
+      operations: shift.operations as any,
+    });
     // Прибуток USDT — чиста маржа (%) у гривні, окремим рядком «USDT».
     const usdtMargin = usdtProfit((shift.usdtOperations as any) ?? []);
-    const profitByCurrency = { ...realized.byCurrency };
+    const profitByCurrency: Record<string, number> = { ...wac.byCurrency };
     if (Math.abs(usdtMargin) >= 0.005) profitByCurrency.USDT = usdtMargin;
-    const profit = realized.total + usdtMargin;
+    const profit = wac.totalRealized + usdtMargin;
 
     // Передачі між касами/точками — це рух готівки, а не торговий прибуток.
     // Вилучаємо їх із фактичного залишку, щоб отримана/відправлена валюта не
@@ -169,6 +177,18 @@ export class ShiftsService {
         valuationRates: valuation,
       },
     });
+    // Переносимо ковзну собівартість на наступну зміну цієї каси + записуємо
+    // реалізований прибуток кожної операції (для фінансів/живого підрахунку).
+    await this.profit.saveBasis(shift.cashDeskId, wac.ending);
+    const opUpdates = wac.ops
+      .map((o: any, i: number) => (o.id != null ? { id: o.id, profit: wac.perOp[i] } : null))
+      .filter((x): x is { id: number; profit: number } => x != null);
+    if (opUpdates.length) {
+      await this.prisma.$transaction(
+        opUpdates.map((u) => this.prisma.operation.update({ where: { id: u.id }, data: { profit: u.profit } })),
+      );
+    }
+
     // Сповіщення в Telegram + центр сповіщень адміна (fire-and-forget)
     const who = (shift as any).openedBy?.name ?? '';
     void this.telegram?.notifyShiftClosed(shift.number, who, profit, factualProfit);

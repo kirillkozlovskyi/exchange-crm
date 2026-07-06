@@ -1,5 +1,15 @@
 import { BadRequestException } from '@nestjs/common';
 import { ShiftsService } from './shifts.service';
+import { ProfitService } from '../profit/profit.service';
+
+// Будує сервіс із реальним ProfitService на тому ж mock-prisma, доповнюючи його
+// потрібними для WAC методами (собівартість каси, $transaction).
+function build(prisma: any) {
+  prisma.deskCostBasis = prisma.deskCostBasis ?? { findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() };
+  prisma.$transaction = prisma.$transaction ?? ((arr: any[]) => Promise.all(arr));
+  prisma.rate = prisma.rate ?? { findMany: jest.fn().mockResolvedValue([]) };
+  return new ShiftsService(prisma, new ProfitService(prisma));
+}
 
 describe('ShiftsService — закриття та коригування', () => {
   describe('closeShift()', () => {
@@ -25,7 +35,7 @@ describe('ShiftsService — закриття та коригування', () =>
         },
         transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
-      const service = new ShiftsService(prisma as any);
+      const service = build(prisma);
 
       const res: any = await service.closeShift(1, { UAH: 7560, USD: 560 });
 
@@ -46,7 +56,7 @@ describe('ShiftsService — закриття та коригування', () =>
         rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]) },
         transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
-      const service = new ShiftsService(prisma as any);
+      const service = build(prisma);
       // calc: USD 100, UAH 5900. Касир нарахував лише 90 USD (нестача 10).
       const res: any = await service.closeShift(1, { UAH: 5900, USD: 90 });
       // Лише купівля (без продажу) → відкупу немає → торговий прибуток 0.
@@ -69,7 +79,7 @@ describe('ShiftsService — закриття та коригування', () =>
           { currency: 'USD', amount: 200, fromDeskId: 9, toDeskId: 7 },
         ]) },
       };
-      const service = new ShiftsService(prisma as any);
+      const service = build(prisma);
       // Касир нарахував 300 USD (100 від операції + 200 передача), UAH 5900.
       const res: any = await service.closeShift(1, { UAH: 5900, USD: 300 });
       // Лише купівля → відкупу немає → торговий прибуток 0.
@@ -95,7 +105,7 @@ describe('ShiftsService — закриття та коригування', () =>
         rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]) }, // mid 41.25
         transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
-      const service = new ShiftsService(prisma as any);
+      const service = build(prisma);
       // Очікуваний фізичний залишок: USD 60 (100 − 40), UAH 7900 (5900 + 2000 підкріплення).
       const res: any = await service.closeShift(1, { UAH: 7900, USD: 60 });
       // Розрахунковий залишок враховує рух готівки.
@@ -116,7 +126,7 @@ describe('ShiftsService — закриття та коригування', () =>
         },
         rate: { findMany: jest.fn().mockResolvedValue([]) },
       };
-      const service = new ShiftsService(prisma as any);
+      const service = build(prisma);
       await expect(service.closeShift(1, {})).rejects.toBeInstanceOf(BadRequestException);
     });
   });
@@ -142,7 +152,7 @@ describe('ShiftsService — закриття та коригування', () =>
         },
         transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
-      const service = new ShiftsService(prisma as any);
+      const service = build(prisma);
 
       const res: any = await service.adjustBalance(1, { USD: 600, UAH: 5900 });
 
@@ -174,7 +184,7 @@ describe('ShiftsService — закриття та коригування', () =>
           ]),
         },
       };
-      const service = new ShiftsService(prisma as any);
+      const service = build(prisma);
 
       // Касир каже: по факту UAH 6100, USD 250.
       const res: any = await service.adjustBalance(1, { UAH: 6100, USD: 250 });
@@ -201,17 +211,17 @@ describe('ShiftsService — закриття та коригування', () =>
     };
 
     it('касир НЕ може закрити чужу зміну', async () => {
-      const service = new ShiftsService(makePrisma(baseShift) as any);
+      const service = build(makePrisma(baseShift));
       await expect(
         service.closeShift(1, {}, { sub: 99, role: 'CASHIER' }),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('касир закриває СВОЮ зміну; адмін — будь-чию', async () => {
-      const own = new ShiftsService(makePrisma(baseShift) as any);
+      const own = build(makePrisma(baseShift));
       await expect(own.closeShift(1, {}, { sub: 5, role: 'CASHIER' })).resolves.toBeDefined();
 
-      const admin = new ShiftsService(makePrisma(baseShift) as any);
+      const admin = build(makePrisma(baseShift));
       await expect(admin.closeShift(1, {}, { sub: 99, role: 'ADMIN' })).resolves.toBeDefined();
     });
   });
