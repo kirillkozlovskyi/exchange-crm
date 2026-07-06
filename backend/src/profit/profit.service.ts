@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { wacRealized, PositionMap, WacOperation } from '../common/wac-profit.util';
+import { usdtProfit } from '../common/usdt.util';
 
 /**
  * Прибуток за моделлю WAC (Варіант 1): позиція каси по валюті переноситься між
@@ -10,7 +11,74 @@ import { wacRealized, PositionMap, WacOperation } from '../common/wac-profit.uti
  */
 @Injectable()
 export class ProfitService {
+  private readonly logger = new Logger(ProfitService.name);
   constructor(private prisma: PrismaService) {}
+
+  /**
+   * Одноразовий беквіл: перераховує op.profit і shift.profit усієї історії за
+   * моделлю WAC (щоб історичні фінанси збігалися з новою моделлю), і виставляє
+   * кінцеву собівартість кожної каси. Ідемпотентний — можна запускати повторно.
+   */
+  async backfillAll() {
+    const desks = await this.prisma.cashDesk.findMany({
+      include: { exchangePoint: { select: { id: true } } },
+    });
+    let shiftsDone = 0;
+    for (const desk of desks) {
+      const buyRates = await this.getBuyRates(desk.exchangePointId);
+      const shifts = await this.prisma.shift.findMany({
+        where: { cashDeskId: desk.id },
+        orderBy: { openedAt: 'asc' },
+        include: { operations: true, usdtOperations: true },
+      });
+      const basis: Record<string, number> = {}; // переноситься між змінами каси
+
+      for (const shift of shifts) {
+        const start = (shift.startBalance as Record<string, number>) ?? {};
+        const opening: PositionMap = {};
+        const currencies = new Set<string>([
+          ...Object.keys(start),
+          ...Object.keys(basis),
+          ...shift.operations.map((o) => o.currency),
+          ...shift.operations.map((o) => (o.payCurrency ?? '') as string),
+        ]);
+        for (const cur of currencies) {
+          if (!cur || cur === 'UAH') continue;
+          opening[cur] = { qty: Number(start[cur] ?? 0), avgCost: basis[cur] ?? buyRates[cur] ?? 0 };
+        }
+        const ops = [...shift.operations].sort(
+          (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+        );
+        const res = wacRealized(opening, ops as any);
+
+        // op.profit
+        await this.prisma.$transaction(
+          ops.map((o, i) => this.prisma.operation.update({ where: { id: o.id }, data: { profit: res.perOp[i] } })),
+        );
+
+        // shift.profit (для закритих) — реалізований + маржа USDT.
+        if (shift.status === 'CLOSED') {
+          const usdtMargin = usdtProfit(shift.usdtOperations as any);
+          const profitByCurrency: Record<string, number> = { ...res.byCurrency };
+          if (Math.abs(usdtMargin) >= 0.005) profitByCurrency.USDT = usdtMargin;
+          await this.prisma.shift.update({
+            where: { id: shift.id },
+            data: { profit: res.totalRealized + usdtMargin, profitByCurrency },
+          });
+        }
+
+        for (const [cur, p] of Object.entries(res.ending)) basis[cur] = p.avgCost;
+        shiftsDone += 1;
+      }
+
+      // Кінцева собівартість каси.
+      const endingBasis: PositionMap = {};
+      for (const [cur, avg] of Object.entries(basis)) endingBasis[cur] = { qty: 0, avgCost: avg };
+      await this.saveBasis(desk.id, endingBasis);
+    }
+    this.logger.log(`WAC-беквіл: оброблено кас=${desks.length}, змін=${shiftsDone}`);
+    return { desks: desks.length, shifts: shiftsDone };
+  }
 
   /** Збережена середня собівартість каси по валютах (грн/од.). */
   async getBasis(cashDeskId: number): Promise<Record<string, number>> {
