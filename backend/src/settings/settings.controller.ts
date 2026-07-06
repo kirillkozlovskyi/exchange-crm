@@ -61,6 +61,18 @@ export class SettingsController {
     return this.settingsService.setNbuRates(body.buyPct, body.sellPct);
   }
 
+  @Get('nbu-auto')
+  async getNbuAuto() {
+    return { enabled: await this.settingsService.getNbuAutoUpdate() };
+  }
+
+  @Put('nbu-auto')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setNbuAuto(@Body() body: { enabled: boolean }) {
+    return this.settingsService.setNbuAutoUpdate(!!body.enabled);
+  }
+
   @Get('balance-edit')
   getBalanceEdit() {
     return this.settingsService.getBalanceEditEnabled().then((enabled) => ({ enabled }));

@@ -256,6 +256,67 @@ function TelegramSettings() {
   );
 }
 
+// Курси НБУ: % націнки та автопідтягування за розкладом.
+function NbuSettings() {
+  const [buyPct, setBuyPct] = useState<number>(-5);
+  const [sellPct, setSellPct] = useState<number>(5);
+  const [auto, setAuto] = useState<boolean>(false);
+  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    Promise.all([api.get('/settings/nbu-rates'), api.get('/settings/nbu-auto')]).then(([r, a]) => {
+      setBuyPct(r.data.buyPct); setSellPct(r.data.sellPct); setAuto(a.data.enabled);
+    });
+  }, []);
+
+  const save = async () => {
+    setLoading(true); setSaved(false);
+    try {
+      await Promise.all([
+        api.put('/settings/nbu-rates', { buyPct, sellPct }),
+        api.put('/settings/nbu-auto', { enabled: auto }),
+      ]);
+      setSaved(true); setTimeout(() => setSaved(false), 3000);
+    } finally { setLoading(false); }
+  };
+
+  const numCls = 'w-24 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400';
+  return (
+    <div className="bg-white rounded-xl shadow p-6 space-y-5">
+      <h3 className="font-semibold text-gray-800 text-base">📊 Курси НБУ</h3>
+
+      <div className="flex items-center justify-between">
+        <div>
+          <div className="text-sm font-medium text-gray-700">Автопідтягування за розкладом</div>
+          <div className="text-xs text-gray-400">Щодня оновлює курси точок як НБУ ± % (нижче). Обережно — змінює живі курси.</div>
+        </div>
+        <Toggle enabled={auto} onChange={setAuto} />
+      </div>
+
+      <div className="flex items-center gap-4">
+        <label className="text-sm text-gray-700 flex items-center gap-2">
+          Купівля, %<input type="number" step="0.1" value={buyPct} onChange={(e) => setBuyPct(Number(e.target.value))} className={numCls} />
+        </label>
+        <label className="text-sm text-gray-700 flex items-center gap-2">
+          Продаж, %<input type="number" step="0.1" value={sellPct} onChange={(e) => setSellPct(Number(e.target.value))} className={numCls} />
+        </label>
+      </div>
+      <p className="text-xs text-gray-400">
+        Курс купівлі = НБУ × (1 + купівля%/100), продаж = НБУ × (1 + продаж%/100). Напр. −5 і +5.
+      </p>
+
+      <div className="flex items-center gap-3">
+        <button onClick={save} disabled={loading}
+          className="bg-blue-700 hover:bg-blue-800 text-white rounded-lg px-4 py-2 text-sm font-medium disabled:opacity-50">
+          {loading ? 'Збереження...' : 'Зберегти'}
+        </button>
+        {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
+      </div>
+    </div>
+  );
+}
+
 function OperationsSettings() {
   const [minutes, setMinutes] = useState<number>(5);
   const [balanceEdit, setBalanceEdit] = useState<boolean>(true);
@@ -311,6 +372,8 @@ function OperationsSettings() {
         subtitle="Кнопки −/+ для поля «Сума USDT» у вікні операції каси."
         accent="teal"
       />
+
+      <NbuSettings />
 
       <div className="bg-white rounded-xl shadow p-6 space-y-5">
         <h3 className="font-semibold text-gray-800 text-base">Налаштування операцій</h3>

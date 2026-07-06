@@ -1,6 +1,13 @@
 import { Module } from '@nestjs/common';
 import { RatesService } from './rates.service';
 import { RatesController } from './rates.controller';
+import { NbuAutoService } from './nbu-auto.service';
+import { SettingsModule } from '../settings/settings.module';
 
-@Module({ providers: [RatesService], controllers: [RatesController], exports: [RatesService] })
+@Module({
+  imports: [SettingsModule],
+  providers: [RatesService, NbuAutoService],
+  controllers: [RatesController],
+  exports: [RatesService],
+})
 export class RatesModule {}

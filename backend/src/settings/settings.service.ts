@@ -45,6 +45,16 @@ export class SettingsService {
     ]);
   }
 
+  // Автопідтягування курсів НБУ за розкладом (щодня). Default OFF — щоб не
+  // змінювати живі курси без явного дозволу адміна.
+  async getNbuAutoUpdate(): Promise<boolean> {
+    return (await this.get('nbu_auto_update')) === 'true';
+  }
+
+  async setNbuAutoUpdate(enabled: boolean): Promise<void> {
+    await this.set('nbu_auto_update', String(enabled));
+  }
+
   async getBalanceEditEnabled(): Promise<boolean> {
     const v = await this.get('cashier_can_edit_balance');
     return v !== 'false'; // default true
