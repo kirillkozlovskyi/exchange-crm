@@ -1,9 +1,8 @@
 import { FinanceService } from './finance.service';
 
 /**
- * Фінанси = та сама модель прибутку, що й закриття зміни:
- * realizedProfit («з відкупу») + маржа USDT. Стара модель (Σ op.profit)
- * подвійно рахувала спред.
+ * Фінанси = сума реалізованого прибутку операцій (op.profit, модель WAC) + маржа
+ * USDT. op.profit рахується при операції/закритті зміни (продаж проти собівартості).
  */
 const POINT = { id: 1, name: 'Точка 1' };
 const shiftOf = { cashDesk: { exchangePoint: POINT } };
@@ -21,11 +20,10 @@ function makePrisma(ops: any[], usdtOps: any[] = []) {
 }
 
 describe('FinanceService — єдина модель прибутку', () => {
-  it('прибуток = реалізований спред (як у закритті зміни), а не Σ op.profit', async () => {
-    // Куплено 100 USD @41 (op.profit=50), продано 40 USD @41.5 (op.profit=20).
-    // Стара модель дала б 70 (подвійний спред). Реалізовано: 40×(41.5−41)=20.
+  it('прибуток = сума реалізованого op.profit (WAC)', async () => {
+    // op.profit — реалізований WAC: купівля 0, продаж 40 @41.5 проти собів. 41 → 20.
     const ops = [
-      { type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, profit: 50, cancelled: false, shift: shiftOf },
+      { type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, profit: 0, cancelled: false, shift: shiftOf },
       { type: 'SELL', currency: 'USD', amount: 40, totalUah: 1660, profit: 20, cancelled: false, shift: shiftOf },
     ];
     const service = new FinanceService(makePrisma(ops) as any, { sumByPoint: async () => ({}) } as any);

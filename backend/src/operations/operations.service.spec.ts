@@ -46,12 +46,13 @@ function makePrisma(opts: { ratesPresent?: boolean } = {}) {
 }
 
 const settingsStub = { getStornoWindowMinutes: jest.fn().mockResolvedValue(5) };
+const profitStub = { recomputeShiftOps: jest.fn().mockResolvedValue(undefined) };
 
 describe('OperationsService — грошова математика', () => {
   describe('create()', () => {
     it('SELL (клієнт дає UAH, отримує валюту): totalUah = amount × rate, profit = amount × спред', async () => {
       const prisma = makePrisma();
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       const res: any = await service.create(
         { shiftId: 1, currency: 'USD', amount: 100, rate: 41.5, mode: 'SELL' },
@@ -69,7 +70,7 @@ describe('OperationsService — грошова математика', () => {
 
     it('BUY (клієнт дає валюту, отримує UAH): totalUah = amount × rate, profit = amount × спред', async () => {
       const prisma = makePrisma();
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       const res: any = await service.create(
         { shiftId: 1, currency: 'UAH', amount: 100, rate: 41, payCurrency: 'USD', payAmount: 100, mode: 'BUY' },
@@ -85,7 +86,7 @@ describe('OperationsService — грошова математика', () => {
 
     it('крос (валюта→валюта) у режимі BUY: type=BUY, totalUah у UAH, profit за крос-формулою', async () => {
       const prisma = makePrisma();
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       // Клієнт дає 100 USD, отримує 90 EUR
       const res: any = await service.create(
@@ -104,7 +105,7 @@ describe('OperationsService — грошова математика', () => {
 
     it('крос без вказаного mode → type=EXCHANGE (fallback)', async () => {
       const prisma = makePrisma();
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       const res: any = await service.create(
         { shiftId: 1, currency: 'EUR', amount: 90, rate: 0.92, payCurrency: 'USD', payAmount: 100 },
@@ -116,7 +117,7 @@ describe('OperationsService — грошова математика', () => {
 
     it('SELL без активного курсу: totalUah рахується з dto.rate, profit = 0', async () => {
       const prisma = makePrisma({ ratesPresent: false });
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       const res: any = await service.create(
         { shiftId: 1, currency: 'USD', amount: 100, rate: 41.5, mode: 'SELL' },
@@ -129,7 +130,7 @@ describe('OperationsService — грошова математика', () => {
 
     it('кидає BadRequestException при крос із payAmount=0 (фантом: totalUah=0)', async () => {
       const prisma = makePrisma();
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       await expect(
         service.create(
@@ -142,7 +143,7 @@ describe('OperationsService — грошова математика', () => {
 
     it('кидає BadRequestException при кількості <= 0', async () => {
       const prisma = makePrisma();
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       await expect(
         service.create({ shiftId: 1, currency: 'USD', amount: 0, rate: 41.5, mode: 'SELL' }, 7),
@@ -151,7 +152,7 @@ describe('OperationsService — грошова математика', () => {
 
     it('кидає BadRequestException при курсі <= 0', async () => {
       const prisma = makePrisma();
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       await expect(
         service.create({ shiftId: 1, currency: 'USD', amount: 100, rate: 0, mode: 'SELL' }, 7),
@@ -160,7 +161,7 @@ describe('OperationsService — грошова математика', () => {
 
     it('офлайн-синк: повторний clientId не створює дубля (ідемпотентність)', async () => {
       const prisma = makePrisma();
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
       const dto = { shiftId: 1, currency: 'USD', amount: 100, rate: 41.5, mode: 'SELL' as const, clientId: 'uuid-1', createdAt: '2026-07-06T09:00:00Z' };
 
       prisma.operation.findUnique.mockResolvedValueOnce(null); // першого разу немає
@@ -178,7 +179,7 @@ describe('OperationsService — грошова математика', () => {
 
     it('блокує USDT в основній формі — лише через вікно ₮ USDT', async () => {
       const prisma = makePrisma();
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       await expect(
         service.create({ shiftId: 1, currency: 'USDT', amount: 100, rate: 44.7, mode: 'BUY' }, 7),
@@ -192,7 +193,7 @@ describe('OperationsService — грошова математика', () => {
     it('кидає NotFoundException, якщо зміни немає', async () => {
       const prisma = makePrisma();
       prisma.shift.findUnique.mockResolvedValue(null);
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       await expect(
         service.create({ shiftId: 999, currency: 'USD', amount: 1, rate: 41 }, 7),
@@ -205,7 +206,7 @@ describe('OperationsService — грошова математика', () => {
         id: 1, status: 'CLOSED',
         cashDesk: { exchangePointId: 1, exchangePoint: { code: 'T1' } },
       });
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       await expect(
         service.create({ shiftId: 1, currency: 'USD', amount: 1, rate: 41 }, 7),
@@ -227,7 +228,7 @@ describe('OperationsService — грошова математика', () => {
       const prisma = prismaForUpdate({
         id: 5, type: 'SELL', currency: 'USD', amount: 100, rate: 41.5, payCurrency: null, payAmount: null,
       });
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       const res: any = await service.update(5, { amount: 200, rate: 42, note: 'fix' }, 9);
 
@@ -246,7 +247,7 @@ describe('OperationsService — грошова математика', () => {
       const prisma = prismaForUpdate({
         id: 6, type: 'BUY', currency: 'UAH', amount: 100, rate: 41, payCurrency: 'USD', payAmount: 100,
       });
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       const res: any = await service.update(6, { amount: 150, rate: 41 }, 9);
 
@@ -258,7 +259,7 @@ describe('OperationsService — грошова математика', () => {
       const prisma = prismaForUpdate({
         id: 7, type: 'EXCHANGE', currency: 'EUR', amount: 90, rate: 0.92, payCurrency: 'USD', payAmount: 100,
       });
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       const res: any = await service.update(7, { amount: 80, rate: 0.9 }, 9);
 
@@ -274,7 +275,7 @@ describe('OperationsService — грошова математика', () => {
       const prisma = prismaForUpdate({
         id: 8, type: 'BUY', currency: 'EUR', amount: 90, rate: 0.92, payCurrency: 'USD', payAmount: 100,
       });
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       const res: any = await service.update(8, { amount: 88, rate: 0.92 }, 9);
 
@@ -290,7 +291,7 @@ describe('OperationsService — грошова математика', () => {
         id: 5, type: 'SELL', currency: 'USD', amount: 100, rate: 41.5,
         shift: { status: 'CLOSED', cashDesk: { exchangePointId: 1, exchangePoint: { code: 'T1' } } },
       });
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       await expect(service.update(5, { amount: 1, rate: 41 }, 9)).rejects.toBeInstanceOf(BadRequestException);
     });
@@ -300,7 +301,7 @@ describe('OperationsService — грошова математика', () => {
         id: 5, type: 'SELL', currency: 'USD', amount: 100, rate: 41.5,
         payCurrency: null, payAmount: null, cancelled: true,
       });
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       await expect(service.update(5, { amount: 200, rate: 42 }, 9)).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.operationEdit.create).not.toHaveBeenCalled();
@@ -310,7 +311,7 @@ describe('OperationsService — грошова математика', () => {
       const prisma = prismaForUpdate({
         id: 5, type: 'SELL', currency: 'USD', amount: 100, rate: 41.5, payCurrency: null, payAmount: null,
       });
-      const service = new OperationsService(prisma as any, settingsStub as any);
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
       await expect(service.update(5, { amount: 0, rate: 41.5 }, 9)).rejects.toBeInstanceOf(BadRequestException);
       expect(prisma.operationEdit.create).not.toHaveBeenCalled();
@@ -324,7 +325,7 @@ describe('OperationsService — грошова математика', () => {
       prisma.operation.findUnique.mockResolvedValue(op);
       prisma.operation.findFirst.mockResolvedValue(overallLast);
       const settings = { getStornoWindowMinutes: jest.fn().mockResolvedValue(windowMin) };
-      return { prisma, service: new OperationsService(prisma as any, settings as any) };
+      return { prisma, service: new OperationsService(prisma as any, settings as any, profitStub as any) };
     }
 
     it('скасовує останню операцію в межах часового вікна', async () => {

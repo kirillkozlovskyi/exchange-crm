@@ -11,7 +11,6 @@ import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
 import { type CashDirection } from '../lib/cash-movements';
 import { shiftCashBalanceWithTransfers } from '../lib/shift-balance';
-import { midRates, realizedProfit } from '../lib/profit';
 import { usdtProfit } from '../lib/usdt';
 import { offlineQueue, isNetworkError, type QueuedOp } from '../lib/offline-queue';
 import UsdtModal from '../components/cashier/UsdtModal';
@@ -366,16 +365,15 @@ export default function CashierPage() {
     );
   }, [shift, queued]);
 
-  // Живий прибуток каси за поточну зміну — та сама модель, що й при закритті:
-  // реалізований спред «з відкупу» + чиста маржа USDT (без нестачі/надлишку,
-  // бо фактичний перерахунок буде лише на закритті).
+  // Живий прибуток каси за поточну зміну — реалізований WAC (сума op.profit,
+  // рахується сервером при кожній операції) + чиста маржа USDT. Без нестачі/
+  // надлишку (фактичний перерахунок буде лише на закритті).
   const liveProfit = useMemo(() => {
     const ops = shift?.operations ?? [];
-    const valuation = midRates(rates.map((r: any) => ({ currency: r.currency, buy: r.buy, sell: r.sell })));
-    const trading = realizedProfit(ops, valuation).total;
+    const trading = ops.reduce((s: number, o: any) => s + (o.cancelled ? 0 : Number(o.profit ?? 0)), 0);
     const usdt = usdtProfit(shift?.usdtOperations ?? []);
     return { total: trading + usdt, trading, usdt };
-  }, [shift, rates]);
+  }, [shift]);
 
   // ── Синхронізація інфо зміни в хедер ─────────────────────────────────────
   useEffect(() => {

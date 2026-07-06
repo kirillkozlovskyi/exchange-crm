@@ -70,6 +70,34 @@ export class ProfitService {
     return { ...res, ops };
   }
 
+  /**
+   * Перераховує реалізований прибуток кожної операції зміни за WAC і зберігає в
+   * op.profit. Викликається після створення/сторно/редагування операції, щоб
+   * живий підрахунок каси й фінанси одразу відображали правильний прибуток.
+   * Собівартість НЕ переносимо тут (лише при закритті зміни).
+   */
+  async recomputeShiftOps(shiftId: number) {
+    const shift = await this.prisma.shift.findUnique({
+      where: { id: shiftId },
+      include: { cashDesk: true, operations: true },
+    });
+    if (!shift) return;
+    const res = await this.computeShift({
+      cashDeskId: shift.cashDeskId,
+      exchangePointId: shift.cashDesk.exchangePointId,
+      startBalance: (shift.startBalance as Record<string, number>) ?? {},
+      operations: shift.operations as any,
+    });
+    const updates = res.ops
+      .map((o: any, i: number) => (o.id != null ? { id: o.id, profit: res.perOp[i] } : null))
+      .filter((x): x is { id: number; profit: number } => x != null);
+    if (updates.length) {
+      await this.prisma.$transaction(
+        updates.map((u) => this.prisma.operation.update({ where: { id: u.id }, data: { profit: u.profit } })),
+      );
+    }
+  }
+
   /** Зберігає (переносить) середню собівартість каси після закриття зміни. */
   async saveBasis(cashDeskId: number, ending: PositionMap) {
     const ops = Object.entries(ending)

@@ -6,12 +6,14 @@ import { computeOperationTotals, RateLookup } from './operations.math';
 import { nextDocNumber } from '../common/number-seq.util';
 import { TelegramService } from '../telegram/telegram.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ProfitService } from '../profit/profit.service';
 
 @Injectable()
 export class OperationsService {
   constructor(
     private prisma: PrismaService,
     private settings: SettingsService,
+    private profit: ProfitService,
     private telegram?: TelegramService,
     private notifications?: NotificationsService,
   ) {}
@@ -126,8 +128,9 @@ export class OperationsService {
       }
     })().catch(() => {});
 
+    let created;
     try {
-      return await this.prisma.operation.create({
+      created = await this.prisma.operation.create({
         data: {
           number,
           type,
@@ -154,6 +157,10 @@ export class OperationsService {
       }
       throw e;
     }
+    // Перераховуємо реалізований прибуток (WAC) по всій зміні — щоб живий
+    // підрахунок і фінанси одразу бачили правильні числа.
+    await this.profit.recomputeShiftOps(dto.shiftId).catch(() => {});
+    return created;
   }
 
   async getByShift(shiftId: number) {
@@ -231,10 +238,12 @@ export class OperationsService {
       },
     });
 
-    return this.prisma.operation.update({
+    const res = await this.prisma.operation.update({
       where: { id },
       data: { amount: dto.amount, rate: dto.rate, totalUah, profit },
     });
+    await this.profit.recomputeShiftOps(op.shiftId).catch(() => {});
+    return res;
   }
 
   async storno(id: number, userId: number, note?: string) {
@@ -258,10 +267,12 @@ export class OperationsService {
         `Сторно можливе лише протягом ${windowMinutes} хв після операції`,
       );
 
-    return this.prisma.operation.update({
+    const res = await this.prisma.operation.update({
       where: { id },
       data: { cancelled: true, cancelNote: note ?? null },
     });
+    await this.profit.recomputeShiftOps(op.shiftId).catch(() => {});
+    return res;
   }
 
   async getEdits(operationId: number) {

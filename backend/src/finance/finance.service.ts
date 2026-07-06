@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, format } from 'date-fns';
-import { midRates, realizedProfit } from '../common/profit.util';
 import { usdtProfit } from '../common/usdt.util';
 import { ExpensesService } from '../expenses/expenses.service';
 
@@ -31,61 +30,52 @@ export class FinanceService {
   }
 
   /**
-   * Серія «прибуток по днях» за останні N днів (для дашборда). Та сама модель,
-   * що й summary: realizedProfit по точках + маржа USDT, згруповано по днях.
+   * Серія «прибуток по днях» за останні N днів (для дашборда): сума op.profit
+   * (реалізований WAC) + маржа USDT, згрупована по днях.
    */
   async getDailySeries(days = 14) {
     const n = Math.min(Math.max(Math.trunc(days) || 14, 1), 90);
     const to = endOfDay(new Date());
     const from = startOfDay(subDays(new Date(), n - 1));
 
-    const [operations, usdtOps, rates] = await Promise.all([
+    const [operations, usdtOps] = await Promise.all([
       this.prisma.operation.findMany({
         where: { createdAt: { gte: from, lte: to }, cancelled: false },
-        include: { shift: { include: { cashDesk: { select: { exchangePointId: true } } } } },
+        select: { createdAt: true, profit: true },
       }),
       this.prisma.usdtOperation.findMany({
         where: { createdAt: { gte: from, lte: to } },
         select: { createdAt: true, profitUah: true },
       }),
-      this.prisma.rate.findMany({ where: { status: 'ACTIVE' } }),
     ]);
 
-    const valuationByPoint: Record<number, Record<string, number>> = {};
-    for (const r of rates) {
-      (valuationByPoint[r.exchangePointId] ??= { UAH: 1 });
-      valuationByPoint[r.exchangePointId][r.currency] = (Number(r.buy) + Number(r.sell)) / 2;
-    }
-
-    // Групуємо по днях, всередині дня — по точках (для правильної оцінки кросів).
     const dayKey = (d: Date | string) => format(new Date(d), 'yyyy-MM-dd');
-    const opsByDay: Record<string, Record<number, typeof operations>> = {};
+    const profitByDay: Record<string, number> = {};
+    const countByDay: Record<string, number> = {};
     for (const op of operations) {
-      const pid = op.shift?.cashDesk?.exchangePointId;
-      if (pid == null) continue;
-      ((opsByDay[dayKey(op.createdAt)] ??= {})[pid] ??= []).push(op);
+      const k = dayKey(op.createdAt);
+      profitByDay[k] = (profitByDay[k] ?? 0) + Number(op.profit);
+      countByDay[k] = (countByDay[k] ?? 0) + 1;
     }
-    const usdtByDay: Record<string, number> = {};
     for (const u of usdtOps) {
-      usdtByDay[dayKey(u.createdAt)] = (usdtByDay[dayKey(u.createdAt)] ?? 0) + Number(u.profitUah);
+      const k = dayKey(u.createdAt);
+      profitByDay[k] = (profitByDay[k] ?? 0) + Number(u.profitUah);
     }
 
     const series: { date: string; profit: number; operations: number }[] = [];
     for (let i = n - 1; i >= 0; i--) {
       const key = format(subDays(new Date(), i), 'yyyy-MM-dd');
-      let profit = usdtByDay[key] ?? 0;
-      let count = 0;
-      for (const [pid, ops] of Object.entries(opsByDay[key] ?? {})) {
-        profit += realizedProfit(ops, valuationByPoint[Number(pid)] ?? { UAH: 1 }).total;
-        count += ops.length;
-      }
-      series.push({ date: key, profit: Math.round(profit * 100) / 100, operations: count });
+      series.push({
+        date: key,
+        profit: Math.round((profitByDay[key] ?? 0) * 100) / 100,
+        operations: countByDay[key] ?? 0,
+      });
     }
     return series;
   }
 
   private async summary(from: Date, to: Date) {
-    const [operations, usdtOps, rates] = await Promise.all([
+    const [operations, usdtOps] = await Promise.all([
       this.prisma.operation.findMany({
         // Скасовані (сторно) не входять у фінансові підсумки.
         where: { createdAt: { gte: from, lte: to }, cancelled: false },
@@ -95,17 +85,7 @@ export class FinanceService {
         where: { createdAt: { gte: from, lte: to } },
         include: { cashDesk: { include: { exchangePoint: true } } },
       }),
-      // Оцінка крос-операцій — за поточними ACTIVE-курсами точки (як у closeShift).
-      this.prisma.rate.findMany({ where: { status: 'ACTIVE' } }),
     ]);
-
-    // Серединні курси по кожній точці.
-    const valuationByPoint: Record<number, Record<string, number>> = {};
-    for (const r of rates) {
-      (valuationByPoint[r.exchangePointId] ??= { UAH: 1 });
-      valuationByPoint[r.exchangePointId][r.currency] =
-        (Number(r.buy) + Number(r.sell)) / 2;
-    }
 
     type PointAgg = {
       pointName: string;
@@ -132,26 +112,19 @@ export class FinanceService {
         _usdt: [],
       });
 
-    // Групуємо операції по точках (обʼєми — одразу).
+    // Прибуток беремо з op.profit (реалізований WAC, рахується при операції/закритті).
+    // Обʼєм і прибуток групуємо по точці й валюті операції.
     for (const op of operations) {
       const point = pointOf(op);
       if (!point) continue;
       const agg = ensure(point);
       agg._ops.push(op);
       agg.operationsCount += 1;
+      const opProfit = Number(op.profit);
+      agg.totalProfit += opProfit;
       (agg.byCurrency[op.currency] ??= { volume: 0, profit: 0 });
       agg.byCurrency[op.currency].volume += Number(op.amount);
-    }
-
-    // Реалізований прибуток по кожній точці + розбивка по валютах.
-    for (const [pointId, agg] of Object.entries(byPoint)) {
-      const valuation = valuationByPoint[Number(pointId)] ?? { UAH: 1 };
-      const realized = realizedProfit(agg._ops, valuation);
-      agg.totalProfit += realized.total;
-      for (const [cur, profit] of Object.entries(realized.byCurrency)) {
-        (agg.byCurrency[cur] ??= { volume: 0, profit: 0 });
-        agg.byCurrency[cur].profit += profit;
-      }
+      agg.byCurrency[op.currency].profit += opProfit;
     }
 
     // USDT: чиста маржа (profitUah) + обʼєм, окремим рядком «USDT».
@@ -187,18 +160,16 @@ export class FinanceService {
     // прибутку по касах точки (валовий прибуток каси = спред її операцій + USDT-маржа).
     const points = Object.entries(byPoint).map(([pid, agg]) => {
       const { _ops, _usdt, ...rest } = agg;
-      const valuation = valuationByPoint[Number(pid)] ?? { UAH: 1 };
 
-      const desks: Record<string, { deskName: string; profit: number; operationsCount: number; _ops: any[]; _usdt: any[] }> = {};
+      // Прибуток каси = сума op.profit її операцій (WAC) + USDT-маржа.
+      const desks: Record<string, { deskName: string; profit: number; operationsCount: number }> = {};
       const ensureDesk = (d: { id: number; name: string }) =>
-        (desks[String(d.id)] ??= { deskName: d.name, profit: 0, operationsCount: 0, _ops: [], _usdt: [] });
-      for (const op of _ops) { const d = deskOf(op); if (d) { const g = ensureDesk(d); g._ops.push(op); g.operationsCount += 1; } }
-      for (const u of _usdt) { const d = deskOf(u); if (d) { const g = ensureDesk(d); g._usdt.push(u); g.operationsCount += 1; } }
-      const byDesk = Object.values(desks).map((g) => ({
-        deskName: g.deskName,
-        operationsCount: g.operationsCount,
-        profit: realizedProfit(g._ops, valuation).total + usdtProfit(g._usdt as any),
-      })).sort((a, b) => a.deskName.localeCompare(b.deskName));
+        (desks[String(d.id)] ??= { deskName: d.name, profit: 0, operationsCount: 0 });
+      for (const op of _ops) { const d = deskOf(op); if (d) { const g = ensureDesk(d); g.profit += Number(op.profit); g.operationsCount += 1; } }
+      for (const u of _usdt) { const d = deskOf(u); if (d) { const g = ensureDesk(d); g.profit += usdtProfit([u as any]); g.operationsCount += 1; } }
+      const byDesk = Object.values(desks)
+        .map((g) => ({ deskName: g.deskName, operationsCount: g.operationsCount, profit: g.profit }))
+        .sort((a, b) => a.deskName.localeCompare(b.deskName));
 
       const expenses = expensesByPoint[Number(pid)] ?? 0;
       return { ...rest, expenses, netProfit: rest.totalProfit - expenses, byDesk };

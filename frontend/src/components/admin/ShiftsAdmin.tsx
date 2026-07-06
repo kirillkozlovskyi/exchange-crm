@@ -6,7 +6,6 @@ import { applyCashMovements } from '../../lib/cash-movements';
 import { netTransfers } from '../../lib/transfers';
 import { usdtCashDelta } from '../../lib/usdt';
 import { printReceipt } from '../cashier/OperationsList';
-import { midRates, realizedProfit } from '../../lib/profit';
 import { usdtProfit } from '../../lib/usdt';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
@@ -35,7 +34,6 @@ function Section({ title, count, actions, children }: { title: string; count?: n
 function ShiftDetail({ shiftId }: { shiftId: number }) {
   const [d, setD] = useState<any>(null);
   const [orgName, setOrgName] = useState('');
-  const [rates, setRates] = useState<any[]>([]);
   // Фільтри таблиці операцій зміни.
   const [fType, setFType] = useState<'all' | 'BUY' | 'SELL'>('all');
   const [fCur, setFCur] = useState<string>('all');
@@ -47,13 +45,6 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   useEffect(() => {
     api.get('/settings/org-name').then(({ data }) => setOrgName(data.name ?? '')).catch(() => {});
   }, []);
-
-  // Курси точки — для оцінки крос-операцій у прибутку звіту.
-  const pointId = d?.cashDesk?.exchangePointId;
-  useEffect(() => {
-    if (!pointId) return;
-    api.get(`/rates/point/${pointId}`).then(({ data }) => setRates(data)).catch(() => {});
-  }, [pointId]);
 
   if (!d) return <div className="text-sm text-gray-400 py-3 px-1">Завантаження деталей...</div>;
 
@@ -94,7 +85,6 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   const printShiftReport = () => {
     const n2 = (v: any, dd = 2) => Number(v ?? 0).toFixed(dd);
     const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
-    const valuation = midRates(rates.map((r: any) => ({ currency: r.currency, buy: r.buy, sell: r.sell })));
 
     // Купівля/продаж по валютах (дзеркало tradeStats касира).
     const stats: Record<string, { boughtQty: number; boughtUah: number; soldQty: number; soldUah: number }> = {};
@@ -120,9 +110,17 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
       avgSell: s.soldQty > 0 ? s.soldUah / s.soldQty : 0,
     })).sort((a, b) => a.cur.localeCompare(b.cur));
 
-    const realized = realizedProfit(ops as any, valuation);
+    // Прибуток по валютах = сума op.profit (реалізований WAC), USDT — окремо.
+    const realizedByCur: Record<string, number> = {};
+    let realizedTotal = 0;
+    for (const op of ops) {
+      if (op.cancelled) continue;
+      const p = num(op.profit);
+      realizedByCur[op.currency] = (realizedByCur[op.currency] ?? 0) + p;
+      realizedTotal += p;
+    }
     const usdtMargin = usdtProfit(usdtOps as any);
-    const tradingProfit = realized.total + usdtMargin;
+    const tradingProfit = realizedTotal + usdtMargin;
 
     const tradeRows = tradeStats.map((r) => `
       <tr><td class="b">${r.cur}</td>
@@ -134,9 +132,9 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
         <td class="num">${r.soldQty > 0 ? n2(r.soldUah) : '—'}</td>
       </tr>`).join('');
 
-    const profitCurs = Object.keys(realized.byCurrency).filter((c) => Math.abs(realized.byCurrency[c]) >= 0.005).sort();
+    const profitCurs = Object.keys(realizedByCur).filter((c) => Math.abs(realizedByCur[c]) >= 0.005).sort();
     const profitRows = profitCurs.map((c) => `
-      <tr><td class="b">${c}</td><td class="num">${(realized.byCurrency[c] > 0 ? '+' : '') + n2(realized.byCurrency[c])}</td></tr>`).join('')
+      <tr><td class="b">${c}</td><td class="num">${(realizedByCur[c] > 0 ? '+' : '') + n2(realizedByCur[c])}</td></tr>`).join('')
       + (Math.abs(usdtMargin) >= 0.005 ? `<tr><td class="b">USDT</td><td class="num">${(usdtMargin > 0 ? '+' : '') + n2(usdtMargin)}</td></tr>` : '');
 
     const balanceRows = currencies.map((c) => {

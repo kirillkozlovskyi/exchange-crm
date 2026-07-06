@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
-import { midRates, valueOf, realizedProfit } from '../../lib/profit';
+import { midRates, valueOf } from '../../lib/profit';
 import { netTransfers, type TransferRow } from '../../lib/transfers';
 import { cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 import { usdtCashDelta, usdtProfit, type UsdtOpRow } from '../../lib/usdt';
@@ -126,11 +126,21 @@ export default function CloseShiftForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // ── Прибуток = реалізований спред «з відкупленого» ──────────────────────────
-  const valuation = useMemo(() => midRates(rates), [rates]);
-  // Торговий прибуток: по кожній валюті відкуплено = min(куплено, продано) ×
-  // (сер.курс продажу − сер.курс купівлі); крос — різниця за серединним курсом.
-  const realized = useMemo(() => realizedProfit(shift.operations, valuation), [shift, valuation]);
+  // ── Прибуток = реалізований WAC (сума op.profit, рахує сервер) ──────────────
+  const valuation = useMemo(() => midRates(rates), [rates]); // лише для нестачі/надлишку
+  // Торговий прибуток по валютах = сума op.profit (продаж проти собівартості,
+  // позиція переноситься між змінами). Розбивка — по валюті операції.
+  const realized = useMemo(() => {
+    const byCurrency: Record<string, number> = {};
+    let total = 0;
+    for (const op of shift.operations) {
+      if (op.cancelled) continue;
+      const p = Number(op.profit ?? 0);
+      byCurrency[op.currency] = (byCurrency[op.currency] ?? 0) + p;
+      total += p;
+    }
+    return { total, byCurrency };
+  }, [shift]);
   const tradingProfit = realized.total + usdtMargin;
   const endBalParsed = useMemo(
     () => Object.fromEntries(Object.entries(endBal).map(([k, v]) => [k, parseFloat(v) || 0])),
@@ -459,8 +469,9 @@ export default function CloseShiftForm({
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold text-gray-800 mb-1">Прибуток за зміну</h3>
             <p className="text-xs text-gray-400 mb-3">
-              Прибуток «з відкупу»: по кожній валюті відкуплено = min(куплено, продано) × спред.
-              Непокрита позиція не оцінюється (переходить як запас). Крос — за серединним курсом.
+              Прибуток реалізується при продажу проти собівартості; позиція й
+              собівартість переносяться між змінами (продаж наявного запасу дає
+              прибуток одразу). Купівля лише оновлює собівартість.
               {Math.abs(usdtMargin) >= 0.005 && ' USDT — чиста маржа %.'}
               {hasTransfers && ' Передачі між касами не входять у прибуток.'}
               {hasMovements && ' Підкріплення/інкасації не входять у прибуток.'}
