@@ -5,6 +5,7 @@ import { computeCurrentBalance } from '../../lib/balance';
 import { applyCashMovements } from '../../lib/cash-movements';
 import { netTransfers } from '../../lib/transfers';
 import { usdtCashDelta } from '../../lib/usdt';
+import { printReceipt } from '../cashier/OperationsList';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   OPEN: { label: 'Відкрита', cls: 'bg-green-100 text-green-700' },
@@ -31,6 +32,7 @@ function Section({ title, count, actions, children }: { title: string; count?: n
 // ── Деталі однієї зміни ──────────────────────────────────────────────────────
 function ShiftDetail({ shiftId }: { shiftId: number }) {
   const [d, setD] = useState<any>(null);
+  const [orgName, setOrgName] = useState('');
   // Фільтри таблиці операцій зміни.
   const [fType, setFType] = useState<'all' | 'BUY' | 'SELL'>('all');
   const [fCur, setFCur] = useState<string>('all');
@@ -38,6 +40,10 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   useEffect(() => {
     api.get(`/shifts/${shiftId}`).then(({ data }) => setD(data)).catch(() => setD(null));
   }, [shiftId]);
+
+  useEffect(() => {
+    api.get('/settings/org-name').then(({ data }) => setOrgName(data.name ?? '')).catch(() => {});
+  }, []);
 
   if (!d) return <div className="text-sm text-gray-400 py-3 px-1">Завантаження деталей...</div>;
 
@@ -66,6 +72,13 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
     'UAH',
     ...Object.keys(start), ...Object.keys(expected), ...(actual ? Object.keys(actual) : []),
   ]));
+
+  // Дані шапки чека для друку окремої операції (як у касира).
+  const receipt = {
+    orgName,
+    address: d.cashDesk?.exchangePoint?.address ?? '',
+    deskNo: d.cashDeskId,
+  };
 
   return (
     <div className="bg-gray-50 border-t border-gray-200 p-3 space-y-3">
@@ -145,6 +158,7 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
                   <tr className="text-xs text-gray-400 border-b">
                     <th className="text-left pb-1">Час</th><th className="text-left pb-1">Тип</th>
                     <th className="text-right pb-1">Сума</th><th className="text-right pb-1">Курс</th><th className="text-right pb-1">UAH</th>
+                    <th className="pb-1"></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -159,6 +173,15 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
                       <td className="py-1 text-right font-medium">{fmt(op.amount)} <span className="text-gray-400 text-xs">{op.currency}</span></td>
                       <td className="py-1 text-right text-gray-500">{num(op.rate).toFixed(2)}</td>
                       <td className="py-1 text-right text-gray-600">{fmt(op.totalUah)}</td>
+                      <td className="py-1 text-right">
+                        <button
+                          onClick={() => printReceipt(op, receipt)}
+                          title="Друк чека операції"
+                          className="text-gray-400 hover:text-blue-600 px-1"
+                        >
+                          🖨
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
