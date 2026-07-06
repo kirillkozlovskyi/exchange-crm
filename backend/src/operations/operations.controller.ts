@@ -42,8 +42,8 @@ export class OperationsController {
   }
 
   @Get()
-  getAll(@Query('type') type?: 'BUY' | 'SELL') {
-    return this.service.getAll(type);
+  getAll(@Query('type') type?: 'BUY' | 'SELL', @Query('date') date?: string) {
+    return this.service.getAll(type, date);
   }
 
   @Get('shift/:shiftId')

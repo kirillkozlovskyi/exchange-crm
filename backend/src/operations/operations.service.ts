@@ -266,11 +266,19 @@ export class OperationsService {
     });
   }
 
-  async getAll(type?: 'BUY' | 'SELL' | 'EXCHANGE') {
+  async getAll(type?: 'BUY' | 'SELL' | 'EXCHANGE', date?: string) {
+    // Фільтр за днем (YYYY-MM-DD) — щоб календар діставав і старі дні, а не лише
+    // останні 500. Без дати — останні 500 записів.
+    let createdAt: { gte: Date; lte: Date } | undefined;
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const from = new Date(date + 'T00:00:00');
+      const to = new Date(date + 'T23:59:59.999');
+      if (!Number.isNaN(from.getTime())) createdAt = { gte: from, lte: to };
+    }
     return this.prisma.operation.findMany({
-      where: type ? { type } : undefined,
+      where: { ...(type ? { type } : {}), ...(createdAt ? { createdAt } : {}) },
       orderBy: { createdAt: 'desc' },
-      take: 500, // адмінська стрічка: без ліміту віддавала б усю історію
+      take: createdAt ? undefined : 500, // за конкретний день — усі; інакше ліміт
       include: {
         cashier: { select: { name: true } },
         shift: {
