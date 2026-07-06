@@ -3,7 +3,7 @@ import api from '../../api/axios';
 
 /**
  * USDT — частина банку компанії: керування глобальним гаманцем (баланс із
- * підтвердженням) + швидкі суми для вікна USDT у касі. Живе на сторінці «Банк».
+ * підтвердженням). Живе на сторінці «Банк». Швидкі суми USDT — у Налаштуваннях.
  */
 export default function UsdtBankSection() {
   const [globalBalance, setGlobalBalance] = useState(0);
@@ -12,12 +12,8 @@ export default function UsdtBankSection() {
   };
   useEffect(() => { load(); }, []);
 
-  return (
-    <>
-      <UsdtGlobalCard globalBalance={globalBalance} onSaved={load} />
-      <UsdtQuickAmountsSettings />
-    </>
-  );
+  // Швидкі суми USDT перенесені в Налаштування → Операції.
+  return <UsdtGlobalCard globalBalance={globalBalance} onSaved={load} />;
 }
 
 // Глобальний банк USDT — єдине джерело для всіх кас.
@@ -103,66 +99,6 @@ function UsdtGlobalCard({ globalBalance, onSaved }: { globalBalance: number; onS
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// Окремі швидкі суми для USDT-операцій (кнопки −/+ у вікні каси).
-function UsdtQuickAmountsSettings() {
-  const [amounts, setAmounts] = useState<number[]>([]);
-  const [newVal, setNewVal] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-
-  useEffect(() => {
-    api.get('/settings/usdt-quick-amounts').then(({ data }) => setAmounts(data)).catch(() => {});
-  }, []);
-
-  const save = async (next: number[]) => {
-    setSaving(true);
-    try {
-      await api.put('/settings/usdt-quick-amounts', { amounts: next });
-      setAmounts([...next].sort((a, b) => a - b));
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
-    } finally { setSaving(false); }
-  };
-
-  const handleAdd = () => {
-    const v = parseFloat(newVal);
-    if (!v || v <= 0 || amounts.includes(v)) { setNewVal(''); return; }
-    save([...amounts, v]);
-    setNewVal('');
-  };
-
-  return (
-    <div className="bg-white rounded-xl shadow p-5">
-      <h3 className="font-semibold text-lg">⚡ Швидкі суми USDT</h3>
-      <p className="text-xs text-gray-400 mt-0.5 mb-3">Кнопки −/+ для поля «Сума USDT» у вікні операції каси.</p>
-
-      <div className="flex flex-wrap gap-2 mb-3">
-        {amounts.map((v) => (
-          <div key={v} className="flex items-center gap-1 bg-teal-50 border border-teal-200 rounded-lg px-3 py-1.5">
-            <span className="font-semibold text-teal-800 text-sm">{v}</span>
-            <button onClick={() => save(amounts.filter((a) => a !== v))}
-              className="text-teal-300 hover:text-red-500 transition font-bold text-base leading-none ml-1">×</button>
-          </div>
-        ))}
-        {amounts.length === 0 && <span className="text-gray-400 text-sm italic">Список порожній</span>}
-      </div>
-
-      <div className="flex gap-2 max-w-md">
-        <input type="number" min="1" value={newVal}
-          onChange={(e) => setNewVal(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
-          placeholder="Нова сума"
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-400" />
-        <button onClick={handleAdd} disabled={saving || !newVal}
-          className="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
-          Додати
-        </button>
-      </div>
-      {saved && <p className="text-green-600 text-sm mt-2">✓ Збережено</p>}
     </div>
   );
 }

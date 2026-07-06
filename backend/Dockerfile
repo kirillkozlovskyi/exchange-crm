@@ -10,4 +10,6 @@ RUN npm run build
 
 EXPOSE 4000
 
-CMD ["node", "--max-old-space-size=384", "dist/src/main.js"]
+# На старті застосовуємо міграції (створює нові таблиці на чистій БД Railway),
+# потім піднімаємо застосунок. Railway використовує саме цей CMD.
+CMD sh -c "npx prisma migrate deploy && node --max-old-space-size=384 dist/src/main.js"

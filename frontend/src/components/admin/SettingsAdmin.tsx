@@ -25,20 +25,28 @@ function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean
   );
 }
 
-function QuickAmountsSettings() {
+// Швидкі суми — універсальний блок для операцій (blue) і USDT (teal).
+function QuickAmountsSettings({
+  endpoint, title, subtitle, accent = 'blue',
+}: {
+  endpoint: string;
+  title: string;
+  subtitle: string;
+  accent?: 'blue' | 'teal';
+}) {
   const [amounts, setAmounts] = useState<number[]>([]);
   const [newVal, setNewVal] = useState('');
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    api.get('/settings/quick-amounts').then(({ data }) => setAmounts(data)).catch(() => {});
-  }, []);
+    api.get(endpoint).then(({ data }) => setAmounts(data)).catch(() => {});
+  }, [endpoint]);
 
   const save = async (next: number[]) => {
     setSaving(true);
     try {
-      await api.put('/settings/quick-amounts', { amounts: next });
+      await api.put(endpoint, { amounts: next });
       setAmounts([...next].sort((a, b) => a - b));
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
@@ -52,19 +60,26 @@ function QuickAmountsSettings() {
     setNewVal('');
   };
 
+  const chip = accent === 'teal'
+    ? 'bg-teal-50 border-teal-200 text-teal-800'
+    : 'bg-blue-50 border-blue-200 text-blue-800';
+  const chipX = accent === 'teal' ? 'text-teal-300' : 'text-blue-300';
+  const ring = accent === 'teal' ? 'focus:ring-teal-400' : 'focus:ring-blue-400';
+  const btn = accent === 'teal' ? 'bg-teal-600 hover:bg-teal-700' : 'bg-blue-600 hover:bg-blue-700';
+
   return (
-    <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-4">
+    <div className="bg-white rounded-xl shadow p-6 space-y-4">
       <div>
-        <h3 className="font-semibold text-gray-800 text-base">⚡ Швидкі суми</h3>
-        <p className="text-xs text-gray-400 mt-0.5">Кнопки швидкого вводу суми для касира</p>
+        <h3 className="font-semibold text-gray-800 text-base">{title}</h3>
+        <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>
       </div>
 
       <div className="flex flex-wrap gap-2">
         {amounts.map((v) => (
-          <div key={v} className="flex items-center gap-1 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
-            <span className="font-semibold text-blue-800 text-sm">{v}</span>
+          <div key={v} className={`flex items-center gap-1 border rounded-lg px-3 py-1.5 ${chip}`}>
+            <span className="font-semibold text-sm">{v}</span>
             <button onClick={() => save(amounts.filter((a) => a !== v))}
-              className="text-blue-300 hover:text-red-500 transition font-bold text-base leading-none ml-1">×</button>
+              className={`hover:text-red-500 transition font-bold text-base leading-none ml-1 ${chipX}`}>×</button>
           </div>
         ))}
         {amounts.length === 0 && <span className="text-gray-400 text-sm italic">Список порожній</span>}
@@ -75,9 +90,9 @@ function QuickAmountsSettings() {
           onChange={(e) => setNewVal(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
           placeholder="Нова сума"
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400" />
+          className={`flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 ${ring}`} />
         <button onClick={handleAdd} disabled={saving || !newVal}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition">
+          className={`text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition ${btn}`}>
           Додати
         </button>
       </div>
@@ -108,7 +123,7 @@ function OrgSettings() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-4">
+    <div className="bg-white rounded-xl shadow p-6 space-y-4">
       <div>
         <h3 className="font-semibold text-gray-800 text-base">🏢 Назва організації</h3>
         <p className="text-xs text-gray-400 mt-0.5">Друкується у шапці чека. Залиште порожнім, щоб не друкувати.</p>
@@ -176,7 +191,7 @@ function TelegramSettings() {
   };
 
   return (
-    <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-4">
+    <div className="bg-white rounded-xl shadow p-6 space-y-4">
       <div className="flex items-start justify-between">
         <div>
           <h3 className="font-semibold text-gray-800 text-base">📨 Telegram-сповіщення</h3>
@@ -281,12 +296,23 @@ function OperationsSettings() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
       <OrgSettings />
       <TelegramSettings />
-      <QuickAmountsSettings />
+      <QuickAmountsSettings
+        endpoint="/settings/quick-amounts"
+        title="⚡ Швидкі суми (операції)"
+        subtitle="Кнопки швидкого вводу суми у формі операції касира."
+        accent="blue"
+      />
+      <QuickAmountsSettings
+        endpoint="/settings/usdt-quick-amounts"
+        title="⚡ Швидкі суми USDT"
+        subtitle="Кнопки −/+ для поля «Сума USDT» у вікні операції каси."
+        accent="teal"
+      />
 
-      <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-5">
+      <div className="bg-white rounded-xl shadow p-6 space-y-5">
         <h3 className="font-semibold text-gray-800 text-base">Налаштування операцій</h3>
 
         {/* Вікно сторно */}

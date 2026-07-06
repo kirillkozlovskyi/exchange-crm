@@ -1,0 +1,8 @@
+# Не тягнути в образ хостовий node_modules (macOS-бінарники bcrypt/prisma
+# зламали б рантайм на Linux/Railway), збірку, git, логи, секрети.
+node_modules
+dist
+.git
+*.log
+.env
+.env.*

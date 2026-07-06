@@ -21,7 +21,8 @@ async function bootstrap() {
   app.setGlobalPrefix('api');
 
   const port = process.env.PORT || 4000;
-  await app.listen(port);
+  // 0.0.0.0 — щоб контейнер був доступний ззовні (вимога Railway та ін. PaaS).
+  await app.listen(port, '0.0.0.0');
   console.log(`=== LISTENING ON PORT ${port} ===`);
 }
 bootstrap().catch((err) => {
