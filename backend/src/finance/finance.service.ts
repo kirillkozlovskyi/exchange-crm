@@ -113,10 +113,14 @@ export class FinanceService {
       operationsCount: number;
       byCurrency: Record<string, { volume: number; profit: number }>;
       _ops: typeof operations;
+      _usdt: typeof usdtOps;
     };
     const byPoint: Record<string, PointAgg> = {};
     const pointOf = (op: { shift?: any; cashDesk?: any }) =>
       op.shift?.cashDesk?.exchangePoint ?? op.cashDesk?.exchangePoint;
+    // Каса операції: для звичайних — через зміну, для USDT — напряму.
+    const deskOf = (op: { shift?: any; cashDesk?: any }) =>
+      op.shift?.cashDesk ?? op.cashDesk;
 
     const ensure = (point: { id: number; name: string }): PointAgg =>
       (byPoint[String(point.id)] ??= {
@@ -125,6 +129,7 @@ export class FinanceService {
         operationsCount: 0,
         byCurrency: {},
         _ops: [],
+        _usdt: [],
       });
 
     // Групуємо операції по точках (обʼєми — одразу).
@@ -154,6 +159,7 @@ export class FinanceService {
       const point = pointOf(uop);
       if (!point) continue;
       const agg = ensure(point);
+      agg._usdt.push(uop);
       const margin = usdtProfit([uop as any]);
       agg.operationsCount += 1;
       agg.totalProfit += margin;
@@ -177,11 +183,25 @@ export class FinanceService {
       for (const p of pts) ensure(p);
     }
 
-    // Прив'язуємо витрати й чистий прибуток по кожній точці за id.
+    // Прив'язуємо витрати й чистий прибуток по кожній точці за id + розбивку
+    // прибутку по касах точки (валовий прибуток каси = спред її операцій + USDT-маржа).
     const points = Object.entries(byPoint).map(([pid, agg]) => {
-      const { _ops, ...rest } = agg;
+      const { _ops, _usdt, ...rest } = agg;
+      const valuation = valuationByPoint[Number(pid)] ?? { UAH: 1 };
+
+      const desks: Record<string, { deskName: string; profit: number; operationsCount: number; _ops: any[]; _usdt: any[] }> = {};
+      const ensureDesk = (d: { id: number; name: string }) =>
+        (desks[String(d.id)] ??= { deskName: d.name, profit: 0, operationsCount: 0, _ops: [], _usdt: [] });
+      for (const op of _ops) { const d = deskOf(op); if (d) { const g = ensureDesk(d); g._ops.push(op); g.operationsCount += 1; } }
+      for (const u of _usdt) { const d = deskOf(u); if (d) { const g = ensureDesk(d); g._usdt.push(u); g.operationsCount += 1; } }
+      const byDesk = Object.values(desks).map((g) => ({
+        deskName: g.deskName,
+        operationsCount: g.operationsCount,
+        profit: realizedProfit(g._ops, valuation).total + usdtProfit(g._usdt as any),
+      })).sort((a, b) => a.deskName.localeCompare(b.deskName));
+
       const expenses = expensesByPoint[Number(pid)] ?? 0;
-      return { ...rest, expenses, netProfit: rest.totalProfit - expenses };
+      return { ...rest, expenses, netProfit: rest.totalProfit - expenses, byDesk };
     });
 
     const totalProfit = points.reduce((s, p) => s + p.totalProfit, 0);

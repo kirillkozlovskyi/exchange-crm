@@ -72,6 +72,18 @@ export default function FinanceAdmin() {
                   )}
                 </div>
               </div>
+              {pt.byDesk?.length > 1 && (
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {pt.byDesk.map((dk: any, di: number) => (
+                    <div key={di} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
+                      <div className="text-xs text-gray-500">{dk.deskName} · {dk.operationsCount} оп.</div>
+                      <div className={`text-sm font-bold ${dk.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                        {dk.profit >= 0 ? '+' : ''}{Number(dk.profit).toFixed(2)} ₴
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
               {Object.keys(pt.byCurrency || {}).length > 0 && (
                 <table className="w-full text-sm">
                   <thead>
