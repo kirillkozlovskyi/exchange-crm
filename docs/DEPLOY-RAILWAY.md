@@ -15,12 +15,15 @@ Add → Database → PostgreSQL. Railway дасть змінну `DATABASE_URL`.
   - `NODE_ENV` = `production`
   - `PORT` — Railway ставить сам; код його читає
   - *(Telegram — краще налаштувати в адмінці; або задати `TELEGRAM_BOT_TOKEN` / `TELEGRAM_ADMIN_CHAT_ID`)*
+  - *(Опційно `SENTRY_DSN` — моніторинг помилок бекенду; без нього вимкнено)*
 - Міграції застосовуються автоматично на старті (CMD Dockerfile).
 
 ## 3. Сервіс frontend
 - **Root Directory:** `frontend`
 - **Build-змінна:** `VITE_API_URL` = публічний URL backend + `/api`
   (напр. `https://<backend>.up.railway.app/api`).
+- *(Опційно build-змінна `VITE_SENTRY_DSN` — моніторинг помилок фронту; без неї
+  SDK не тягнеться у бандл)*
   nginx фронта роздає лише статику й НЕ проксує `/api`, тож фронт звертається
   до backend напряму — CORS на бекенді відкритий (`*`), тому працює.
 - `PORT` — Railway ставить сам; nginx слухає його через envsubst.
