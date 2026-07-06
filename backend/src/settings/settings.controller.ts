@@ -1,5 +1,6 @@
-import { Controller, Get, Put, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Put, Post, Body, UseGuards } from '@nestjs/common';
 import { SettingsService } from './settings.service';
+import { TelegramService } from '../telegram/telegram.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -7,7 +8,34 @@ import { Roles } from '../common/decorators/roles.decorator';
 @UseGuards(JwtAuthGuard)
 @Controller('settings')
 export class SettingsController {
-  constructor(private settingsService: SettingsService) {}
+  constructor(
+    private settingsService: SettingsService,
+    private telegram: TelegramService,
+  ) {}
+
+  // ── Telegram-сповіщення (лише адмін; токен назовні не віддаємо) ───────────
+  @Get('telegram')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  getTelegram() {
+    return this.settingsService.getTelegramMasked();
+  }
+
+  @Put('telegram')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async setTelegram(@Body() body: { token?: string; chatId?: string }) {
+    await this.settingsService.setTelegram(body);
+    return this.settingsService.getTelegramMasked();
+  }
+
+  @Post('telegram/test')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async testTelegram() {
+    const ok = await this.telegram.send('✅ Тестове сповіщення: обмінник CRM підключено до Telegram');
+    return { ok };
+  }
 
   @Get('storno-window')
   getStornoWindow() {

@@ -1,25 +1,45 @@
 import { Injectable, Logger } from '@nestjs/common';
 import axios from 'axios';
+import { PrismaService } from '../prisma/prisma.service';
 
+/**
+ * Сповіщення в Telegram. Конфіг: спершу з БД (налаштовується в адмінці —
+ * ключі telegram_bot_token / telegram_chat_id), як fallback — змінні оточення
+ * TELEGRAM_BOT_TOKEN / TELEGRAM_ADMIN_CHAT_ID. Без конфігу — тихий скіп.
+ */
 @Injectable()
 export class TelegramService {
   private readonly logger = new Logger(TelegramService.name);
-  private readonly token = process.env.TELEGRAM_BOT_TOKEN;
-  private readonly chatId = process.env.TELEGRAM_ADMIN_CHAT_ID;
 
-  async send(message: string) {
-    if (!this.token || !this.chatId) {
+  constructor(private prisma: PrismaService) {}
+
+  private async getConfig(): Promise<{ token: string; chatId: string } | null> {
+    const rows = await this.prisma.setting.findMany({
+      where: { key: { in: ['telegram_bot_token', 'telegram_chat_id'] } },
+    });
+    const db = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    const token = db.telegram_bot_token || process.env.TELEGRAM_BOT_TOKEN || '';
+    const chatId = db.telegram_chat_id || process.env.TELEGRAM_ADMIN_CHAT_ID || '';
+    return token && chatId ? { token, chatId } : null;
+  }
+
+  /** Надіслати повідомлення. Повертає true/false (для тест-кнопки в адмінці). */
+  async send(message: string): Promise<boolean> {
+    const cfg = await this.getConfig();
+    if (!cfg) {
       this.logger.warn('Telegram не налаштовано — пропускаємо сповіщення');
-      return;
+      return false;
     }
     try {
-      await axios.post(`https://api.telegram.org/bot${this.token}/sendMessage`, {
-        chat_id: this.chatId,
+      await axios.post(`https://api.telegram.org/bot${cfg.token}/sendMessage`, {
+        chat_id: cfg.chatId,
         text: message,
         parse_mode: 'HTML',
       });
-    } catch (e) {
-      this.logger.error('Помилка Telegram:', e.message);
+      return true;
+    } catch (e: any) {
+      this.logger.error('Помилка Telegram:', e?.response?.data?.description ?? e.message);
+      return false;
     }
   }
 

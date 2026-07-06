@@ -54,6 +54,28 @@ export class SettingsService {
     await this.set('cashier_can_edit_balance', String(enabled));
   }
 
+  // ── Telegram (токен зберігається в БД; env — fallback у TelegramService) ──
+  async getTelegramMasked(): Promise<{ tokenMasked: string; chatId: string; configured: boolean }> {
+    const [token, chatId] = await Promise.all([
+      this.get('telegram_bot_token'),
+      this.get('telegram_chat_id'),
+    ]);
+    const effToken = token || process.env.TELEGRAM_BOT_TOKEN || '';
+    const effChat = chatId || process.env.TELEGRAM_ADMIN_CHAT_ID || '';
+    return {
+      // Показуємо лише хвіст токена — цього досить, щоб упізнати бота.
+      tokenMasked: effToken ? `••••${effToken.slice(-6)}` : '',
+      chatId: effChat,
+      configured: !!(effToken && effChat),
+    };
+  }
+
+  async setTelegram(dto: { token?: string; chatId?: string }): Promise<void> {
+    // Порожній рядок = очистити (повернутись до env-fallback, якщо він є).
+    if (dto.token !== undefined) await this.set('telegram_bot_token', dto.token.trim());
+    if (dto.chatId !== undefined) await this.set('telegram_chat_id', dto.chatId.trim());
+  }
+
   // Поріг «великої операції» в грн для Telegram-сповіщення (0 = вимкнено).
   async getLargeOpUah(): Promise<number> {
     const v = await this.get('large_op_uah');

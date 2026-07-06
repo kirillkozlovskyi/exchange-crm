@@ -131,6 +131,116 @@ function OrgSettings() {
   );
 }
 
+// ── Telegram-сповіщення: токен + chat_id зберігаються в БД, інструкція поруч ──
+function TelegramSettings() {
+  const [tokenMasked, setTokenMasked] = useState('');
+  const [chatId, setChatId] = useState('');
+  const [configured, setConfigured] = useState(false);
+  const [tokenInput, setTokenInput] = useState('');
+  const [chatInput, setChatInput] = useState('');
+  const [showHelp, setShowHelp] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const load = () => {
+    api.get('/settings/telegram').then(({ data }) => {
+      setTokenMasked(data.tokenMasked);
+      setChatId(data.chatId);
+      setConfigured(data.configured);
+      setChatInput(data.chatId);
+    }).catch(() => {});
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const body: any = { chatId: chatInput };
+      if (tokenInput.trim()) body.token = tokenInput.trim(); // порожнє поле = не міняти токен
+      const { data } = await api.put('/settings/telegram', body);
+      setTokenMasked(data.tokenMasked); setConfigured(data.configured); setTokenInput('');
+      setMsg({ ok: true, text: 'Збережено' });
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.response?.data?.message ?? 'Помилка' });
+    } finally { setBusy(false); }
+  };
+
+  const test = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const { data } = await api.post('/settings/telegram/test');
+      setMsg(data.ok
+        ? { ok: true, text: '✅ Надіслано — перевірте Telegram' }
+        : { ok: false, text: 'Не вдалося надіслати. Перевірте токен і chat ID (і чи натиснули Start у бота).' });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-4">
+      <div className="flex items-start justify-between">
+        <div>
+          <h3 className="font-semibold text-gray-800 text-base">📨 Telegram-сповіщення</h3>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Відкриття/закриття змін, розбіжності звірок, великі операції.
+          </p>
+        </div>
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+          configured ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+        }`}>
+          {configured ? 'налаштовано' : 'вимкнено'}
+        </span>
+      </div>
+
+      <button onClick={() => setShowHelp((v) => !v)} className="text-sm text-blue-600 hover:underline">
+        {showHelp ? '▲ Сховати інструкцію' : '▼ Як отримати токен і chat ID'}
+      </button>
+      {showHelp && (
+        <ol className="text-xs text-gray-600 bg-blue-50 rounded-lg p-3 space-y-1.5 list-decimal list-inside">
+          <li>У Telegram знайдіть <b>@BotFather</b> → команда <code className="bg-white px-1 rounded">/newbot</code> → задайте ім'я і username (закінчується на <code className="bg-white px-1 rounded">bot</code>).</li>
+          <li>BotFather видасть <b>токен</b> виду <code className="bg-white px-1 rounded">812345:AAH...</code> — вставте його в поле нижче.</li>
+          <li>Відкрийте чат зі <b>своїм</b> ботом і натисніть <b>Start</b> (без цього бот не зможе вам писати).</li>
+          <li>Знайдіть <b>@userinfobot</b> → Start → він покаже ваш <b>Id</b> — це chat ID.</li>
+          <li>Збережіть і натисніть «Надіслати тестове».</li>
+        </ol>
+      )}
+
+      <div className="space-y-2">
+        <label className="block text-sm text-gray-600">
+          Токен бота {tokenMasked && <span className="text-gray-400">(поточний: {tokenMasked})</span>}
+          <input
+            type="password" value={tokenInput} onChange={(e) => setTokenInput(e.target.value)}
+            placeholder={tokenMasked ? 'залиште порожнім, щоб не міняти' : '812345:AAH...'}
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </label>
+        <label className="block text-sm text-gray-600">
+          Chat ID
+          <input
+            type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
+            placeholder="123456789"
+            className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button onClick={save} disabled={busy}
+          className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+          Зберегти
+        </button>
+        <button onClick={test} disabled={busy || !configured}
+          className="px-4 py-2 border border-gray-300 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-50 disabled:opacity-50">
+          Надіслати тестове
+        </button>
+        {msg && <span className={`text-sm ${msg.ok ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</span>}
+      </div>
+      <p className="text-[11px] text-gray-400">
+        chatId: {chatId || '—'} · Токен зберігається на сервері й назовні не показується.
+      </p>
+    </div>
+  );
+}
+
 function OperationsSettings() {
   const [minutes, setMinutes] = useState<number>(5);
   const [balanceEdit, setBalanceEdit] = useState<boolean>(true);
@@ -173,6 +283,7 @@ function OperationsSettings() {
   return (
     <div className="space-y-6">
       <OrgSettings />
+      <TelegramSettings />
       <QuickAmountsSettings />
 
       <div className="bg-white rounded-xl shadow p-6 max-w-md space-y-5">
