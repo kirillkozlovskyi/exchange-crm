@@ -34,8 +34,27 @@ Add → Database → PostgreSQL. Railway дасть змінну `DATABASE_URL`.
 
 ## Бекапи
 Сервіс `backup` з docker-compose на Railway НЕ використовується (то для локалі/VPS).
-На Railway вмикай вбудовані бекапи Postgres (плагін БД) або періодичний
-`pg_dump` окремим cron-сервісом.
+Два варіанти на Railway:
+
+**Варіант A (рекомендований) — вбудовані бекапи Postgres.**
+У дашборді Railway: сервіс Postgres → вкладка **Backups** → увімкнути щоденні
+бекапи (Railway зберігає снапшоти й дає відновлення в один клік). Нуль коду.
+
+**Варіант B — окремий Cron-сервіс з `pg_dump`.**
+Якщо потрібні власні дампи (напр. вивантажувати у своє сховище):
+1. New → **Cron** (або звичайний сервіс із розкладом), root = репозиторій.
+2. Змінна `DATABASE_URL` = `${{Postgres.DATABASE_URL}}`.
+3. Розклад, напр. щодня о 02:00: `0 2 * * *`.
+4. Команда: `sh scripts/backup-railway.sh` (потрібен `pg_dump` у середовищі —
+   образ із `postgresql-client`).
+5. Для зовнішнього сховища додай у скрипт вивантаження (S3/Backblaze тощо) —
+   локальний диск Cron-сервісу ефемерний.
+
+Скрипт: `scripts/backup-railway.sh` — pg_dump за `DATABASE_URL`, gzip, ротація
+`BACKUP_KEEP_DAYS` (14) днів. Локально:
+```
+DATABASE_URL=postgres://user:pass@host:5432/db ./scripts/backup-railway.sh
+```
 
 ## Локальна перевірка образів (як на Railway)
 ```
