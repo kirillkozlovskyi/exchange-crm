@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { computeOperationTotals, RateLookup } from './operations.math';
 import { nextDocNumber } from '../common/number-seq.util';
 import { TelegramService } from '../telegram/telegram.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class OperationsService {
@@ -12,6 +13,7 @@ export class OperationsService {
     private prisma: PrismaService,
     private settings: SettingsService,
     private telegram?: TelegramService,
+    private notifications?: NotificationsService,
   ) {}
 
   /**
@@ -116,6 +118,10 @@ export class OperationsService {
           dto.amount,
           dto.currency,
           totalUah,
+        );
+        await this.notifications?.notifyAdmins(
+          `Велика операція: ${type === 'BUY' ? 'купівля' : type === 'SELL' ? 'продаж' : 'обмін'} ` +
+          `${dto.amount} ${dto.currency} = ${totalUah.toFixed(2)} ₴ · ${shift.cashDesk.exchangePoint.name} · ${user?.name ?? ''}`,
         );
       }
     })().catch(() => {});

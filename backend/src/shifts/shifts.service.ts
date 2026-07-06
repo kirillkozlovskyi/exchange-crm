@@ -9,13 +9,15 @@ import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-
 import { nextDocNumber } from '../common/number-seq.util';
 
 import { TelegramService } from '../telegram/telegram.service';
+import { NotificationsService } from '../notifications/notifications.service';
 
 @Injectable()
 export class ShiftsService {
   constructor(
     private prisma: PrismaService,
-    // optional: юніт-тести створюють сервіс без телеграма
+    // optional: юніт-тести створюють сервіс без телеграма/сповіщень
     private telegram?: TelegramService,
+    private notifications?: NotificationsService,
   ) {}
 
   private async generateNumber(pointCode: string) {
@@ -167,12 +169,11 @@ export class ShiftsService {
         valuationRates: valuation,
       },
     });
-    // Сповіщення в Telegram (fire-and-forget)
-    void this.telegram?.notifyShiftClosed(
-      shift.number,
-      (shift as any).openedBy?.name ?? '',
-      profit,
-      factualProfit,
+    // Сповіщення в Telegram + центр сповіщень адміна (fire-and-forget)
+    const who = (shift as any).openedBy?.name ?? '';
+    void this.telegram?.notifyShiftClosed(shift.number, who, profit, factualProfit);
+    void this.notifications?.notifyAdmins(
+      `Зміну №${shift.number} закрито (${who}). Прибуток: ${factualProfit.toFixed(2)} ₴`,
     );
 
     return { ...updated, netTransfers: net, netCashMovements: moveDelta, netUsdt: usdtDelta, usdtProfit: usdtMargin };
