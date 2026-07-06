@@ -14,12 +14,15 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 const num = (v: any) => Number(v ?? 0);
 const fmt = (v: any) => num(v).toLocaleString('uk-UA', { maximumFractionDigits: 2 });
 
-function Section({ title, count, children }: { title: string; count?: number; children: React.ReactNode }) {
+function Section({ title, count, actions, children }: { title: string; count?: number; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-3">
-      <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-        {title}{count != null && <span className="text-gray-400 font-normal"> · {count}</span>}
-      </h4>
+      <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+        <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">
+          {title}{count != null && <span className="text-gray-400 font-normal"> · {count}</span>}
+        </h4>
+        {actions}
+      </div>
       {children}
     </div>
   );
@@ -28,6 +31,9 @@ function Section({ title, count, children }: { title: string; count?: number; ch
 // ── Деталі однієї зміни ──────────────────────────────────────────────────────
 function ShiftDetail({ shiftId }: { shiftId: number }) {
   const [d, setD] = useState<any>(null);
+  // Фільтри таблиці операцій зміни.
+  const [fType, setFType] = useState<'all' | 'BUY' | 'SELL'>('all');
+  const [fCur, setFCur] = useState<string>('all');
 
   useEffect(() => {
     api.get(`/shifts/${shiftId}`).then(({ data }) => setD(data)).catch(() => setD(null));
@@ -109,8 +115,30 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         {/* Операції */}
-        <Section title="Операції" count={ops.length}>
-          {ops.length === 0 ? <p className="text-gray-400 text-sm py-2">Немає</p> : (
+        {(() => {
+          const opCurrencies = Array.from(new Set(ops.map((o) => o.currency))).sort();
+          const filtered = ops.filter(
+            (o) => (fType === 'all' || o.type === fType) && (fCur === 'all' || o.currency === fCur),
+          );
+          const selCls = 'border border-gray-300 rounded px-2 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400';
+          const filterActions = ops.length > 0 && (
+            <div className="flex items-center gap-1.5">
+              <select value={fType} onChange={(e) => setFType(e.target.value as any)} className={selCls}>
+                <option value="all">Усі типи</option>
+                <option value="BUY">Купівля</option>
+                <option value="SELL">Продаж</option>
+              </select>
+              <select value={fCur} onChange={(e) => setFCur(e.target.value)} className={selCls}>
+                <option value="all">Усі валюти</option>
+                {opCurrencies.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          );
+          return (
+        <Section title="Операції" count={filtered.length} actions={filterActions}>
+          {ops.length === 0 ? <p className="text-gray-400 text-sm py-2">Немає</p> : filtered.length === 0 ? (
+            <p className="text-gray-400 text-sm py-2">Немає операцій за фільтром</p>
+          ) : (
             <div className="overflow-auto max-h-72">
               <table className="w-full text-sm">
                 <thead className="sticky top-0 bg-white">
@@ -120,7 +148,7 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {[...ops].reverse().map((op) => (
+                  {[...filtered].reverse().map((op) => (
                     <tr key={op.id} className={`border-b last:border-0 ${op.cancelled ? 'opacity-40 line-through' : ''}`}>
                       <td className="py-1 text-gray-400 text-xs">{format(new Date(op.createdAt), 'HH:mm')}</td>
                       <td className="py-1">
@@ -138,6 +166,8 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
             </div>
           )}
         </Section>
+          );
+        })()}
 
         {/* Рух готівки */}
         <Section title="Рух готівки" count={moves.length}>
