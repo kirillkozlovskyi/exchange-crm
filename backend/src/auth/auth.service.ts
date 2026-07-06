@@ -73,6 +73,7 @@ export class AuthService {
         login: user.login,
         role: user.role,
         exchangePoint: user.exchangePoint,
+        mustChangePassword: user.mustChangePassword,
       },
     };
   }
@@ -100,10 +101,29 @@ export class AuthService {
         role: true,
         phone: true,
         active: true,
+        mustChangePassword: true,
         exchangePointId: true,
         exchangePoint: true,
       },
     });
+  }
+
+  // Самостійна зміна пароля: звіряємо поточний, ставимо новий, знімаємо
+  // прапорець примусової зміни. Мінімум 8 символів, новий ≠ поточному.
+  async changePassword(userId: number, currentPassword: string, newPassword: string) {
+    if (!newPassword || newPassword.length < 8)
+      throw new UnauthorizedException('Новий пароль має містити щонайменше 8 символів');
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new UnauthorizedException('Користувача не знайдено');
+    const valid = await bcrypt.compare(currentPassword ?? '', user.passwordHash);
+    if (!valid) throw new UnauthorizedException('Поточний пароль невірний');
+    const same = await bcrypt.compare(newPassword, user.passwordHash);
+    if (same) throw new UnauthorizedException('Новий пароль має відрізнятися від поточного');
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { passwordHash: await bcrypt.hash(newPassword, 10), mustChangePassword: false },
+    });
+    return { ok: true };
   }
 
   async isSetupNeeded(): Promise<boolean> {

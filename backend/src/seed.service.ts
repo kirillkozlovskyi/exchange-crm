@@ -21,6 +21,7 @@ export class SeedService implements OnApplicationBootstrap {
             login: 'admin',
             passwordHash,
             role: 'ADMIN',
+            mustChangePassword: true, // форсуємо зміну admin123 при першому вході
           },
         });
         this.logger.warn('=== DB was empty — default admin created ===');

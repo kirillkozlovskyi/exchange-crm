@@ -7,6 +7,7 @@ interface User {
   name: string;
   role: 'CASHIER' | 'ADMIN';
   exchangePointId: number | null;
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextType {
@@ -14,6 +15,7 @@ interface AuthContextType {
   token: string | null;
   login: (login: string, password: string) => Promise<void>;
   logout: () => void;
+  passwordChanged: () => void;
   isLoading: boolean;
 }
 
@@ -52,8 +54,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  // Знімає прапорець примусової зміни пароля після успішної зміни.
+  const passwordChanged = () => {
+    setUser((prev) => {
+      if (!prev) return prev;
+      const next = { ...prev, mustChangePassword: false };
+      localStorage.setItem('user', JSON.stringify(next));
+      return next;
+    });
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, token, login, logout, passwordChanged, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

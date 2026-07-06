@@ -66,10 +66,6 @@ export default function ProfilePage() {
               <span className="text-sm text-gray-700">{profile.exchangePoint.name}</span>
             </div>
           )}
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-500">Пароль</span>
-            <span className="text-xs text-gray-400 bg-gray-50 px-3 py-1 rounded border">Змінюється лише адміністратором</span>
-          </div>
         </div>
 
         {/* Редаговані поля */}
@@ -106,6 +102,53 @@ export default function ProfilePage() {
           {saving ? 'Збереження...' : 'Зберегти'}
         </button>
       </div>
+
+      <PasswordCard />
+    </div>
+  );
+}
+
+// Самостійна зміна пароля.
+function PasswordCard() {
+  const [current, setCurrent] = useState('');
+  const [next, setNext] = useState('');
+  const [confirm, setConfirm] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [ok, setOk] = useState(false);
+
+  const submit = async () => {
+    setError(''); setOk(false);
+    if (next.length < 8) { setError('Новий пароль — щонайменше 8 символів'); return; }
+    if (next !== confirm) { setError('Паролі не збігаються'); return; }
+    setSaving(true);
+    try {
+      await api.post('/auth/change-password', { currentPassword: current, newPassword: next });
+      setCurrent(''); setNext(''); setConfirm(''); setOk(true);
+      setTimeout(() => setOk(false), 3000);
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Не вдалося змінити пароль');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const inputCls = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500';
+  return (
+    <div className="bg-white rounded-2xl shadow-lg p-8 mt-6">
+      <h2 className="text-xl font-bold text-gray-800 mb-1">Зміна пароля</h2>
+      <p className="text-sm text-gray-400 mb-6">Оновіть пароль облікового запису</p>
+      <div className="space-y-3">
+        <input type="password" value={current} onChange={(e) => setCurrent(e.target.value)} placeholder="Поточний пароль" className={inputCls} />
+        <input type="password" value={next} onChange={(e) => setNext(e.target.value)} placeholder="Новий пароль (мін. 8 символів)" className={inputCls} />
+        <input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} placeholder="Повторіть новий пароль" className={inputCls} />
+      </div>
+      {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
+      {ok && <p className="text-green-600 text-sm mt-3">✓ Пароль змінено</p>}
+      <button onClick={submit} disabled={saving}
+        className="mt-6 w-full bg-blue-700 hover:bg-blue-800 text-white font-medium py-2.5 rounded-lg disabled:opacity-50 transition">
+        {saving ? 'Збереження...' : 'Змінити пароль'}
+      </button>
     </div>
   );
 }

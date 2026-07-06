@@ -27,7 +27,8 @@ export class UsersService {
     if (exists) throw new ConflictException('Логін вже зайнятий');
     const passwordHash = await bcrypt.hash(dto.password, 10);
     return this.prisma.user.create({
-      data: { name: dto.name, login: dto.login, passwordHash, role: dto.role as any, exchangePointId: dto.exchangePointId },
+      // Новий користувач змінює виданий пароль при першому вході.
+      data: { name: dto.name, login: dto.login, passwordHash, role: dto.role as any, exchangePointId: dto.exchangePointId, mustChangePassword: true },
       select: { id: true, name: true, login: true, role: true, exchangePointId: true },
     });
   }
@@ -37,7 +38,8 @@ export class UsersService {
     if (dto.name) data.name = dto.name;
     if (dto.role) data.role = dto.role;
     if (dto.exchangePointId !== undefined) data.exchangePointId = dto.exchangePointId;
-    if (dto.password) data.passwordHash = await bcrypt.hash(dto.password, 10);
+    // Скидання пароля адміном → користувач змінює його при наступному вході.
+    if (dto.password) { data.passwordHash = await bcrypt.hash(dto.password, 10); data.mustChangePassword = true; }
     // Деактивація діє миттєво: JwtStrategy звіряє active на кожен запит.
     if (dto.active !== undefined) data.active = dto.active;
 

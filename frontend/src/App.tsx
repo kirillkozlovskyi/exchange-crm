@@ -5,12 +5,15 @@ import LoginPage from './pages/LoginPage';
 import CashierPage from './pages/CashierPage';
 import AdminPage from './pages/AdminPage';
 import ProfilePage from './pages/ProfilePage';
+import ForcePasswordChange from './pages/ForcePasswordChange';
 import Layout from './components/Layout';
 
 function ProtectedRoute({ children, roles }: { children: React.ReactNode; roles?: string[] }) {
   const { user, isLoading } = useAuth();
   if (isLoading) return <div className="flex items-center justify-center h-screen">Завантаження...</div>;
   if (!user) return <Navigate to="/login" replace />;
+  // Поки пароль не змінено — не пускаємо нікуди, крім екрана зміни пароля.
+  if (user.mustChangePassword) return <ForcePasswordChange />;
   if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
   return <>{children}</>;
 }

@@ -46,4 +46,13 @@ export class AuthController {
   updateProfile(@CurrentUser() user: any, @Body() dto: { name?: string; phone?: string }) {
     return this.authService.updateProfile(user.sub, dto);
   }
+
+  @UseGuards(JwtAuthGuard)
+  @Post('change-password')
+  changePassword(
+    @CurrentUser() user: any,
+    @Body() dto: { currentPassword: string; newPassword: string },
+  ) {
+    return this.authService.changePassword(user.sub, dto.currentPassword, dto.newPassword);
+  }
 }

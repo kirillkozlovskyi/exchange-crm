@@ -80,6 +80,9 @@ model User {
   role            Role          @default(CASHIER)
   phone           String?
   active          Boolean       @default(true)
+  // Примусова зміна пароля при першому вході (дефолтний адмін, нові користувачі,
+  // після скидання пароля адміном). Знімається після самостійної зміни пароля.
+  mustChangePassword Boolean    @default(false)
   createdAt       DateTime      @default(now())
 
   exchangePoint   ExchangePoint? @relation(fields: [exchangePointId], references: [id])
