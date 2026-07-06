@@ -158,6 +158,24 @@ describe('OperationsService — грошова математика', () => {
       ).rejects.toBeInstanceOf(BadRequestException);
     });
 
+    it('офлайн-синк: повторний clientId не створює дубля (ідемпотентність)', async () => {
+      const prisma = makePrisma();
+      const service = new OperationsService(prisma as any, settingsStub as any);
+      const dto = { shiftId: 1, currency: 'USD', amount: 100, rate: 41.5, mode: 'SELL' as const, clientId: 'uuid-1', createdAt: '2026-07-06T09:00:00Z' };
+
+      prisma.operation.findUnique.mockResolvedValueOnce(null); // першого разу немає
+      const first: any = await service.create(dto, 7);
+      expect(prisma.operation.create).toHaveBeenCalledTimes(1);
+      expect(first.clientId).toBe('uuid-1');
+      // createdAt з фронта приймається (офлайн-час), бо є clientId
+      expect(first.createdAt).toEqual(new Date('2026-07-06T09:00:00Z'));
+
+      prisma.operation.findUnique.mockResolvedValueOnce({ id: 42, number: 'T1-x' }); // ретрай — уже існує
+      const again: any = await service.create(dto, 7);
+      expect(prisma.operation.create).toHaveBeenCalledTimes(1); // дубль НЕ створено
+      expect(again.id).toBe(42);
+    });
+
     it('блокує USDT в основній формі — лише через вікно ₮ USDT', async () => {
       const prisma = makePrisma();
       const service = new OperationsService(prisma as any, settingsStub as any);

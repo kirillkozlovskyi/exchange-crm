@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import api from '../../api/axios';
 import { printReceipt, type ReceiptInfo } from './OperationsList';
+import { offlineQueue, isNetworkError } from '../../lib/offline-queue';
 
 type OpMode = 'BUY' | 'SELL';
 
@@ -419,20 +420,39 @@ export default function OperationForm({
         currency = qtyCur; amount = qtyNum;
       }
 
-      const { data } = await api.post('/operations', {
-        shiftId, currency, amount, rate, payCurrency: payC, payAmount: payA, mode,
-      });
+      const resetForm = () => {
+        setShowConfirm(false);
+        setClientAmt(''); setHSumAmt(''); setHConvAmt(''); setHConvManual(false);
+        setQtyAmt(''); setRcvAmt('');
+        // Кастомний курс діє лише на одну операцію → повертаємо до ринкового
+        setRateManual(false);
+        setError('');
+      };
 
-      setLastOp(data);
-      setShowConfirm(false);
-      setClientAmt(''); setHSumAmt(''); setHConvAmt(''); setHConvManual(false);
-      setQtyAmt(''); setRcvAmt('');
-      // Кастомний курс діє лише на одну операцію → повертаємо до ринкового
-      setRateManual(false);
-      setError('');
-      onCreated();
-    } catch (e: any) {
-      setError(e.response?.data?.message || 'Помилка');
+      try {
+        const { data } = await api.post('/operations', {
+          shiftId, currency, amount, rate, payCurrency: payC, payAmount: payA, mode,
+        });
+        setLastOp(data);
+        resetForm();
+        onCreated();
+      } catch (e: any) {
+        // Мережа впала → операція обміну зберігається в офлайн-чергу і піде на
+        // сервер автоматично після відновлення зв'язку (крос — лише онлайн).
+        if (isNetworkError(e) && !isCross) {
+          await offlineQueue.add({
+            clientId: crypto.randomUUID(),
+            shiftId, currency, amount, rate, mode,
+            createdAt: new Date().toISOString(),
+          });
+          resetForm();
+          onCreated(); // оновить баланс (черга входить у ledger каси)
+        } else if (isNetworkError(e)) {
+          setError('Офлайн: крос-обмін недоступний без звʼязку');
+        } else {
+          setError(e.response?.data?.message || 'Помилка');
+        }
+      }
     } finally {
       setLoading(false);
     }

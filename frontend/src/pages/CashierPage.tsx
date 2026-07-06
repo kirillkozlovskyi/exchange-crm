@@ -11,6 +11,7 @@ import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
 import { type CashDirection } from '../lib/cash-movements';
 import { shiftCashBalanceWithTransfers } from '../lib/shift-balance';
+import { offlineQueue, isNetworkError, type QueuedOp } from '../lib/offline-queue';
 import UsdtModal from '../components/cashier/UsdtModal';
 
 type Tab = 'operations' | 'transfers';
@@ -180,10 +181,61 @@ export default function CashierPage() {
     try {
       const { data } = await api.get(`/shifts/active/desk/${deskId}`);
       setShift(data);
-    } catch {
-      setShift(null);
+    } catch (e: any) {
+      // Мережа впала — НЕ скидаємо зміну (каса продовжує працювати офлайн);
+      // скидаємо лише коли сервер реально відповів (зміни немає/закрита).
+      if (!isNetworkError(e)) setShift(null);
     }
   }, []);
+
+  // ── Офлайн-режим: стан мережі + черга несинхронізованих операцій ─────────
+  const [online, setOnline] = useState(navigator.onLine);
+  const [queued, setQueued] = useState<QueuedOp[]>([]);
+  const [syncError, setSyncError] = useState('');
+
+  useEffect(() => {
+    const up = () => setOnline(true);
+    const down = () => setOnline(false);
+    const reloadQueue = () => { offlineQueue.list().then(setQueued).catch(() => {}); };
+    window.addEventListener('online', up);
+    window.addEventListener('offline', down);
+    window.addEventListener('offline-queue-changed', reloadQueue);
+    reloadQueue();
+    return () => {
+      window.removeEventListener('online', up);
+      window.removeEventListener('offline', down);
+      window.removeEventListener('offline-queue-changed', reloadQueue);
+    };
+  }, []);
+
+  // Фоновий синк черги: по одній, у порядку створення. Бекенд ідемпотентний
+  // по clientId, тож повторні надсилання безпечні.
+  useEffect(() => {
+    const sync = async () => {
+      if (!navigator.onLine) return;
+      const list = await offlineQueue.list().catch(() => [] as QueuedOp[]);
+      if (list.length === 0) return;
+      for (const op of list) {
+        try {
+          await api.post('/operations', op);
+          await offlineQueue.remove(op.clientId);
+          setSyncError('');
+        } catch (e: any) {
+          if (isNetworkError(e)) { setQueued(await offlineQueue.list()); return; } // звʼязок знову впав
+          // Бізнес-відмова (напр., зміну закрили) — лишаємо в черзі й показуємо
+          // причину, щоб касир/адмін вирішив (не видаляємо грошову операцію тихо).
+          setSyncError(e.response?.data?.message ?? 'Помилка синхронізації');
+          setQueued(await offlineQueue.list());
+          return;
+        }
+      }
+      setQueued(await offlineQueue.list()); // явно оновлюємо банер після синку
+      if (selectedDeskId) loadShift(selectedDeskId);
+    };
+    sync();
+    const interval = setInterval(sync, 8000);
+    return () => clearInterval(interval);
+  }, [selectedDeskId, loadShift]);
 
   useEffect(() => {
     if (!selectedDeskId) return;
@@ -289,20 +341,28 @@ export default function CashierPage() {
   // ── Поточний баланс каси (хук ПЕРЕД будь-якими early return) ────────────
   // Єдиний ledger-розрахунок: початок + операції + рух готівки + USDT-готівка +
   // підтверджені передачі/свопи (дзеркало бекенду).
-  const currentBalance = useMemo(
-    () =>
-      shiftCashBalanceWithTransfers(
-        {
-          startBalance: shift?.startBalance,
-          operations: shift?.operations,
-          cashMovements: shift?.cashMovements,
-          usdtOperations: shift?.usdtOperations,
-        },
-        shift?.confirmedTransfers ?? [],
-        shift?.cashDeskId,
-      ),
-    [shift],
-  );
+  const currentBalance = useMemo(() => {
+    // Офлайн-черга входить у баланс (як звичайні операції), щоб касир бачив
+    // реальну готівку й не міг продати те, чого вже немає. Дублювання після
+    // синку немає: операція з черги зникає, щойно зʼявляється на сервері.
+    const syncedIds = new Set((shift?.operations ?? []).map((o: any) => o.clientId).filter(Boolean));
+    const queuedAsOps = queued
+      .filter((q) => q.shiftId === shift?.id && !syncedIds.has(q.clientId))
+      .map((q) => ({
+        type: q.mode, currency: q.currency, amount: q.amount,
+        totalUah: q.amount * q.rate, cancelled: false,
+      }));
+    return shiftCashBalanceWithTransfers(
+      {
+        startBalance: shift?.startBalance,
+        operations: [...(shift?.operations ?? []), ...queuedAsOps],
+        cashMovements: shift?.cashMovements,
+        usdtOperations: shift?.usdtOperations,
+      },
+      shift?.confirmedTransfers ?? [],
+      shift?.cashDeskId,
+    );
+  }, [shift, queued]);
 
   // ── Синхронізація інфо зміни в хедер ─────────────────────────────────────
   useEffect(() => {
@@ -343,21 +403,28 @@ export default function CashierPage() {
     if (!inWorkingView) { setActions(null); return; }
     const tabCls = (active: boolean) =>
       `px-3 py-1 rounded text-sm font-medium transition ${active ? 'bg-blue-900' : 'hover:bg-blue-600'}`;
+    // В офлайні доступні лише операції обміну: банк/USDT/передачі/закриття
+    // вимагають сервера (цілісність) — кнопки блокуються.
+    const offTitle = online ? undefined : 'Недоступно в офлайні';
     setActions(
       <>
-        <button onClick={() => setCashMoveDir('IN')} className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium">
+        <button onClick={() => setCashMoveDir('IN')} disabled={!online} title={offTitle}
+          className="bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm font-medium disabled:opacity-40">
           Підкріплення
         </button>
-        <button onClick={() => setCashMoveDir('OUT')} className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm font-medium">
+        <button onClick={() => setCashMoveDir('OUT')} disabled={!online} title={offTitle}
+          className="bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm font-medium disabled:opacity-40">
           Інкасація
         </button>
-        <button onClick={() => setShowUsdt(true)} className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1 rounded text-sm font-medium">
+        <button onClick={() => setShowUsdt(true)} disabled={!online} title={offTitle}
+          className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1 rounded text-sm font-medium disabled:opacity-40">
           ₮ USDT
         </button>
         <button onClick={() => setTab('operations')} className={tabCls(tab === 'operations')}>
           Операції
         </button>
-        <button onClick={() => setTab('transfers')} className={`relative ${tabCls(tab === 'transfers')}`}>
+        <button onClick={() => setTab('transfers')} disabled={!online} title={offTitle}
+          className={`relative disabled:opacity-40 ${tabCls(tab === 'transfers')}`}>
           Передачі
           {pendingCount > 0 && (
             <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-xs font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
@@ -365,14 +432,15 @@ export default function CashierPage() {
             </span>
           )}
         </button>
-        <button onClick={startClosing} className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm font-medium ml-2">
+        <button onClick={startClosing} disabled={!online} title={offTitle}
+          className="bg-red-600 hover:bg-red-700 text-white px-3 py-1 rounded text-sm font-medium ml-2 disabled:opacity-40">
           Закрити зміну
         </button>
       </>
     );
     return () => setActions(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shift, closingShift, selectedDeskId, tab, pendingCount, selectedPointName, selectedDeskName]);
+  }, [shift, closingShift, selectedDeskId, tab, pendingCount, selectedPointName, selectedDeskName, online]);
 
   // ── Рендер ────────────────────────────────────────────────────────────────
 
@@ -530,6 +598,24 @@ export default function CashierPage() {
   // ── Робоча зміна ───────────────────────────────────────────────────────────
   return (
     <div className="flex flex-col flex-1 overflow-hidden">
+
+      {/* ── Банер офлайну / синхронізації черги ── */}
+      {(!online || queued.length > 0) && (
+        <div className={`px-4 py-1.5 text-sm font-medium text-center ${
+          !online ? 'bg-amber-500 text-white'
+          : syncError ? 'bg-red-600 text-white'
+          : 'bg-blue-600 text-white'
+        }`}>
+          {!online ? (
+            <>📴 ОФЛАЙН — операції обміну зберігаються локально
+              {queued.length > 0 && <> · у черзі: <b>{queued.length}</b></>}</>
+          ) : syncError ? (
+            <>⚠️ Черга ({queued.length}) не синхронізується: {syncError}</>
+          ) : (
+            <>⏳ Черга операцій: <b>{queued.length}</b> — надсилаємо на сервер…</>
+          )}
+        </div>
+      )}
 
       {/* Тости сповіщень */}
       {notifications.length > 0 && (

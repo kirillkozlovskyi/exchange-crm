@@ -215,6 +215,9 @@ model Operation {
   createdAt       DateTime      @default(now())
   cancelled       Boolean       @default(false)
   cancelNote      String?
+  // Ідемпотентність офлайн-синку: uuid із фронта; повторне надсилання тієї ж
+  // операції (ретрай після збою зв'язку) не створює дубля.
+  clientId        String?       @unique
 
   // Крос-обмін: що клієнт дав (якщо не UAH)
   payCurrency     String?

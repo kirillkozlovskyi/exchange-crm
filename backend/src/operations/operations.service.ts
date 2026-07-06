@@ -66,7 +66,20 @@ export class OperationsService {
     note?: string;
     // mode — вкладка касира; для крос визначає BUY/SELL замість EXCHANGE
     mode?: 'BUY' | 'SELL';
+    // Офлайн-синк: uuid операції з фронта (ідемпотентність) + реальний час
+    // створення в офлайні (приймається ЛИШЕ разом із clientId).
+    clientId?: string;
+    createdAt?: string;
   }, cashierId: number) {
+    // Ідемпотентність: та сама операція, надіслана повторно (ретрай після
+    // збою зв'язку), не створює дубля — повертаємо вже збережену.
+    if (dto.clientId) {
+      const existing = await this.prisma.operation.findUnique({
+        where: { clientId: dto.clientId },
+      });
+      if (existing) return existing;
+    }
+
     const shift = await this.prisma.shift.findUnique({
       where: { id: dto.shiftId },
       include: { cashDesk: { include: { exchangePoint: true } } },
@@ -107,22 +120,34 @@ export class OperationsService {
       }
     })().catch(() => {});
 
-    return this.prisma.operation.create({
-      data: {
-        number,
-        type,
-        currency: dto.currency,
-        amount: dto.amount,
-        rate: dto.rate,
-        totalUah,
-        profit,
-        note: dto.note,
-        payCurrency: payCur !== 'UAH' ? payCur : null,
-        payAmount: dto.payAmount ?? null,
-        shiftId: dto.shiftId,
-        cashierId,
-      },
-    });
+    try {
+      return await this.prisma.operation.create({
+        data: {
+          number,
+          type,
+          currency: dto.currency,
+          amount: dto.amount,
+          rate: dto.rate,
+          totalUah,
+          profit,
+          note: dto.note,
+          payCurrency: payCur !== 'UAH' ? payCur : null,
+          payAmount: dto.payAmount ?? null,
+          shiftId: dto.shiftId,
+          cashierId,
+          clientId: dto.clientId ?? null,
+          // Час з фронта — лише для офлайн-синку (разом із clientId).
+          ...(dto.clientId && dto.createdAt ? { createdAt: new Date(dto.createdAt) } : {}),
+        },
+      });
+    } catch (e: any) {
+      // Гонка ідемпотентності: два ретраї одночасно — повертаємо збережену.
+      if (e?.code === 'P2002' && dto.clientId) {
+        const existing = await this.prisma.operation.findUnique({ where: { clientId: dto.clientId } });
+        if (existing) return existing;
+      }
+      throw e;
+    }
   }
 
   async getByShift(shiftId: number) {
