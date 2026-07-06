@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, subDays, format } from 'date-fns';
 import { midRates, realizedProfit } from '../common/profit.util';
 import { usdtProfit } from '../common/usdt.util';
+import { ExpensesService } from '../expenses/expenses.service';
 
 /**
  * Фінансові підсумки по точках. Прибуток — ЄДИНА модель із закриттям зміни:
@@ -12,7 +13,10 @@ import { usdtProfit } from '../common/usdt.util';
  */
 @Injectable()
 export class FinanceService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private expenses: ExpensesService,
+  ) {}
 
   async getDailySummary(date: Date = new Date()) {
     return this.summary(startOfDay(date), endOfDay(date));
@@ -158,8 +162,31 @@ export class FinanceService {
       agg.byCurrency.USDT.profit += margin;
     }
 
-    const points = Object.values(byPoint).map(({ _ops, ...rest }) => rest);
+    // Витрати по точках за період → чистий прибуток = валовий − витрати.
+    const expensesByPoint = await this.expenses.sumByPoint(from, to);
+
+    // Точки, де були лише витрати (без операцій), теж показуємо.
+    const missingIds = Object.keys(expensesByPoint)
+      .map(Number)
+      .filter((id) => !byPoint[String(id)]);
+    if (missingIds.length) {
+      const pts = await this.prisma.exchangePoint.findMany({
+        where: { id: { in: missingIds } },
+        select: { id: true, name: true },
+      });
+      for (const p of pts) ensure(p);
+    }
+
+    // Прив'язуємо витрати й чистий прибуток по кожній точці за id.
+    const points = Object.entries(byPoint).map(([pid, agg]) => {
+      const { _ops, ...rest } = agg;
+      const expenses = expensesByPoint[Number(pid)] ?? 0;
+      return { ...rest, expenses, netProfit: rest.totalProfit - expenses };
+    });
+
     const totalProfit = points.reduce((s, p) => s + p.totalProfit, 0);
-    return { totalProfit, points };
+    const totalExpenses = points.reduce((s, p) => s + p.expenses, 0);
+    const totalNetProfit = totalProfit - totalExpenses;
+    return { totalProfit, totalExpenses, totalNetProfit, points };
   }
 }

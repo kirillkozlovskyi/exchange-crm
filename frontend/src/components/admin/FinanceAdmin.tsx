@@ -39,8 +39,18 @@ export default function FinanceAdmin() {
           {/* Total */}
           <div className="bg-blue-700 text-white rounded-xl shadow p-5">
             <div className="text-sm opacity-80">{periodLabel[period]} — мережа</div>
-            <div className="text-3xl font-bold mt-1">{Number(data.totalProfit).toFixed(2)} ₴</div>
-            <div className="text-sm opacity-70 mt-1">загальний прибуток</div>
+            <div className="text-3xl font-bold mt-1">{Number(data.totalNetProfit ?? data.totalProfit).toFixed(2)} ₴</div>
+            <div className="text-sm opacity-70 mt-1">чистий прибуток</div>
+            <div className="flex gap-4 mt-3 pt-3 border-t border-white/20 text-sm">
+              <div>
+                <div className="opacity-70 text-xs">валовий</div>
+                <div className="font-semibold">{Number(data.totalProfit).toFixed(2)} ₴</div>
+              </div>
+              <div>
+                <div className="opacity-70 text-xs">витрати</div>
+                <div className="font-semibold">−{Number(data.totalExpenses ?? 0).toFixed(2)} ₴</div>
+              </div>
+            </div>
           </div>
 
           {/* By point */}
@@ -48,9 +58,18 @@ export default function FinanceAdmin() {
             <div key={i} className="bg-white rounded-xl shadow p-5">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="font-semibold text-lg">{pt.pointName}</h3>
-                <div>
-                  <span className="text-green-600 font-bold">{Number(pt.totalProfit).toFixed(2)} ₴</span>
-                  <span className="text-xs text-gray-400 ml-2">({pt.operationsCount} оп.)</span>
+                <div className="text-right">
+                  <div>
+                    <span className={`font-bold ${Number(pt.netProfit ?? pt.totalProfit) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {Number(pt.netProfit ?? pt.totalProfit).toFixed(2)} ₴
+                    </span>
+                    <span className="text-xs text-gray-400 ml-2">чистий · {pt.operationsCount} оп.</span>
+                  </div>
+                  {Number(pt.expenses ?? 0) > 0 && (
+                    <div className="text-xs text-gray-400 mt-0.5">
+                      валовий {Number(pt.totalProfit).toFixed(2)} − витрати {Number(pt.expenses).toFixed(2)}
+                    </div>
+                  )}
                 </div>
               </div>
               {Object.keys(pt.byCurrency || {}).length > 0 && (

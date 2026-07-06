@@ -10,10 +10,11 @@ import OperationsAdmin from '../components/admin/OperationsAdmin';
 import ShiftsAdmin from '../components/admin/ShiftsAdmin';
 import ReconciliationsAdmin from '../components/admin/ReconciliationsAdmin';
 import SettingsAdmin from '../components/admin/SettingsAdmin';
+import ExpensesAdmin from '../components/admin/ExpensesAdmin';
 
 type Tab =
   | 'overview' | 'rates' | 'bank'
-  | 'finance' | 'shiftlog' | 'operations' | 'usdt' | 'transfers' | 'cashmovements' | 'reconciliations'
+  | 'finance' | 'expenses' | 'shiftlog' | 'operations' | 'usdt' | 'transfers' | 'cashmovements' | 'reconciliations'
   | 'settings';
 
 // Сайдбар: групи → пункти. Порядок = частота використання.
@@ -32,6 +33,7 @@ const NAV: { header?: string; items: { key: Tab; icon: string; label: string }[]
     header: 'Звіти',
     items: [
       { key: 'finance', icon: '💰', label: 'Фінанси' },
+      { key: 'expenses', icon: '🧮', label: 'Витрати' },
       { key: 'shiftlog', icon: '📋', label: 'Зміни' },
       { key: 'operations', icon: '🔄', label: 'Операції' },
       { key: 'usdt', icon: '₮', label: 'USDT' },
@@ -51,6 +53,7 @@ const PAGES: Record<Tab, () => JSX.Element> = {
   rates: () => <RatesAdmin />,
   bank: () => <CashBankAdmin />,
   finance: () => <FinanceAdmin />,
+  expenses: () => <ExpensesAdmin />,
   shiftlog: () => <ShiftsAdmin />,
   operations: () => <OperationsAdmin />,
   usdt: () => <UsdtAdmin />,

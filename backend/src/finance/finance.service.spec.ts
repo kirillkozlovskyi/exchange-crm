@@ -28,7 +28,7 @@ describe('FinanceService — єдина модель прибутку', () => {
       { type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, profit: 50, cancelled: false, shift: shiftOf },
       { type: 'SELL', currency: 'USD', amount: 40, totalUah: 1660, profit: 20, cancelled: false, shift: shiftOf },
     ];
-    const service = new FinanceService(makePrisma(ops) as any);
+    const service = new FinanceService(makePrisma(ops) as any, { sumByPoint: async () => ({}) } as any);
 
     const res = await service.getDailySummary();
 
@@ -43,7 +43,7 @@ describe('FinanceService — єдина модель прибутку', () => {
     const usdt = [
       { side: 'SELL', usdtAmount: 300, settleCurrency: 'UAH', settleAmount: 13500, profitUah: 120, cashDesk: { exchangePoint: POINT } },
     ];
-    const service = new FinanceService(makePrisma([], usdt) as any);
+    const service = new FinanceService(makePrisma([], usdt) as any, { sumByPoint: async () => ({}) } as any);
 
     const res = await service.getDailySummary();
 
@@ -54,7 +54,7 @@ describe('FinanceService — єдина модель прибутку', () => {
 
   it('сторновані операції відфільтровуються на рівні запиту', async () => {
     const prisma = makePrisma([]);
-    const service = new FinanceService(prisma as any);
+    const service = new FinanceService(prisma as any, { sumByPoint: async () => ({}) } as any);
     await service.getDailySummary();
     expect(prisma.operation.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ cancelled: false }) }),
