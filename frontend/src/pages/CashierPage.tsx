@@ -11,6 +11,8 @@ import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
 import { type CashDirection } from '../lib/cash-movements';
 import { shiftCashBalanceWithTransfers } from '../lib/shift-balance';
+import { midRates, realizedProfit } from '../lib/profit';
+import { usdtProfit } from '../lib/usdt';
 import { offlineQueue, isNetworkError, type QueuedOp } from '../lib/offline-queue';
 import UsdtModal from '../components/cashier/UsdtModal';
 
@@ -363,6 +365,17 @@ export default function CashierPage() {
       shift?.cashDeskId,
     );
   }, [shift, queued]);
+
+  // Живий прибуток каси за поточну зміну — та сама модель, що й при закритті:
+  // реалізований спред «з відкупу» + чиста маржа USDT (без нестачі/надлишку,
+  // бо фактичний перерахунок буде лише на закритті).
+  const liveProfit = useMemo(() => {
+    const ops = shift?.operations ?? [];
+    const valuation = midRates(rates.map((r: any) => ({ currency: r.currency, buy: r.buy, sell: r.sell })));
+    const trading = realizedProfit(ops, valuation).total;
+    const usdt = usdtProfit(shift?.usdtOperations ?? []);
+    return { total: trading + usdt, trading, usdt };
+  }, [shift, rates]);
 
   // ── Синхронізація інфо зміни в хедер ─────────────────────────────────────
   useEffect(() => {
@@ -734,6 +747,16 @@ export default function CashierPage() {
                       <span className={`text-xl font-bold ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{Number(amt).toFixed(0)}</span>
                     </div>
                   ))}
+                </div>
+                {/* Живий прибуток каси за зміну (реаліз. спред + маржа USDT) */}
+                <div className="flex items-center mt-1.5 pt-1.5 border-t border-gray-200 px-1">
+                  <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Прибуток каси</span>
+                  <span
+                    className={`text-xl font-bold ${liveProfit.total >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                    title={`Торговий: ${liveProfit.trading.toFixed(2)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${liveProfit.usdt.toFixed(2)} ₴` : ''}`}
+                  >
+                    {liveProfit.total >= 0 ? '+' : ''}{liveProfit.total.toFixed(2)} ₴
+                  </span>
                 </div>
               </div>
             </div>
