@@ -14,7 +14,7 @@ type Movement = {
   note?: string;
   createdAt: string;
   createdBy?: { name: string };
-  cashDesk?: { name: string; exchangePoint?: { name: string } };
+  cashDesk?: { id?: number; name: string; exchangePoint?: { id?: number; name: string } };
   shift?: { number: string };
 };
 
@@ -40,12 +40,18 @@ export default function CashMovementsAdmin() {
   const [loading, setLoading] = useState(true);
   const [dir, setDir] = useState<Filter>('all');
   const [cur, setCur] = useState<string>('all');
+  const [date, setDate] = useState('');            // конкретний день (серверний фільтр)
+  const [pointId, setPointId] = useState('all');   // клієнтські фільтри
+  const [deskId, setDeskId] = useState('all');
+  const [cashier, setCashier] = useState('all');
 
-  // Тягнемо всі рухи одразу — напрям/валюту фільтруємо на клієнті.
+  // День фільтруємо на сервері (щоб дістати й старі дні поза лімітом 500);
+  // напрям/валюту/точку/касу/касира — на клієнті з завантаженого набору.
   useEffect(() => {
     setLoading(true);
+    const q = date ? `?date=${date}` : '';
     Promise.all([
-      api.get('/cash-movements'),
+      api.get(`/cash-movements${q}`),
       api.get('/currencies').catch(() => ({ data: [] })),
     ])
       .then(([mv, cc]) => {
@@ -53,7 +59,28 @@ export default function CashMovementsAdmin() {
         setCurrencies((cc.data as any[]).map((c) => c.code));
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [date]);
+
+  const pointOptions = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const it of items) { const p = it.cashDesk?.exchangePoint; if (p?.id) m.set(p.id, p.name); }
+    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [items]);
+
+  const deskOptions = useMemo(() => {
+    const m = new Map<number, string>();
+    for (const it of items) {
+      const d = it.cashDesk; if (!d?.id) continue;
+      if (pointId !== 'all' && String(d.exchangePoint?.id) !== pointId) continue;
+      m.set(d.id, `${d.exchangePoint?.name ? d.exchangePoint.name + ' · ' : ''}${d.name}`);
+    }
+    return Array.from(m.entries()).sort((a, b) => a[1].localeCompare(b[1]));
+  }, [items, pointId]);
+
+  const cashierOptions = useMemo(
+    () => Array.from(new Set(items.map((i) => i.createdBy?.name).filter(Boolean) as string[])).sort(),
+    [items],
+  );
 
   // Повний перелік валют для фільтру: довідник валют + ті, що вже трапились у рухах.
   const curOptions = useMemo(() => {
@@ -62,7 +89,12 @@ export default function CashMovementsAdmin() {
   }, [currencies, items]);
 
   const filtered = items.filter(
-    (m) => (dir === 'all' || m.direction === dir) && (cur === 'all' || m.currency === cur),
+    (m) =>
+      (dir === 'all' || m.direction === dir) &&
+      (cur === 'all' || m.currency === cur) &&
+      (pointId === 'all' || String(m.cashDesk?.exchangePoint?.id) === pointId) &&
+      (deskId === 'all' || String(m.cashDesk?.id) === deskId) &&
+      (cashier === 'all' || m.createdBy?.name === cashier),
   );
   const days = groupByDay(filtered);
 
@@ -102,6 +134,42 @@ export default function CashMovementsAdmin() {
             {curOptions.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
+          </select>
+
+          <input
+            type="date" value={date} onChange={(e) => setDate(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            title="День (порожньо — останні записи)"
+          />
+          {date && (
+            <button onClick={() => setDate('')} className="text-xs text-gray-400 hover:text-gray-600">✕ день</button>
+          )}
+
+          <select
+            value={pointId}
+            onChange={(e) => { setPointId(e.target.value); setDeskId('all'); }}
+            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">Усі точки</option>
+            {pointOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+
+          <select
+            value={deskId}
+            onChange={(e) => setDeskId(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">Усі каси</option>
+            {deskOptions.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+          </select>
+
+          <select
+            value={cashier}
+            onChange={(e) => setCashier(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="all">Усі касири</option>
+            {cashierOptions.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
         </div>
       </div>

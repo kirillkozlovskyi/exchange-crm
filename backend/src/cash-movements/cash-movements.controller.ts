@@ -12,8 +12,9 @@ export class CashMovementsController {
   getAll(
     @Query('cashDeskId') cashDeskId?: string,
     @Query('direction') direction?: 'IN' | 'OUT',
+    @Query('date') date?: string,
   ) {
-    return this.service.getAll(cashDeskId ? Number(cashDeskId) : undefined, direction);
+    return this.service.getAll(cashDeskId ? Number(cashDeskId) : undefined, direction, date);
   }
 
   @Get('shift/:shiftId')

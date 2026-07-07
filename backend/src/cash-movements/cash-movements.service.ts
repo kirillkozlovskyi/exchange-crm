@@ -122,11 +122,20 @@ export class CashMovementsService {
   }
 
   // Усі рухи готівки (адмінка), опційно по касі та/або напрямку. Найновіші перші.
-  async getAll(cashDeskId?: number, direction?: Direction) {
+  async getAll(cashDeskId?: number, direction?: Direction, date?: string) {
+    // За конкретний день (YYYY-MM-DD) — усі записи дня (щоб фільтр діставав і
+    // старі дні); без дати — останні 500.
+    let createdAt: { gte: Date; lte: Date } | undefined;
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      const from = new Date(date + 'T00:00:00');
+      const to = new Date(date + 'T23:59:59.999');
+      if (!Number.isNaN(from.getTime())) createdAt = { gte: from, lte: to };
+    }
     return this.prisma.cashMovement.findMany({
       where: {
         ...(cashDeskId ? { cashDeskId } : {}),
         ...(direction ? { direction } : {}),
+        ...(createdAt ? { createdAt } : {}),
       },
       include: {
         cashDesk: { include: { exchangePoint: true } },
@@ -134,7 +143,7 @@ export class CashMovementsService {
         shift: { select: { number: true } },
       },
       orderBy: { createdAt: 'desc' },
-      take: 500,
+      take: createdAt ? undefined : 500,
     });
   }
 }
