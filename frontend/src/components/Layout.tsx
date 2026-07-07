@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { useShiftHeader } from '../context/ShiftHeaderContext';
 import { format } from 'date-fns';
 import NotificationBell from './NotificationBell';
+import InstallPWA from './InstallPWA';
 
 export default function Layout() {
   const { user, logout } = useAuth();
@@ -90,6 +91,7 @@ export default function Layout() {
 
         <div className="flex items-center gap-3 text-sm">
           {actions && <div className="flex items-center gap-2">{actions}</div>}
+          <span className="hidden md:inline"><InstallPWA variant="link" /></span>
           {user?.role === 'ADMIN' && <NotificationBell />}
           <NavLink
             to="/profile"

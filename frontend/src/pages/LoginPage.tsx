@@ -1,6 +1,7 @@
 import { useState, FormEvent, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import InstallPWA from '../components/InstallPWA';
 
 export default function LoginPage() {
   const { login, user, isLoading } = useAuth();
@@ -83,6 +84,8 @@ export default function LoginPage() {
             {loading ? 'Вхід...' : 'Увійти'}
           </button>
         </form>
+
+        <InstallPWA />
       </div>
     </div>
   );
