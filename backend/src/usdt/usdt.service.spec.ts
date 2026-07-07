@@ -45,7 +45,7 @@ function makePrisma() {
 
 describe('UsdtService — прибуток з факту', () => {
   it('продаж 300 USDT рівно за 300 USD (1:1) → маржа 0', async () => {
-    const service = new UsdtService(makePrisma() as any);
+    const service = new UsdtService(makePrisma() as any, { getStornoWindowMinutes: async () => 5 } as any);
     const op: any = await service.create(
       { shiftId: 1, side: 'SELL', usdtAmount: 300, settleCurrency: 'USD', settleAmount: 300, pct: 0 },
       7,
@@ -54,7 +54,7 @@ describe('UsdtService — прибуток з факту', () => {
   });
 
   it('продаж 300 USDT за 305 USD (ручна сума, %=0) → маржа 5 USD × mid', async () => {
-    const service = new UsdtService(makePrisma() as any);
+    const service = new UsdtService(makePrisma() as any, { getStornoWindowMinutes: async () => 5 } as any);
     const op: any = await service.create(
       { shiftId: 1, side: 'SELL', usdtAmount: 300, settleCurrency: 'USD', settleAmount: 305, pct: 0 },
       7,
@@ -65,7 +65,7 @@ describe('UsdtService — прибуток з факту', () => {
   it('купівля 300 USDT за 13 200 UAH (дешевше бази) → маржа з факту', async () => {
     // База 1:1: 300 USDT = 300 USD = 13 350 грн за mid 44.5. Каса віддала 13 200 →
     // заробила 150 грн (settleUsd = 13200/44.5 ≈ 296.63; маржа ≈ 3.37 USD × 44.5 = 150).
-    const service = new UsdtService(makePrisma() as any);
+    const service = new UsdtService(makePrisma() as any, { getStornoWindowMinutes: async () => 5 } as any);
     const op: any = await service.create(
       { shiftId: 1, side: 'BUY', usdtAmount: 300, settleCurrency: 'UAH', settleAmount: 13200, pct: 0 },
       7,
@@ -75,7 +75,7 @@ describe('UsdtService — прибуток з факту', () => {
 
   it('поле «%» впливає лише на підказку суми, не на прибуток напряму', async () => {
     // %=2, але касир вручну вписав рівно 1:1 → прибуток 0, а не 2%.
-    const service = new UsdtService(makePrisma() as any);
+    const service = new UsdtService(makePrisma() as any, { getStornoWindowMinutes: async () => 5 } as any);
     const op: any = await service.create(
       { shiftId: 1, side: 'SELL', usdtAmount: 100, settleCurrency: 'USD', settleAmount: 100, pct: 2 },
       7,

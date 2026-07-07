@@ -827,6 +827,7 @@ export default function CashierPage() {
           pointId={selectedPointId ?? shift.cashDesk?.exchangePointId}
           rates={rates}
           balance={currentBalance}
+          operations={shift.usdtOperations ?? []}
           onClose={() => setShowUsdt(false)}
           onSaved={() => loadShift(selectedDeskId!)}
         />

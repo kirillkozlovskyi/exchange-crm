@@ -3,6 +3,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
 import { nextDocNumber } from '../common/number-seq.util';
+import { SettingsService } from '../settings/settings.service';
 
 type Side = 'BUY' | 'SELL';
 
@@ -10,7 +11,10 @@ const round2 = (n: number) => Math.round(n * 100) / 100;
 
 @Injectable()
 export class UsdtService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private settings: SettingsService,
+  ) {}
 
   // Гаманець точки: створюємо з нулями, якщо ще немає.
   async getWallet(exchangePointId: number) {
@@ -333,6 +337,46 @@ export class UsdtService {
           createdById: userId,
         },
         include: { createdBy: { select: { name: true } } },
+      });
+    });
+  }
+
+  // Сторно USDT-операції — та сама логіка, що й у валютних: у межах часового
+  // вікна, будь-яка операція зміни (не лише остання). Крім позначки cancelled,
+  // ВІДКОЧУЄМО рух віртуального гаманця (він зберігається, а не рахується):
+  // SELL повертає USDT у гаманець, BUY — знімає назад.
+  async storno(id: number, userId: number, note?: string) {
+    const op = await this.prisma.usdtOperation.findUnique({
+      where: { id },
+      include: { shift: true, cashDesk: true },
+    });
+    if (!op) throw new NotFoundException('USDT-операцію не знайдено');
+    if (op.shift.status === 'CLOSED')
+      throw new BadRequestException('Зміна закрита — сторно неможливе');
+    if (op.cancelled) throw new BadRequestException('Операцію вже скасовано');
+
+    const windowMinutes = await this.settings.getStornoWindowMinutes();
+    const ageMs = Date.now() - new Date(op.createdAt).getTime();
+    if (ageMs > windowMinutes * 60 * 1000)
+      throw new BadRequestException(
+        `Сторно можливе лише протягом ${windowMinutes} хв після операції`,
+      );
+
+    const usdtAmount = Number(op.usdtAmount);
+    const pointId = op.cashDesk.exchangePointId;
+
+    // Відкат гаманця-джерела + позначка cancelled — атомарно.
+    return this.prisma.$transaction(async (tx) => {
+      // SELL знімало USDT з гаманця → повертаємо (+); BUY додавало → знімаємо (−).
+      const revInc = op.side === 'SELL' ? usdtAmount : -usdtAmount;
+      if (op.walletSource === 'GLOBAL') {
+        await tx.usdtGlobalWallet.update({ where: { id: 1 }, data: { balance: { increment: revInc } } });
+      } else {
+        await tx.usdtWallet.update({ where: { exchangePointId: pointId }, data: { balance: { increment: revInc } } });
+      }
+      return tx.usdtOperation.update({
+        where: { id },
+        data: { cancelled: true, cancelNote: note ?? null },
       });
     });
   }

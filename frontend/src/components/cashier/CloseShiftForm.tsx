@@ -740,7 +740,7 @@ export default function CloseShiftForm({
                       .map((op, i) => {
                         const isSell = op.side === 'SELL';
                         return (
-                          <tr key={op.id ?? i} className="border-b last:border-0">
+                          <tr key={op.id ?? i} className={`border-b last:border-0 ${op.cancelled ? 'opacity-40 line-through' : ''}`}>
                             <td className="py-1.5 text-gray-400 text-xs">
                               {op.createdAt ? format(new Date(op.createdAt as string), 'HH:mm') : '—'}
                             </td>

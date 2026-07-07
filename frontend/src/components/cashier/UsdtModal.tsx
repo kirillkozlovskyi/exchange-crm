@@ -8,15 +8,23 @@ type Rate = { currency: string; buy: number | string; sell: number | string };
 //  SELL — каса ПРОДАЄ USDT клієнту: гаманець −USDT, каса приймає фізичну готівку.
 //  BUY  — каса КУПУЄ USDT у клієнта: гаманець +USDT, каса видає фізичну готівку.
 export default function UsdtModal({
-  shiftId, pointId, rates, balance, onClose, onSaved,
+  shiftId, pointId, rates, balance, operations = [], onClose, onSaved,
 }: {
   shiftId: number;
   pointId: number;
   rates: Rate[];
   balance: Record<string, number>;
+  operations?: any[];
   onClose: () => void;
   onSaved: () => void;
 }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const t = setInterval(() => setNow(Date.now()), 15000); return () => clearInterval(t); }, []);
+  const [stornoing, setStornoing] = useState<number | null>(null);
+  const [stornoWindowMin, setStornoWindowMin] = useState(5);
+  useEffect(() => {
+    api.get('/settings/storno-window').then(({ data }) => setStornoWindowMin(data.minutes)).catch(() => {});
+  }, []);
   const [wallet, setWallet] = useState<{ balance: number } | null>(null);
   const [config, setConfig] = useState<{ source: 'POINT' | 'GLOBAL'; globalBalance: number } | null>(null);
   const [side, setSide] = useState<UsdtSide>('BUY');
@@ -126,6 +134,20 @@ export default function UsdtModal({
       setError(e.response?.data?.message ?? 'Помилка');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Сторно USDT-операції (у межах часового вікна — як у валютних).
+  const doStorno = async (op: any) => {
+    setStornoing(op.id);
+    setError('');
+    try {
+      await api.post(`/usdt/${op.id}/storno`, {});
+      onSaved();
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Не вдалося скасувати');
+    } finally {
+      setStornoing(null);
     }
   };
 
@@ -246,6 +268,40 @@ export default function UsdtModal({
 
           {warning && <div className="text-xs text-red-600 bg-red-50 rounded px-2 py-1.5">{warning}</div>}
           {error && <div className="text-xs text-red-600 bg-red-50 rounded px-2 py-1.5">{error}</div>}
+
+          {/* USDT-операції зміни + сторно (у межах часового вікна) */}
+          {operations.length > 0 && (
+            <div className="pt-1 border-t border-gray-100">
+              <div className="text-xs font-semibold text-gray-500 mb-1">USDT-операції зміни</div>
+              <div className="space-y-1 max-h-40 overflow-auto">
+                {operations.map((op: any) => {
+                  const isSell = op.side === 'SELL';
+                  const canStorno = !op.cancelled &&
+                    now - new Date(op.createdAt).getTime() <= stornoWindowMin * 60_000;
+                  return (
+                    <div key={op.id} className={`flex items-center gap-2 text-xs border-b border-gray-50 last:border-0 py-1 ${op.cancelled ? 'opacity-40 line-through' : ''}`}>
+                      <span className="text-gray-400 w-10">{new Date(op.createdAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}</span>
+                      <span className={`font-semibold ${isSell ? 'text-red-600' : 'text-teal-700'}`}>{isSell ? 'Продаж' : 'Купівля'}</span>
+                      <span className="font-medium">{Number(op.usdtAmount).toFixed(2)} ₮</span>
+                      <span className="text-gray-500">{Number(op.settleAmount).toFixed(2)} {op.settleCurrency}</span>
+                      <span className="ml-auto">
+                        {op.cancelled ? (
+                          <span className="text-gray-400 no-underline">скасовано</span>
+                        ) : canStorno ? (
+                          <button onClick={() => doStorno(op)} disabled={stornoing === op.id}
+                            className="text-red-600 hover:underline disabled:opacity-50">
+                            {stornoing === op.id ? '…' : 'Сторно'}
+                          </button>
+                        ) : (
+                          <span className="text-gray-300" title={`Сторно можливе ${stornoWindowMin} хв`}>—</span>
+                        )}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="p-3 pt-2 border-t border-gray-100 flex gap-2">

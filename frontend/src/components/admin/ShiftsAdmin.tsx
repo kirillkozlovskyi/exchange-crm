@@ -419,7 +419,7 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
                   {[...usdtOps].reverse().map((op) => {
                     const isSell = op.side === 'SELL';
                     return (
-                      <tr key={op.id} className="border-b last:border-0">
+                      <tr key={op.id} className={`border-b last:border-0 ${op.cancelled ? 'opacity-40 line-through' : ''}`}>
                         <td className="py-1 text-gray-400 text-xs">{format(new Date(op.createdAt), 'HH:mm')}</td>
                         <td className="py-1">
                           <span className="text-xs font-semibold px-1.5 py-0.5 rounded bg-teal-100 text-teal-700">

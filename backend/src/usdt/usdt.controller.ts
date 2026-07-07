@@ -91,4 +91,14 @@ export class UsdtController {
   create(@Body() dto: any, @CurrentUser() user: any) {
     return this.service.create(dto, user.sub);
   }
+
+  // Сторно — доступно всім (обмеження: часове вікно, як у валютних операціях).
+  @Post(':id/storno')
+  storno(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { note?: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.service.storno(id, user.sub, dto?.note);
+  }
 }

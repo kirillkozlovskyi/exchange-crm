@@ -378,6 +378,8 @@ model UsdtOperation {
   settleRate     Decimal  @db.Decimal(15, 6)  // курс USD→settleCurrency (1 для USD)
   profitUah      Decimal  @db.Decimal(15, 2)  // чиста маржа % у гривні
   note           String?
+  cancelled      Boolean  @default(false)     // сторно (як у валютних операціях)
+  cancelNote     String?
   createdAt      DateTime @default(now())
 
   shift       Shift    @relation(fields: [shiftId], references: [id])

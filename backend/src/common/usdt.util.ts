@@ -16,12 +16,14 @@ export interface UsdtOp {
   settleCurrency: string;
   settleAmount: unknown; // Decimal | number | string
   profitUah?: unknown;
+  cancelled?: boolean; // сторно — не впливає ні на готівку, ні на прибуток
 }
 
 /** Вплив USDT-операцій на ФІЗИЧНУ готівку каси по валютах розрахунку. */
 export function usdtCashDelta(ops: UsdtOp[]): Record<string, number> {
   const delta: Record<string, number> = {};
   for (const op of ops) {
+    if (op.cancelled) continue;
     const amt = Number(op.settleAmount);
     const sign = op.side === 'SELL' ? 1 : -1; // SELL → готівка приходить, BUY → йде
     delta[op.settleCurrency] = (delta[op.settleCurrency] ?? 0) + sign * amt;
@@ -31,5 +33,5 @@ export function usdtCashDelta(ops: UsdtOp[]): Record<string, number> {
 
 /** Сумарний прибуток USDT-операцій (чиста маржа %) у гривні. */
 export function usdtProfit(ops: UsdtOp[]): number {
-  return ops.reduce((sum, op) => sum + Number(op.profitUah ?? 0), 0);
+  return ops.reduce((sum, op) => sum + (op.cancelled ? 0 : Number(op.profitUah ?? 0)), 0);
 }
