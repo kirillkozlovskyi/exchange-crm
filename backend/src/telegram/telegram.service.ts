@@ -30,17 +30,62 @@ export class TelegramService {
       this.logger.warn('Telegram не налаштовано — пропускаємо сповіщення');
       return false;
     }
+    return this.sendTo(cfg.token, cfg.chatId, message);
+  }
+
+  /** Низькорівнева відправка в конкретний chat_id заданим токеном. */
+  private async sendTo(token: string, chatId: string, message: string): Promise<boolean> {
     try {
-      await axios.post(`https://api.telegram.org/bot${cfg.token}/sendMessage`, {
-        chat_id: cfg.chatId,
+      await axios.post(`https://api.telegram.org/bot${token}/sendMessage`, {
+        chat_id: chatId,
         text: message,
         parse_mode: 'HTML',
       });
       return true;
     } catch (e: any) {
-      this.logger.error('Помилка Telegram:', e?.response?.data?.description ?? e.message);
+      this.logger.error(`Помилка Telegram (${chatId}):`, e?.response?.data?.description ?? e.message);
       return false;
     }
+  }
+
+  /** Токен бота (з БД або env) — для постів у канали курсів. */
+  private async getToken(): Promise<string> {
+    const row = await this.prisma.setting.findUnique({ where: { key: 'telegram_bot_token' } });
+    return row?.value || process.env.TELEGRAM_BOT_TOKEN || '';
+  }
+
+  /**
+   * Публікація повідомлення в кілька каналів (курси). Повертає, у скільки
+   * каналів надіслано успішно / скільки всього.
+   */
+  async postToChannels(channels: { id: string }[], message: string): Promise<{ sent: number; total: number }> {
+    const token = await this.getToken();
+    if (!token || !channels.length) return { sent: 0, total: channels.length };
+    let sent = 0;
+    for (const ch of channels) {
+      if (await this.sendTo(token, ch.id, message)) sent += 1;
+    }
+    return { sent, total: channels.length };
+  }
+
+  /** Форматований пост курсів точки для каналу. */
+  formatRates(pointName: string, rates: { currency: string; buy: number | string; sell: number | string }[]): string {
+    const dt = new Date().toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const lines = rates.map((r) => {
+      const cur = r.currency.padEnd(4);
+      const buy = Number(r.buy).toFixed(2).padStart(8);
+      const sell = Number(r.sell).toFixed(2).padStart(8);
+      return `${cur}${buy} / ${sell}`;
+    });
+    return (
+      `📊 <b>Курси валют — ${this.esc(pointName)}</b>\n` +
+      `🕐 ${dt}\n\n` +
+      `<pre>Валюта  Купівля /  Продаж\n${lines.join('\n')}</pre>`
+    );
+  }
+
+  private esc(s: string): string {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
   async notifyShiftOpened(shiftNumber: string, cashierName: string, pointName: string) {

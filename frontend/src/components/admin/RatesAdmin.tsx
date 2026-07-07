@@ -23,6 +23,8 @@ export default function RatesAdmin() {
   const [editing, setEditing] = useState<EditMap>({});
   const [saving, setSaving] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState<number | null>(null);
+  const [publishMsg, setPublishMsg] = useState<{ pointId: number; text: string; ok: boolean } | null>(null);
 
   const loadAll = async () => {
     const [c, p, r] = await Promise.all([
@@ -80,6 +82,24 @@ export default function RatesAdmin() {
   const cancelEdit = (key: string) =>
     setEditing((e) => { const n = { ...e }; delete n[key]; return n; });
 
+  // Ручна публікація курсів точки в Telegram-канали.
+  const publish = async (pointId: number) => {
+    setPublishing(pointId); setPublishMsg(null);
+    try {
+      const { data } = await api.post(`/rates/publish/${pointId}`);
+      const ok = data.total > 0 && data.sent > 0;
+      setPublishMsg({
+        pointId, ok,
+        text: data.total === 0 ? 'Канали не налаштовані' : `Надіслано в ${data.sent}/${data.total}`,
+      });
+    } catch (e: any) {
+      setPublishMsg({ pointId, ok: false, text: e.response?.data?.message ?? 'Помилка' });
+    } finally {
+      setPublishing(null);
+      setTimeout(() => setPublishMsg(null), 4000);
+    }
+  };
+
   const saveRate = async (pointId: number, currency: string) => {
     const key = `${pointId}-${currency}`;
     const val = editing[key];
@@ -113,6 +133,17 @@ export default function RatesAdmin() {
             <div className="flex items-center gap-2 mb-3">
               <h3 className="font-semibold text-gray-800">{point.name}</h3>
               <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono">{point.code}</span>
+              <button
+                onClick={() => publish(point.id)}
+                disabled={publishing === point.id}
+                className="ml-auto text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                title="Опублікувати поточні курси в Telegram-канали"
+              >
+                {publishing === point.id ? '…' : '📢 Опублікувати в канал'}
+              </button>
+              {publishMsg?.pointId === point.id && (
+                <span className={`text-xs ${publishMsg.ok ? 'text-green-600' : 'text-red-600'}`}>{publishMsg.text}</span>
+              )}
             </div>
 
             {/* Toggle currencies */}

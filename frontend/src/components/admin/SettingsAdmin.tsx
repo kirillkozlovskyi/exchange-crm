@@ -153,6 +153,8 @@ function TelegramSettings() {
   const [configured, setConfigured] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
   const [chatInput, setChatInput] = useState('');
+  const [channels, setChannels] = useState<{ id: string; label: string }[]>([]);
+  const [autopost, setAutopost] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -163,17 +165,29 @@ function TelegramSettings() {
       setChatId(data.chatId);
       setConfigured(data.configured);
       setChatInput(data.chatId);
+      setChannels(data.channels ?? []);
+      setAutopost(!!data.rateAutopost);
     }).catch(() => {});
   };
   useEffect(() => { load(); }, []);
 
+  const setChannel = (i: number, field: 'id' | 'label', v: string) =>
+    setChannels((cs) => cs.map((c, idx) => (idx === i ? { ...c, [field]: v } : c)));
+  const addChannel = () => setChannels((cs) => [...cs, { id: '', label: '' }]);
+  const removeChannel = (i: number) => setChannels((cs) => cs.filter((_, idx) => idx !== i));
+
   const save = async () => {
     setBusy(true); setMsg(null);
     try {
-      const body: any = { chatId: chatInput };
+      const body: any = {
+        chatId: chatInput,
+        channels: channels.filter((c) => c.id.trim()),
+        rateAutopost: autopost,
+      };
       if (tokenInput.trim()) body.token = tokenInput.trim(); // порожнє поле = не міняти токен
       const { data } = await api.put('/settings/telegram', body);
       setTokenMasked(data.tokenMasked); setConfigured(data.configured); setTokenInput('');
+      setChannels(data.channels ?? []); setAutopost(!!data.rateAutopost);
       setMsg({ ok: true, text: 'Збережено' });
     } catch (e: any) {
       setMsg({ ok: false, text: e.response?.data?.message ?? 'Помилка' });
@@ -229,12 +243,50 @@ function TelegramSettings() {
           />
         </label>
         <label className="block text-sm text-gray-600">
-          Chat ID
+          Chat ID <span className="text-gray-400">(для сповіщень адміну)</span>
           <input
             type="text" value={chatInput} onChange={(e) => setChatInput(e.target.value)}
             placeholder="123456789"
             className="mt-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
+        </label>
+      </div>
+
+      {/* Канали для постів про курси */}
+      <div className="border-t pt-4 space-y-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <h4 className="font-semibold text-gray-800 text-sm">📢 Канали для курсів</h4>
+            <p className="text-xs text-gray-400 mt-0.5">
+              Пости про зміну курсів. Бот має бути адміном каналу. ID виду <code className="bg-gray-100 px-1 rounded">@channel</code> або <code className="bg-gray-100 px-1 rounded">-1001234567890</code>.
+            </p>
+          </div>
+        </div>
+
+        {channels.length === 0 && <p className="text-xs text-gray-400">Каналів ще немає.</p>}
+        {channels.map((c, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <input
+              type="text" value={c.id} onChange={(e) => setChannel(i, 'id', e.target.value)}
+              placeholder="@channel або -100..."
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <input
+              type="text" value={c.label} onChange={(e) => setChannel(i, 'label', e.target.value)}
+              placeholder="назва (необов.)"
+              className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            />
+            <button onClick={() => removeChannel(i)} className="text-gray-400 hover:text-red-600 px-1" title="Видалити">✕</button>
+          </div>
+        ))}
+        <button onClick={addChannel} className="text-sm text-blue-600 hover:underline">+ Додати канал</button>
+
+        <label className="flex items-center justify-between pt-2">
+          <span className="text-sm text-gray-700">
+            Автопост при зміні курсу
+            <span className="block text-xs text-gray-400">Кожне збереження курсу точки публікує оновлену таблицю в усі канали.</span>
+          </span>
+          <Toggle enabled={autopost} onChange={setAutopost} />
         </label>
       </div>
 

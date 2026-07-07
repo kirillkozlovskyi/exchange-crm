@@ -65,25 +65,60 @@ export class SettingsService {
   }
 
   // ── Telegram (токен зберігається в БД; env — fallback у TelegramService) ──
-  async getTelegramMasked(): Promise<{ tokenMasked: string; chatId: string; configured: boolean }> {
+  async getTelegramMasked(): Promise<{ tokenMasked: string; chatId: string; configured: boolean; channels: { id: string; label: string }[]; rateAutopost: boolean }> {
     const [token, chatId] = await Promise.all([
       this.get('telegram_bot_token'),
       this.get('telegram_chat_id'),
     ]);
     const effToken = token || process.env.TELEGRAM_BOT_TOKEN || '';
     const effChat = chatId || process.env.TELEGRAM_ADMIN_CHAT_ID || '';
+    const autopost = await this.get('telegram_rate_autopost');
     return {
       // Показуємо лише хвіст токена — цього досить, щоб упізнати бота.
       tokenMasked: effToken ? `••••${effToken.slice(-6)}` : '',
       chatId: effChat,
       configured: !!(effToken && effChat),
+      // Канали для постів про курси (окремо від чату сповіщень) + режим автопостингу.
+      channels: await this.getTelegramChannels(),
+      rateAutopost: autopost === 'true',
     };
   }
 
-  async setTelegram(dto: { token?: string; chatId?: string }): Promise<void> {
+  async setTelegram(dto: {
+    token?: string;
+    chatId?: string;
+    channels?: { id: string; label?: string }[];
+    rateAutopost?: boolean;
+  }): Promise<void> {
     // Порожній рядок = очистити (повернутись до env-fallback, якщо він є).
     if (dto.token !== undefined) await this.set('telegram_bot_token', dto.token.trim());
     if (dto.chatId !== undefined) await this.set('telegram_chat_id', dto.chatId.trim());
+    if (dto.channels !== undefined) {
+      const clean = dto.channels
+        .map((c) => ({ id: String(c.id ?? '').trim(), label: String(c.label ?? '').trim() }))
+        .filter((c) => c.id);
+      await this.set('telegram_channels', JSON.stringify(clean));
+    }
+    if (dto.rateAutopost !== undefined) await this.set('telegram_rate_autopost', String(dto.rateAutopost));
+  }
+
+  /** Список каналів для постів про курси (окремо від чату адмін-сповіщень). */
+  async getTelegramChannels(): Promise<{ id: string; label: string }[]> {
+    const raw = await this.get('telegram_channels');
+    if (!raw) return [];
+    try {
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr)
+        ? arr.map((c: any) => ({ id: String(c.id ?? '').trim(), label: String(c.label ?? '').trim() })).filter((c) => c.id)
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  /** Чи публікувати оновлені курси в канали автоматично при зміні. */
+  async getRateAutopost(): Promise<boolean> {
+    return (await this.get('telegram_rate_autopost')) === 'true';
   }
 
   // Поріг «великої операції» в грн для Telegram-сповіщення (0 = вимкнено).

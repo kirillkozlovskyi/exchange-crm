@@ -1,9 +1,15 @@
-import { Injectable, ConflictException } from '@nestjs/common';
+import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
+import { TelegramService } from '../telegram/telegram.service';
 
 @Injectable()
 export class RatesService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private settings: SettingsService,
+    private telegram: TelegramService,
+  ) {}
 
   async getByPoint(exchangePointId: number) {
     // Повертаємо тільки валюти, які є в активному довіднику Currency
@@ -45,12 +51,31 @@ export class RatesService {
           },
         }),
       ]);
+      // Автопост курсів у канали (якщо увімкнено) — не блокує збереження.
+      if (await this.settings.getRateAutopost()) {
+        this.publishPoint(dto.exchangePointId).catch(() => {});
+      }
       return created;
     } catch (e: any) {
       if (e?.code === 'P2002')
         throw new ConflictException('Курс саме оновлюється іншим користувачем — повторіть');
       throw e;
     }
+  }
+
+  /** Публікує актуальні курси точки в усі налаштовані Telegram-канали. */
+  async publishPoint(exchangePointId: number): Promise<{ sent: number; total: number }> {
+    const point = await this.prisma.exchangePoint.findUnique({ where: { id: exchangePointId } });
+    if (!point) throw new NotFoundException('Точку не знайдено');
+    const channels = await this.settings.getTelegramChannels();
+    if (!channels.length) return { sent: 0, total: 0 };
+    const rates = await this.getByPoint(exchangePointId);
+    if (!rates.length) return { sent: 0, total: channels.length };
+    const message = this.telegram.formatRates(
+      point.name,
+      rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
+    );
+    return this.telegram.postToChannels(channels, message);
   }
 
   async getAllActive() {

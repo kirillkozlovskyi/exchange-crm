@@ -27,4 +27,12 @@ export class RatesController {
   upsert(@Body() dto: any, @CurrentUser() user: any) {
     return this.service.upsert(dto, user.sub);
   }
+
+  // Ручна публікація курсів точки в Telegram-канали.
+  @Post('publish/:pointId')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  publish(@Param('pointId', ParseIntPipe) pointId: number) {
+    return this.service.publishPoint(pointId);
+  }
 }
