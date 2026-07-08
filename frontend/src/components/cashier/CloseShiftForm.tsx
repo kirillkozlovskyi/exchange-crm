@@ -17,6 +17,7 @@ type Operation = {
   payCurrency?: string | null;
   payAmount?: string | number | null;
   cancelled?: boolean;
+  profit?: string | number | null;
   createdAt: string;
 };
 

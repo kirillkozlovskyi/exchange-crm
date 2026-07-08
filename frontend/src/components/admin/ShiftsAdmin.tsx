@@ -81,12 +81,8 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
     deskNo: d.cashDeskId,
   };
 
-  // ── Друк звіту по зміні (А4) — той самий склад, що й у касира при закритті ──
-  const printShiftReport = () => {
-    const n2 = (v: any, dd = 2) => Number(v ?? 0).toFixed(dd);
-    const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
-
-    // Купівля/продаж по валютах (дзеркало tradeStats касира).
+  // ── Оборот по валютах: скільки куплено / продано за зміну (дзеркало tradeStats касира) ──
+  const tradeStats = (() => {
     const stats: Record<string, { boughtQty: number; boughtUah: number; soldQty: number; soldUah: number }> = {};
     const ensure = (c: string) => (stats[c] ??= { boughtQty: 0, boughtUah: 0, soldQty: 0, soldUah: 0 });
     for (const op of ops) {
@@ -104,11 +100,17 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
         const s = ensure(op.currency); s.soldQty += amount; s.soldUah += totalUah;
       }
     }
-    const tradeStats = Object.entries(stats).map(([cur, s]) => ({
+    return Object.entries(stats).map(([cur, s]) => ({
       cur, ...s,
       avgBuy: s.boughtQty > 0 ? s.boughtUah / s.boughtQty : 0,
       avgSell: s.soldQty > 0 ? s.soldUah / s.soldQty : 0,
     })).sort((a, b) => a.cur.localeCompare(b.cur));
+  })();
+
+  // ── Друк звіту по зміні (А4) — той самий склад, що й у касира при закритті ──
+  const printShiftReport = () => {
+    const n2 = (v: any, dd = 2) => Number(v ?? 0).toFixed(dd);
+    const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
 
     // Прибуток по валютах = сума op.profit (реалізований WAC), USDT — окремо.
     const realizedByCur: Record<string, number> = {};
@@ -237,6 +239,7 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
         </button>
       </div>
 
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
       {/* Залишки */}
       <Section title="Залишок каси">
         <table className="w-full text-sm">
@@ -280,6 +283,41 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
           </div>
         )}
       </Section>
+
+      {/* Оборот по валютах */}
+      <Section title="Оборот по валютах" count={tradeStats.length}>
+        {tradeStats.length === 0 ? <p className="text-gray-400 text-sm py-2">Операцій не було</p> : (
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-400 border-b">
+                  <th className="text-left pb-1">Валюта</th>
+                  <th className="text-right pb-1">Куплено</th>
+                  <th className="text-right pb-1">Сер. курс</th>
+                  <th className="text-right pb-1">Куплено, ₴</th>
+                  <th className="text-right pb-1">Продано</th>
+                  <th className="text-right pb-1">Сер. курс</th>
+                  <th className="text-right pb-1">Продано, ₴</th>
+                </tr>
+              </thead>
+              <tbody>
+                {tradeStats.map((r) => (
+                  <tr key={r.cur} className="border-b last:border-0">
+                    <td className="py-1 font-bold text-gray-800">{r.cur}</td>
+                    <td className="py-1 text-right text-green-700 font-medium">{r.boughtQty > 0 ? fmt(r.boughtQty) : '—'}</td>
+                    <td className="py-1 text-right text-gray-500">{r.boughtQty > 0 ? r.avgBuy.toFixed(4) : '—'}</td>
+                    <td className="py-1 text-right text-gray-600">{r.boughtQty > 0 ? fmt(r.boughtUah) : '—'}</td>
+                    <td className="py-1 text-right text-red-700 font-medium">{r.soldQty > 0 ? fmt(r.soldQty) : '—'}</td>
+                    <td className="py-1 text-right text-gray-500">{r.soldQty > 0 ? r.avgSell.toFixed(4) : '—'}</td>
+                    <td className="py-1 text-right text-gray-600">{r.soldQty > 0 ? fmt(r.soldUah) : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Section>
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-3">
         {/* Операції */}
