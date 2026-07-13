@@ -1,7 +1,7 @@
 import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
-import { applyOperationsToBalance } from '../common/balance.util';
+import { applyOperationsToBalance, operationsDelta } from '../common/balance.util';
 import { midRates, valueOf } from '../common/profit.util';
 import { cashMovementsDelta } from '../common/cash-movements.util';
 import { usdtCashDelta, usdtProfit } from '../common/usdt.util';
@@ -263,6 +263,153 @@ export class ShiftsService {
     });
     if (!shift) return shift;
     return { ...shift, confirmedTransfers: await this.confirmedTransfersForShift(shift) };
+  }
+
+  /**
+   * Повний звіт по зміні (для адмінки, кнопка «Скачати звіт»): усі сирі дані
+   * (операції з історією редагувань, рух готівки, USDT, передачі, звірки) +
+   * розраховані блоки (оборот, ledger-дельти, розбіжність, собівартість WAC).
+   * Призначення — вивантаження повного набору даних зміни для аналізу.
+   */
+  async getShiftReport(id: number) {
+    const shift = await this.prisma.shift.findUnique({
+      where: { id },
+      include: {
+        cashDesk: { include: { exchangePoint: true } },
+        openedBy: { select: { id: true, name: true } },
+        operations: {
+          orderBy: { createdAt: 'asc' },
+          include: {
+            cashier: { select: { id: true, name: true } },
+            edits: {
+              orderBy: { editedAt: 'asc' },
+              include: { editedBy: { select: { id: true, name: true } } },
+            },
+          },
+        },
+        cashMovements: {
+          orderBy: { createdAt: 'asc' },
+          include: { createdBy: { select: { id: true, name: true } } },
+        },
+        usdtOperations: {
+          orderBy: { createdAt: 'asc' },
+          include: { createdBy: { select: { id: true, name: true } } },
+        },
+        reconciliations: {
+          orderBy: { createdAt: 'asc' },
+          include: { createdBy: { select: { id: true, name: true } } },
+        },
+      },
+    });
+    if (!shift) throw new NotFoundException('Зміну не знайдено');
+
+    // Підтверджені передачі каси за зміну — з іменами кас і користувачів.
+    const transfers = await this.prisma.transfer.findMany({
+      where: {
+        status: 'CONFIRMED',
+        confirmedAt: { gte: shift.openedAt },
+        OR: [{ fromDeskId: shift.cashDeskId }, { toDeskId: shift.cashDeskId }],
+      },
+      orderBy: { confirmedAt: 'asc' },
+      include: {
+        fromDesk: { select: { id: true, name: true } },
+        toDesk: { select: { id: true, name: true } },
+        sentBy: { select: { id: true, name: true } },
+        confirmedBy: { select: { id: true, name: true } },
+      },
+    });
+
+    // Оборот по валютах: куплено/продано (к-сть, грн, середній курс) — як у деталях зміни.
+    const turnover: Record<string, { boughtQty: number; boughtUah: number; soldQty: number; soldUah: number }> = {};
+    const ensure = (c: string) => (turnover[c] ??= { boughtQty: 0, boughtUah: 0, soldQty: 0, soldUah: 0 });
+    for (const op of shift.operations) {
+      if (op.cancelled) continue;
+      const amount = Number(op.amount);
+      const totalUah = Number(op.totalUah);
+      const payCur = op.payCurrency;
+      const payAmount = op.payAmount != null ? Number(op.payAmount) : 0;
+      if (payCur && payCur !== 'UAH' && op.currency !== 'UAH') {
+        const b = ensure(payCur); b.boughtQty += payAmount; b.boughtUah += totalUah;
+        const s = ensure(op.currency); s.soldQty += amount; s.soldUah += totalUah;
+      } else if (payCur && payCur !== 'UAH') {
+        const b = ensure(payCur); b.boughtQty += payAmount; b.boughtUah += totalUah;
+      } else if (op.type === 'BUY') {
+        const b = ensure(op.currency); b.boughtQty += amount; b.boughtUah += totalUah;
+      } else {
+        const s = ensure(op.currency); s.soldQty += amount; s.soldUah += totalUah;
+      }
+    }
+    const turnoverRows = Object.entries(turnover)
+      .map(([currency, t]) => ({
+        currency, ...t,
+        avgBuyRate: t.boughtQty > 0 ? t.boughtUah / t.boughtQty : null,
+        avgSellRate: t.soldQty > 0 ? t.soldUah / t.soldQty : null,
+      }))
+      .sort((a, b) => a.currency.localeCompare(b.currency));
+
+    // Ledger-дельти по складових + повний розрахунковий залишок.
+    const transfersNet = await confirmedTransfersNetForDesk(this.prisma, shift.cashDeskId, shift.openedAt);
+    const opsDelta = operationsDelta(shift.operations);
+    const movesDelta = cashMovementsDelta(shift.cashMovements);
+    const usdtDelta = usdtCashDelta(shift.usdtOperations as any);
+    const calcBalanceLive = shiftCashBalance(
+      {
+        startBalance: shift.startBalance as Record<string, number>,
+        operations: shift.operations,
+        cashMovements: shift.cashMovements,
+        usdtOperations: shift.usdtOperations as any,
+      },
+      transfersNet,
+    );
+
+    // Розбіжність факт/розрахунок по валютах (лише для закритих).
+    let discrepancy: Record<string, number> | null = null;
+    if (shift.status === 'CLOSED') {
+      const calc = shift.calcBalance as Record<string, number>;
+      const end = shift.endBalance as Record<string, number>;
+      discrepancy = {};
+      for (const cur of new Set([...Object.keys(calc ?? {}), ...Object.keys(end ?? {})])) {
+        const d = Number(end?.[cur] ?? 0) - Number(calc?.[cur] ?? 0);
+        if (Math.abs(d) >= 0.005) discrepancy[cur] = d;
+      }
+    }
+
+    // Контекст моделі прибутку: перехідна собівартість каси (WAC) і активні курси точки.
+    const [costBasis, activeRates] = await Promise.all([
+      this.profit.getBasis(shift.cashDeskId),
+      this.prisma.rate.findMany({
+        where: { exchangePointId: shift.cashDesk.exchangePointId, status: 'ACTIVE' },
+        select: { currency: true, buy: true, sell: true, updatedAt: true },
+      }),
+    ]);
+
+    const { operations, cashMovements, usdtOperations, reconciliations, ...shiftMeta } = shift;
+    return {
+      reportVersion: 1,
+      generatedAt: new Date(),
+      shift: shiftMeta,
+      operations,
+      cashMovements,
+      usdtOperations,
+      transfers,
+      reconciliations,
+      turnover: turnoverRows,
+      ledger: {
+        startBalance: shift.startBalance,
+        operationsDelta: opsDelta,
+        cashMovementsDelta: movesDelta,
+        usdtCashDelta: usdtDelta,
+        transfersNet,
+        calcBalanceLive,
+      },
+      discrepancy,
+      usdtSummary: {
+        margin: usdtProfit(shift.usdtOperations as any),
+        cashDelta: usdtDelta,
+      },
+      wacCostBasis: costBasis,
+      activeRates,
+    };
   }
 
   // Список змін (для адмінки) — фільтр по точці/касі, найновіші перші.

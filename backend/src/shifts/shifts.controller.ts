@@ -66,6 +66,14 @@ export class ShiftsController {
     return this.shiftsService.adjustBalance(id, body.balance);
   }
 
+  // Повний звіт по зміні (JSON для вивантаження/аналізу) — лише адмінка.
+  @Get(':id/report')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  getReport(@Param('id', ParseIntPipe) id: number) {
+    return this.shiftsService.getShiftReport(id);
+  }
+
   @Get(':id')
   getById(@Param('id', ParseIntPipe) id: number) {
     return this.shiftsService.getShiftById(id);
