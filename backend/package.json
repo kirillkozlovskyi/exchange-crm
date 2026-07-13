@@ -15,7 +15,9 @@
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
     "test": "jest",
     "db:migrate": "prisma migrate deploy",
-    "db:seed": "ts-node prisma/seed.ts"
+    "db:seed": "ts-node prisma/seed.ts",
+    "db:reset-ops": "ts-node prisma/reset-operational.ts",
+    "db:reset-ops:go": "CONFIRM_RESET=1 ts-node prisma/reset-operational.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

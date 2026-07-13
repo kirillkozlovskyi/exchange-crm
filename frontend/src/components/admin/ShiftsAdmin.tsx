@@ -228,9 +228,32 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
     setTimeout(() => { win.print(); setTimeout(() => { try { document.body.removeChild(iframe); } catch { /* noop */ } }, 60_000); }, 150);
   };
 
+  // Повний JSON-звіт зміни (всі операції, рух готівки, USDT, передачі, оборот,
+  // ledger, собівартість) — для вивантаження даних на аналіз.
+  const downloadFullReport = async () => {
+    try {
+      const { data } = await api.get(`/shifts/${shiftId}/report`);
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `zvit-zmina-${data.shift?.number ?? shiftId}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      alert('Не вдалося сформувати звіт');
+    }
+  };
+
   return (
     <div className="bg-gray-50 border-t border-gray-200 p-3 space-y-3">
-      <div className="flex justify-end">
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={downloadFullReport}
+          className="px-3 py-1.5 rounded-lg font-medium text-sm bg-gray-700 text-white hover:bg-gray-800"
+        >
+          ⬇ Повний звіт (JSON)
+        </button>
         <button
           onClick={printShiftReport}
           className="px-3 py-1.5 rounded-lg font-medium text-sm bg-blue-700 text-white hover:bg-blue-800"
