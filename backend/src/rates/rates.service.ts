@@ -1,7 +1,9 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
+import { format } from 'date-fns';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { TelegramService } from '../telegram/telegram.service';
+import { renderRateCardPng, RateCardRow, Trend, CardTheme, CURRENCY_NAMES } from '../telegram/rate-card';
 
 @Injectable()
 export class RatesService {
@@ -71,11 +73,65 @@ export class RatesService {
     if (!channels.length) return { sent: 0, total: 0 };
     const rates = await this.getByPoint(exchangePointId);
     if (!rates.length) return { sent: 0, total: channels.length };
+
+    // Картинка (макет каналу) або текст — за налаштуванням.
+    if (await this.settings.getRatePostAsImage()) {
+      const png = await this.renderCard(exchangePointId);
+      if (png) return this.telegram.postPhotoToChannels(channels, png);
+    }
+
     const message = this.telegram.formatRates(
       point.name,
       rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
     );
     return this.telegram.postToChannels(channels, message);
+  }
+
+  /**
+   * Картка курсів точки у PNG (для Telegram і прев'ю в адмінці).
+   * Стрілка тренду — порівняння курсу ПРОДАЖУ з попереднім (архівним) курсом
+   * цієї ж валюти: історія лишається в Rate зі статусом INACTIVE.
+   */
+  async renderCard(exchangePointId: number, theme?: CardTheme): Promise<Buffer | null> {
+    const rates = await this.getByPoint(exchangePointId);
+    if (!rates.length) return null;
+
+    const cfg = await this.settings.getRateCardConfig();
+    const cardTheme = theme ?? (await this.settings.getRateCardTheme());
+    const rows: RateCardRow[] = [];
+
+    for (const r of rates) {
+      const prev = await this.prisma.rate.findFirst({
+        where: { exchangePointId, currency: r.currency, status: 'INACTIVE' },
+        orderBy: { createdAt: 'desc' },
+        select: { sell: true },
+      });
+      const sell = Number(r.sell);
+      const prevSell = prev ? Number(prev.sell) : null;
+      const trend: Trend =
+        prevSell == null || Math.abs(sell - prevSell) < 0.0001
+          ? 'flat'
+          : sell > prevSell
+            ? 'up'
+            : 'down';
+
+      rows.push({
+        currency: r.currency,
+        name: CURRENCY_NAMES[r.currency] ?? r.currency,
+        buy: Number(r.buy),
+        sell,
+        trend,
+      });
+    }
+
+    const now = new Date();
+    return renderRateCardPng({
+      rows,
+      date: format(now, 'dd.MM.yyyy'),
+      time: format(now, 'HH:mm'),
+      config: cfg,
+      theme: cardTheme,
+    });
   }
 
   async getAllActive() {

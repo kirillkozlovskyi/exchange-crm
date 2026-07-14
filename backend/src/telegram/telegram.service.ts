@@ -68,6 +68,39 @@ export class TelegramService {
     return { sent, total: channels.length };
   }
 
+  /** Відправка КАРТИНКИ (курси) у конкретний канал. */
+  private async sendPhotoTo(
+    token: string, chatId: string, png: Buffer, caption?: string,
+  ): Promise<boolean> {
+    try {
+      const form = new FormData();
+      form.append('chat_id', chatId);
+      form.append('photo', new Blob([new Uint8Array(png)], { type: 'image/png' }), 'rates.png');
+      if (caption) {
+        form.append('caption', caption);
+        form.append('parse_mode', 'HTML');
+      }
+      await axios.post(`https://api.telegram.org/bot${token}/sendPhoto`, form);
+      return true;
+    } catch (e: any) {
+      this.logger.error(`Помилка Telegram sendPhoto (${chatId}):`, e?.response?.data?.description ?? e.message);
+      return false;
+    }
+  }
+
+  /** Публікація картинки курсів у канали. */
+  async postPhotoToChannels(
+    channels: { id: string }[], png: Buffer, caption?: string,
+  ): Promise<{ sent: number; total: number }> {
+    const token = await this.getToken();
+    if (!token || !channels.length) return { sent: 0, total: channels.length };
+    let sent = 0;
+    for (const ch of channels) {
+      if (await this.sendPhotoTo(token, ch.id, png, caption)) sent += 1;
+    }
+    return { sent, total: channels.length };
+  }
+
   /** Форматований пост курсів точки для каналу. */
   formatRates(pointName: string, rates: { currency: string; buy: number | string; sell: number | string }[]): string {
     const dt = new Date().toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });

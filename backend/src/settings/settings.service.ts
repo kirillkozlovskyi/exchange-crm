@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { RateCardConfig, DEFAULT_CARD_CONFIG, CardTheme } from '../telegram/rate-card';
 
 @Injectable()
 export class SettingsService {
@@ -119,6 +120,45 @@ export class SettingsService {
   /** Чи публікувати оновлені курси в канали автоматично при зміні. */
   async getRateAutopost(): Promise<boolean> {
     return (await this.get('telegram_rate_autopost')) === 'true';
+  }
+
+  /** Стиль картки курсів: classic | dark | minimal. */
+  async getRateCardTheme(): Promise<CardTheme> {
+    const v = await this.get('rate_card_theme');
+    return v === 'dark' || v === 'minimal' ? v : 'classic';
+  }
+
+  async setRateCardTheme(theme: CardTheme): Promise<void> {
+    await this.set('rate_card_theme', theme);
+  }
+
+  /** Постити курси КАРТИНКОЮ (макет каналу) замість тексту. */
+  async getRatePostAsImage(): Promise<boolean> {
+    return (await this.get('telegram_rate_image')) === 'true'; // default false
+  }
+
+  async setRatePostAsImage(enabled: boolean): Promise<void> {
+    await this.set('telegram_rate_image', String(enabled));
+  }
+
+  /**
+   * Статичний вміст картки курсів (бренд, адреса, телефони, графік, послуги).
+   * Зберігаємо в налаштуваннях, щоб змінювати без правки коду.
+   */
+  async getRateCardConfig(): Promise<RateCardConfig> {
+    const raw = await this.get('rate_card');
+    if (!raw) return DEFAULT_CARD_CONFIG;
+    try {
+      return { ...DEFAULT_CARD_CONFIG, ...(JSON.parse(raw) as Partial<RateCardConfig>) };
+    } catch {
+      return DEFAULT_CARD_CONFIG;
+    }
+  }
+
+  async setRateCardConfig(cfg: Partial<RateCardConfig>): Promise<RateCardConfig> {
+    const merged = { ...(await this.getRateCardConfig()), ...cfg };
+    await this.set('rate_card', JSON.stringify(merged));
+    return merged;
   }
 
   // Поріг «великої операції» в грн для Telegram-сповіщення (0 = вимкнено).

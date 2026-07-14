@@ -109,6 +109,30 @@ export class SettingsController {
     return this.settingsService.setCashierCanSeeBank(body.enabled).then(() => ({ enabled: body.enabled }));
   }
 
+  // Картка курсів для Telegram: стиль + постити картинкою замість тексту.
+  @Get('rate-card')
+  async getRateCard() {
+    return {
+      theme: await this.settingsService.getRateCardTheme(),
+      asImage: await this.settingsService.getRatePostAsImage(),
+      config: await this.settingsService.getRateCardConfig(),
+    };
+  }
+
+  @Put('rate-card')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async setRateCard(@Body() body: { theme?: any; asImage?: boolean; config?: any }) {
+    if (body.theme) await this.settingsService.setRateCardTheme(body.theme);
+    if (body.asImage !== undefined) await this.settingsService.setRatePostAsImage(!!body.asImage);
+    if (body.config) await this.settingsService.setRateCardConfig(body.config);
+    return {
+      theme: await this.settingsService.getRateCardTheme(),
+      asImage: await this.settingsService.getRatePostAsImage(),
+      config: await this.settingsService.getRateCardConfig(),
+    };
+  }
+
   @Get('cash-bank-enabled')
   getCashBankEnabled() {
     return this.settingsService.getCashBankEnabled().then((enabled) => ({ enabled }));

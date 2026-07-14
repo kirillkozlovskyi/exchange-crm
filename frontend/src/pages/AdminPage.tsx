@@ -15,11 +15,13 @@ import CurrenciesAdmin from '../components/admin/CurrenciesAdmin';
 import ExchangePointsAdmin from '../components/admin/ExchangePointsAdmin';
 import UsersAdmin from '../components/admin/UsersAdmin';
 import ExpensesAdmin from '../components/admin/ExpensesAdmin';
+import RateCardAdmin from '../components/admin/RateCardAdmin';
 
 type Tab =
   | 'overview' | 'rates' | 'bank'
   | 'finance' | 'expenses' | 'shiftlog' | 'operations' | 'usdt' | 'transfers' | 'cashmovements' | 'reconciliations'
-  | 'set-currencies' | 'set-points' | 'set-users' | 'set-operations' | 'set-notifications';
+  | 'set-currencies' | 'set-points' | 'set-users' | 'set-operations' | 'set-notifications'
+  | 'set-ratecard';
 
 // Сайдбар: групи → пункти. Порядок = частота використання.
 const NAV: { header?: string; items: { key: Tab; icon: string; label: string }[] }[] = [
@@ -54,6 +56,7 @@ const NAV: { header?: string; items: { key: Tab; icon: string; label: string }[]
       { key: 'set-users', icon: '👥', label: 'Користувачі' },
       { key: 'set-operations', icon: '⚙️', label: 'Каса та операції' },
       { key: 'set-notifications', icon: '🔔', label: 'Сповіщення' },
+      { key: 'set-ratecard', icon: '🖼', label: 'Картка курсів' },
     ],
   },
 ];
@@ -81,6 +84,7 @@ const PAGES: Record<Tab, () => JSX.Element> = {
   'set-users': () => <UsersAdmin />,
   'set-operations': () => <OperationsSettings />,
   'set-notifications': () => <NotificationsSettings />,
+  'set-ratecard': () => <RateCardAdmin />,
 };
 
 const TAB_KEYS = NAV.flatMap((g) => g.items.map((i) => i.key));

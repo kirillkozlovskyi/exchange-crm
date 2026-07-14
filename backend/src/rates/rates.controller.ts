@@ -1,4 +1,5 @@
-import { Controller, Get, Post, Body, Param, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Param, Query, Res, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Response } from 'express';
 import { RatesService } from './rates.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -34,5 +35,25 @@ export class RatesController {
   @Roles('ADMIN')
   publish(@Param('pointId', ParseIntPipe) pointId: number) {
     return this.service.publishPoint(pointId);
+  }
+
+  // Прев'ю картки курсів (PNG) — щоб адмін бачив, що піде в канал.
+  @Get('card/:pointId')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async card(
+    @Param('pointId', ParseIntPipe) pointId: number,
+    @Query('theme') theme: string | undefined,
+    @Res() res: Response,
+  ) {
+    const t = theme === 'dark' || theme === 'minimal' ? theme : theme === 'classic' ? theme : undefined;
+    const png = await this.service.renderCard(pointId, t);
+    if (!png) {
+      res.status(404).json({ message: 'Немає активних курсів для цієї точки' });
+      return;
+    }
+    res.setHeader('Content-Type', 'image/png');
+    res.setHeader('Cache-Control', 'no-store');
+    res.send(png);
   }
 }
