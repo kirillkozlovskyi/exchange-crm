@@ -17,6 +17,17 @@ export function midRates(rates: RatePair[]): Record<string, number> {
   return mid;
 }
 
+/**
+ * Курси ПРОДАЖУ — оцінка нестачі/надлишку каси (рішення власника 2026-07-14).
+ * Нестача 100 $ коштує стільки, за скільки каса ці 100 $ продала б клієнту, а не
+ * серединний курс. UAH = 1; валюта без активного курсу — 0 (не оцінюється).
+ */
+export function sellRates(rates: RatePair[]): Record<string, number> {
+  const map: Record<string, number> = { UAH: 1 };
+  for (const r of rates) map[r.currency] = Number(r.sell);
+  return map;
+}
+
 /** Вартість балансу в гривні за курсами оцінки. */
 export function valueOf(
   balance: Record<string, number>,

@@ -94,6 +94,45 @@ function opTrades(op: WacOperation): { cur: string; q: number; price: number }[]
     : [{ cur, q: -amount, price }];  // SELL/EXCHANGE: каса віддає валюту → реалізує
 }
 
+/**
+ * Неторговий рух валюти: підкріплення/інкасація каси та передачі між касами.
+ * Це НЕ купівля-продаж — прибутку не дає, але змінює позицію:
+ *   • вхід (q>0): валюта заходить у запас за ціною `price` (курс купівлі точки —
+ *     собівартості ми не знаємо, бо купівлі не було);
+ *   • вихід (q<0): просто зменшує запас; собівартість решти не змінюється.
+ *
+ * Без цього кроку продана «підкріплена» валюта відкривала КОРОТКУ позицію:
+ * прибуток від її продажу був 0, а собівартість підмінялась ціною продажу.
+ */
+export function applyFlow(pos: WacPosition, q: number, price: number): void {
+  if (Math.abs(q) < EPS) return;
+
+  if (q > 0) {
+    // Вхід: нарощуємо запас за ціною price (як купівля, але без прибутку).
+    if (pos.qty >= 0) {
+      const nq = pos.qty + q;
+      pos.avgCost = nq > EPS ? (pos.avgCost * pos.qty + price * q) / nq : 0;
+      pos.qty = nq;
+    } else {
+      // Позиція коротка (продали більше, ніж мали) — вхід її закриває без
+      // прибутку: короткий борг гаситься фізичною валютою.
+      pos.qty += q;
+      if (pos.qty > EPS) pos.avgCost = price; // перевернулись у довгу за ціною входу
+      else if (Math.abs(pos.qty) < EPS) { pos.qty = 0; pos.avgCost = 0; }
+    }
+    return;
+  }
+
+  // Вихід: зменшуємо запас за собівартістю (прибутку немає, середня не змінюється).
+  pos.qty += q;
+  if (Math.abs(pos.qty) < EPS) { pos.qty = 0; pos.avgCost = 0; }
+}
+
+/** Елемент хронології зміни: торгова операція або неторговий рух валюти. */
+export type WacItem =
+  | { kind: 'op'; op: WacOperation }
+  | { kind: 'flow'; currency: string; qty: number; price: number };
+
 export interface WacResult {
   totalRealized: number;
   byCurrency: Record<string, number>;
@@ -102,10 +141,11 @@ export interface WacResult {
 }
 
 /**
- * Реалізований прибуток за списком операцій (у ХРОНОЛОГІЧНОМУ порядку), від
- * заданої відкриваючої позиції. Скасовані (сторно) пропускаються.
+ * Реалізований прибуток за ХРОНОЛОГІЄЮ зміни: торгові операції + неторгові рухи
+ * валюти (підкріплення/інкасації/передачі). perOp повертається лише для
+ * операцій — у тому ж порядку, в якому вони йшли у списку.
  */
-export function wacRealized(opening: PositionMap, ops: WacOperation[]): WacResult {
+export function wacRealizedTimeline(opening: PositionMap, items: WacItem[]): WacResult {
   const pos: PositionMap = {};
   for (const [c, p] of Object.entries(opening)) pos[c] = { qty: p.qty, avgCost: p.avgCost };
 
@@ -113,7 +153,15 @@ export function wacRealized(opening: PositionMap, ops: WacOperation[]): WacResul
   const perOp: number[] = [];
   let total = 0;
 
-  for (const op of ops) {
+  for (const item of items) {
+    if (item.kind === 'flow') {
+      if (!item.currency || item.currency === 'UAH') continue;
+      const p = (pos[item.currency] ??= { qty: 0, avgCost: item.price });
+      applyFlow(p, item.qty, item.price);
+      continue;
+    }
+
+    const op = item.op;
     if (op.cancelled) { perOp.push(0); continue; }
     let opRealized = 0;
     for (const t of opTrades(op)) {
@@ -127,4 +175,12 @@ export function wacRealized(opening: PositionMap, ops: WacOperation[]): WacResul
   }
 
   return { totalRealized: total, byCurrency, perOp, ending: pos };
+}
+
+/**
+ * Реалізований прибуток за списком операцій (у ХРОНОЛОГІЧНОМУ порядку), від
+ * заданої відкриваючої позиції. Скасовані (сторно) пропускаються.
+ */
+export function wacRealized(opening: PositionMap, ops: WacOperation[]): WacResult {
+  return wacRealizedTimeline(opening, ops.map((op) => ({ kind: 'op' as const, op })));
 }

@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
 import { nextDocNumber } from '../common/number-seq.util';
 import { CashBankService } from '../cash-bank/cash-bank.service';
+import { SettingsService } from '../settings/settings.service';
 
 type Direction = 'IN' | 'OUT';
 
@@ -12,6 +13,7 @@ export class CashMovementsService {
   constructor(
     private prisma: PrismaService,
     private cashBank: CashBankService,
+    private settings: SettingsService,
   ) {}
 
   // Окрема нумерація для підкріплень (REP-) та інкасацій (INC-).
@@ -42,7 +44,10 @@ export class CashMovementsService {
   ) {
     const amount = Number(dto.amount);
     const direction: Direction = dto.direction === 'IN' ? 'IN' : 'OUT';
-    const counterparty = dto.counterparty === 'BANK' ? 'BANK' : 'EXTERNAL';
+    // Банк можна вимкнути в налаштуваннях — тоді жоден рух не чіпає банк, навіть
+    // якщо клієнт (стара вкладка, прямий запит) надішле counterparty=BANK.
+    const bankEnabled = await this.settings.getCashBankEnabled();
+    const counterparty = dto.counterparty === 'BANK' && bankEnabled ? 'BANK' : 'EXTERNAL';
     if (!dto.currency) throw new BadRequestException('Не вказано валюту');
     if (!(amount > 0)) throw new BadRequestException('Сума має бути більшою за 0');
 

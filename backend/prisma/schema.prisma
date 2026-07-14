@@ -142,6 +142,11 @@ model Shift {
   factualProfit    Decimal?   @db.Decimal(15, 2)
   profitByCurrency Json       @default("{}")
   valuationRates   Json       @default("{}")
+  // Додатковий показник (модель замовника): «маржа з відкупу» — заробіток
+  // кільця «продав валюту → відкупив на виручену гривню». Фінанси на ньому НЕ
+  // будуються, він показується поруч із profit. Див. buyback-margin.util.ts.
+  buybackMargin           Decimal? @db.Decimal(15, 2)
+  buybackMarginByCurrency Json     @default("{}")
   note            String?
 
   cashDesk        CashDesk    @relation(fields: [cashDeskId], references: [id])
@@ -213,6 +218,9 @@ model Operation {
   rate            Decimal       @db.Decimal(10, 4)
   totalUah        Decimal       @db.Decimal(15, 2)
   profit          Decimal       @db.Decimal(15, 2)
+  // Прибуток, який касир порахував САМ (необовʼязково). Не використовується в
+  // розрахунках — потрібен, щоб порівняти логіку касирів із моделями системи.
+  cashierProfit   Decimal?      @db.Decimal(15, 2)
   note            String?
   createdAt       DateTime      @default(now())
   cancelled       Boolean       @default(false)
@@ -325,6 +333,20 @@ model DeskCostBasis {
   cashDeskId Int
   currency   String
   avgCost    Decimal  @db.Decimal(18, 6)
+  updatedAt  DateTime @updatedAt
+
+  @@id([cashDeskId, currency])
+}
+
+// Пул «проданої гривні, що чекає відкупу» — для показника «маржа з відкупу»
+// (модель замовника: заробіток виникає, коли на виручену гривню відкуповують
+// валюту). Переноситься між змінами каси, оновлюється при закритті зміни.
+// units — скільки одиниць валюти продано і ще не відкуплено; uah — виручка за них.
+model DeskSoldPool {
+  cashDeskId Int
+  currency   String
+  units      Decimal  @db.Decimal(18, 4)
+  uah        Decimal  @db.Decimal(18, 2)
   updatedAt  DateTime @updatedAt
 
   @@id([cashDeskId, currency])

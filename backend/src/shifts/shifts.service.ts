@@ -2,7 +2,7 @@ import { Injectable, BadRequestException, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { format } from 'date-fns';
 import { applyOperationsToBalance, operationsDelta } from '../common/balance.util';
-import { midRates, valueOf } from '../common/profit.util';
+import { sellRates, valueOf } from '../common/profit.util';
 import { cashMovementsDelta } from '../common/cash-movements.util';
 import { usdtCashDelta, usdtProfit } from '../common/usdt.util';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
@@ -89,6 +89,22 @@ export class ShiftsService {
     if (actor && actor.role !== 'ADMIN' && shift.openedById !== actor.sub)
       throw new BadRequestException('Закрити можна лише власну зміну');
 
+    // Непідтверджена передача = гроші фізично вже пішли з каси, але в ledger не
+    // потрапили (він рахує лише CONFIRMED). Закриття в такому стані давало б
+    // фантомну нестачу у відправника і надлишок на наступній зміні.
+    const pending = await this.prisma.transfer.findMany({
+      where: { status: 'PENDING', fromDeskId: shift.cashDeskId },
+      select: { number: true, currency: true, amount: true },
+    });
+    if (pending.length) {
+      const list = pending
+        .map((t) => `${t.number} (${Number(t.amount).toFixed(2)} ${t.currency})`)
+        .join(', ');
+      throw new BadRequestException(
+        `Є непідтверджені передачі: ${list}. Дочекайтесь підтвердження отримувачем або скасуйте їх — інакше закриття покаже хибну нестачу.`,
+      );
+    }
+
     const start = shift.startBalance as Record<string, number>;
 
     // Залишок до руху готівки (лише початок + операції) — база для прибутку.
@@ -107,8 +123,9 @@ export class ShiftsService {
     const rates = await this.prisma.rate.findMany({
       where: { exchangePointId: shift.cashDesk.exchangePointId, status: 'ACTIVE' },
     });
-    // Серединні курси — лише для оцінки нестачі/надлишку каси (не для прибутку).
-    const valuation = midRates(
+    // Курси ПРОДАЖУ — лише для оцінки нестачі/надлишку каси (не для прибутку):
+    // нестача коштує стільки, за скільки касир продав би цю валюту клієнту.
+    const valuation = sellRates(
       rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
     );
     const wac = await this.profit.computeShift({
@@ -116,12 +133,25 @@ export class ShiftsService {
       exchangePointId: shift.cashDesk.exchangePointId,
       startBalance: start,
       operations: shift.operations as any,
+      // Підкріплення/інкасації та передачі теж рухають позицію (без прибутку) —
+      // інакше продаж підкріпленої валюти давав би 0 і псував собівартість.
+      cashMovements: (shift.cashMovements ?? []) as any,
+      openedAt: shift.openedAt,
+      closedAt: null, // зміна ще відкрита — беремо всі підтверджені передачі
     });
     // Прибуток USDT — чиста маржа (%) у гривні, окремим рядком «USDT».
     const usdtMargin = usdtProfit((shift.usdtOperations as any) ?? []);
     const profitByCurrency: Record<string, number> = { ...wac.byCurrency };
     if (Math.abs(usdtMargin) >= 0.005) profitByCurrency.USDT = usdtMargin;
     const profit = wac.totalRealized + usdtMargin;
+
+    // Маржа з відкупу — ДОДАТКОВИЙ показник (модель замовника: заробіток кільця
+    // «продав валюту → відкупив на виручену гривню»). Фінанси на ньому не
+    // будуються — він лише показується поруч із прибутком.
+    const buyback = await this.profit.computeBuybackMargin({
+      cashDeskId: shift.cashDeskId,
+      operations: shift.operations as any,
+    });
 
     // Передачі між касами/точками — це рух готівки, а не торговий прибуток.
     // Вилучаємо їх із фактичного залишку, щоб отримана/відправлена валюта не
@@ -175,11 +205,14 @@ export class ShiftsService {
         factualProfit,
         profitByCurrency,
         valuationRates: valuation,
+        buybackMargin: buyback.totalMargin,
+        buybackMarginByCurrency: buyback.byCurrency,
       },
     });
-    // Переносимо ковзну собівартість на наступну зміну цієї каси + записуємо
-    // реалізований прибуток кожної операції (для фінансів/живого підрахунку).
+    // Переносимо ковзну собівартість і пул проданої гривні на наступну зміну цієї
+    // каси + записуємо реалізований прибуток кожної операції (фінанси/живий підрахунок).
     await this.profit.saveBasis(shift.cashDeskId, wac.ending);
+    await this.profit.saveSoldPool(shift.cashDeskId, buyback.ending);
     const opUpdates = wac.ops
       .map((o: any, i: number) => (o.id != null ? { id: o.id, profit: wac.perOp[i] } : null))
       .filter((x): x is { id: number; profit: number } => x != null);
@@ -212,16 +245,22 @@ export class ShiftsService {
     };
   }
 
-  // Підтверджені передачі/свопи каси з моменту відкриття зміни — щоб поточний
-  // баланс ураховував рух готівки між касами (Б1/Б2).
+  /**
+   * Підтверджені передачі/свопи каси за час життя зміни (Б1/Б2).
+   * Для ЗАКРИТОЇ зміни обовʼязково обмежуємо моментом закриття: інакше передачі,
+   * підтверджені вже на наступній зміні тієї ж каси, «протікали» б у звіт
+   * закритої (вони мають confirmedAt >= її openedAt) і псували її баланс.
+   */
   private async confirmedTransfersForShift(
-    shift: { cashDeskId: number; openedAt: Date } | null,
+    shift: { cashDeskId: number; openedAt: Date; closedAt?: Date | null } | null,
   ) {
     if (!shift) return [];
     return this.prisma.transfer.findMany({
       where: {
         status: 'CONFIRMED',
-        confirmedAt: { gte: shift.openedAt },
+        confirmedAt: shift.closedAt
+          ? { gte: shift.openedAt, lte: shift.closedAt }
+          : { gte: shift.openedAt },
         OR: [{ fromDeskId: shift.cashDeskId }, { toDeskId: shift.cashDeskId }],
       },
       select: {
@@ -303,11 +342,14 @@ export class ShiftsService {
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
 
-    // Підтверджені передачі каси за зміну — з іменами кас і користувачів.
+    // Підтверджені передачі каси за час життя зміни (для закритої — до closedAt,
+    // інакше в звіт потраплять передачі наступної зміни тієї ж каси).
     const transfers = await this.prisma.transfer.findMany({
       where: {
         status: 'CONFIRMED',
-        confirmedAt: { gte: shift.openedAt },
+        confirmedAt: shift.closedAt
+          ? { gte: shift.openedAt, lte: shift.closedAt }
+          : { gte: shift.openedAt },
         OR: [{ fromDeskId: shift.cashDeskId }, { toDeskId: shift.cashDeskId }],
       },
       orderBy: { confirmedAt: 'asc' },
@@ -348,7 +390,9 @@ export class ShiftsService {
       .sort((a, b) => a.currency.localeCompare(b.currency));
 
     // Ledger-дельти по складових + повний розрахунковий залишок.
-    const transfersNet = await confirmedTransfersNetForDesk(this.prisma, shift.cashDeskId, shift.openedAt);
+    const transfersNet = await confirmedTransfersNetForDesk(
+      this.prisma, shift.cashDeskId, shift.openedAt, shift.closedAt,
+    );
     const opsDelta = operationsDelta(shift.operations);
     const movesDelta = cashMovementsDelta(shift.cashMovements);
     const usdtDelta = usdtCashDelta(shift.usdtOperations as any);
@@ -374,9 +418,11 @@ export class ShiftsService {
       }
     }
 
-    // Контекст моделі прибутку: перехідна собівартість каси (WAC) і активні курси точки.
-    const [costBasis, activeRates] = await Promise.all([
+    // Контекст моделей: перехідна собівартість (WAC), пул проданої гривні
+    // (маржа з відкупу) і активні курси точки.
+    const [costBasis, soldPool, activeRates] = await Promise.all([
       this.profit.getBasis(shift.cashDeskId),
+      this.profit.getSoldPool(shift.cashDeskId),
       this.prisma.rate.findMany({
         where: { exchangePointId: shift.cashDesk.exchangePointId, status: 'ACTIVE' },
         select: { currency: true, buy: true, sell: true, updatedAt: true },
@@ -408,6 +454,12 @@ export class ShiftsService {
         cashDelta: usdtDelta,
       },
       wacCostBasis: costBasis,
+      // Маржа з відкупу (модель замовника) — додатковий показник поруч із profit.
+      buyback: {
+        margin: shift.buybackMargin != null ? Number(shift.buybackMargin) : null,
+        byCurrency: shift.buybackMarginByCurrency,
+        soldPool, // пул проданої гривні, що чекає відкупу (поточний стан каси)
+      },
       activeRates,
     };
   }
@@ -466,10 +518,14 @@ export class ShiftsService {
       newStartBalance[cur] = newAmt - (delta[cur] ?? 0);
     }
 
-    return this.prisma.shift.update({
+    const updated = await this.prisma.shift.update({
       where: { id: shiftId },
       data: { startBalance: newStartBalance },
     });
+    // startBalance — це відкриваюча позиція WAC, тож прибуток операцій треба
+    // перерахувати одразу (інакше фінанси до закриття зміни показують старі числа).
+    await this.profit.recomputeShiftOps(shiftId);
+    return updated;
   }
 
   async getAllActiveShifts() {

@@ -1,7 +1,21 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { wacRealized, PositionMap, WacOperation } from '../common/wac-profit.util';
+import { wacRealizedTimeline, WacItem, PositionMap, WacOperation } from '../common/wac-profit.util';
+import { buybackMargin, SoldPoolMap, MarginOperation } from '../common/buyback-margin.util';
+import { CashMovementRow } from '../common/cash-movements.util';
 import { usdtProfit } from '../common/usdt.util';
+
+/**
+ * Собівартість валюти на відкриття зміни. Нульова перенесена собівартість —
+ * НЕ дані, а слід повністю закритої позиції (avgCost скидається в 0). Якщо
+ * валюта потім з'явиться в касі без купівлі (підкріплення, передача, ручне
+ * коригування), нуль дав би фантомний прибуток на всю суму продажу — тому
+ * падаємо на поточний курс купівлі точки.
+ */
+function openingCost(carried: number | undefined, buyRate: number | undefined): number {
+  if (carried != null && carried > 0) return carried;
+  return buyRate ?? 0;
+}
 
 /**
  * Прибуток за моделлю WAC (Варіант 1): позиція каси по валюті переноситься між
@@ -29,7 +43,7 @@ export class ProfitService {
       const shifts = await this.prisma.shift.findMany({
         where: { cashDeskId: desk.id },
         orderBy: { openedAt: 'asc' },
-        include: { operations: true, usdtOperations: true },
+        include: { operations: true, usdtOperations: true, cashMovements: true },
       });
       const basis: Record<string, number> = {}; // переноситься між змінами каси
 
@@ -43,13 +57,32 @@ export class ProfitService {
           ...shift.operations.map((o) => (o.payCurrency ?? '') as string),
         ]);
         for (const cur of currencies) {
-          if (!cur || cur === 'UAH') continue;
-          opening[cur] = { qty: Number(start[cur] ?? 0), avgCost: basis[cur] ?? buyRates[cur] ?? 0 };
+          if (!cur || cur === 'UAH' || cur === 'USDT') continue;
+          opening[cur] = {
+            qty: Number(start[cur] ?? 0),
+            avgCost: openingCost(basis[cur], buyRates[cur]),
+          };
         }
         const ops = [...shift.operations].sort(
           (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
-        const res = wacRealized(opening, ops as any);
+        // Та сама хронологія, що й у живому розрахунку: операції + неторгові рухи.
+        const flows = await this.buildFlows(
+          {
+            cashDeskId: desk.id,
+            cashMovements: shift.cashMovements as any,
+            openedAt: shift.openedAt,
+            closedAt: shift.closedAt,
+          },
+          buyRates,
+        );
+        const items: WacItem[] = [
+          ...ops.map((op) => ({ at: new Date(op.createdAt).getTime(), item: { kind: 'op' as const, op: op as any } })),
+          ...flows,
+        ]
+          .sort((a, b) => a.at - b.at)
+          .map((x) => x.item);
+        const res = wacRealizedTimeline(opening, items);
 
         // op.profit
         await this.prisma.$transaction(
@@ -88,6 +121,43 @@ export class ProfitService {
     return map;
   }
 
+  /** Пул «проданої гривні, що чекає відкупу» (для маржі з відкупу). */
+  async getSoldPool(cashDeskId: number): Promise<SoldPoolMap> {
+    const rows = await this.prisma.deskSoldPool.findMany({ where: { cashDeskId } });
+    const map: SoldPoolMap = {};
+    for (const r of rows) map[r.currency] = { units: Number(r.units), uah: Number(r.uah) };
+    return map;
+  }
+
+  /**
+   * Маржа з відкупу за зміну (додатковий показник, модель замовника). Пул
+   * переноситься між змінами каси; на фінанси не впливає.
+   */
+  async computeBuybackMargin(params: {
+    cashDeskId: number;
+    operations: (MarginOperation & { createdAt?: Date | string })[];
+  }) {
+    const opening = await this.getSoldPool(params.cashDeskId);
+    const ops = [...params.operations].sort(
+      (a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
+    );
+    return buybackMargin(opening, ops);
+  }
+
+  /** Переносить пул проданої гривні на наступну зміну каси. */
+  async saveSoldPool(cashDeskId: number, ending: SoldPoolMap) {
+    const ops = Object.entries(ending)
+      .filter(([cur]) => cur !== 'UAH')
+      .map(([currency, p]) =>
+        this.prisma.deskSoldPool.upsert({
+          where: { cashDeskId_currency: { cashDeskId, currency } },
+          create: { cashDeskId, currency, units: p.units, uah: p.uah },
+          update: { units: p.units, uah: p.uah },
+        }),
+      );
+    if (ops.length) await this.prisma.$transaction(ops);
+  }
+
   /** Поточні курси КУПІВЛІ точки (для стартової собівартості валют без історії). */
   async getBuyRates(exchangePointId: number): Promise<Record<string, number>> {
     const rates = await this.prisma.rate.findMany({
@@ -109,6 +179,12 @@ export class ProfitService {
     exchangePointId: number;
     startBalance: Record<string, number>;
     operations: (WacOperation & { id?: number; createdAt?: Date | string })[];
+    // Неторгові рухи валюти зміни. Без них продана «підкріплена» валюта
+    // відкривала коротку позицію: прибуток 0, а собівартість підмінялась ціною
+    // продажу. Передачі беруться з БД (потрібен час підтвердження).
+    cashMovements?: CashMovementRow[];
+    openedAt?: Date;
+    closedAt?: Date | null;
   }) {
     const [basis, buyRates] = await Promise.all([
       this.getBasis(params.cashDeskId),
@@ -125,17 +201,90 @@ export class ProfitService {
       ...params.operations.map((o) => (o.payCurrency ?? '') as string),
     ]);
     for (const cur of currencies) {
-      if (!cur || cur === 'UAH') continue;
+      // USDT — не готівкова позиція каси: живе в окремому гаманці, торгується
+      // лише через вікно USDT. Історичні хвости в startBalance не мають
+      // створювати WAC-позицію (ризик фантомного прибутку зі стале-собівартості).
+      if (!cur || cur === 'UAH' || cur === 'USDT') continue;
       const qty = Number(params.startBalance?.[cur] ?? 0);
-      const avgCost = basis[cur] ?? buyRates[cur] ?? 0;
-      opening[cur] = { qty, avgCost };
+      opening[cur] = { qty, avgCost: openingCost(basis[cur], buyRates[cur]) };
     }
 
     const ops = [...params.operations].sort(
       (a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime(),
     );
-    const res = wacRealized(opening, ops);
+
+    // Хронологія зміни: операції + неторгові рухи валюти. Порядок важливий —
+    // підкріплення має потрапити в позицію ДО продажу підкріпленої валюти.
+    const flows = await this.buildFlows(params, buyRates);
+    const items: WacItem[] = [
+      ...ops.map((op) => ({ at: new Date(op.createdAt ?? 0).getTime(), item: { kind: 'op' as const, op } })),
+      ...flows,
+    ]
+      .sort((a, b) => a.at - b.at)
+      .map((x) => x.item);
+
+    const res = wacRealizedTimeline(opening, items);
     return { ...res, ops };
+  }
+
+  /**
+   * Неторгові рухи валюти зміни (для WAC-позиції):
+   *   • підкріплення (IN) / отримана передача → валюта заходить у запас за
+   *     ПОТОЧНИМ курсом купівлі точки (реальної собівартості немає — купівлі не було);
+   *   • інкасація (OUT) / відправлена передача → просто зменшує запас (без прибутку).
+   * Гривня не є позицією — пропускаємо.
+   */
+  private async buildFlows(
+    params: {
+      cashDeskId: number;
+      cashMovements?: CashMovementRow[];
+      openedAt?: Date;
+      closedAt?: Date | null;
+    },
+    buyRates: Record<string, number>,
+  ): Promise<{ at: number; item: WacItem }[]> {
+    const out: { at: number; item: WacItem }[] = [];
+    const push = (at: Date | string, currency: string, qty: number) => {
+      if (!currency || currency === 'UAH' || currency === 'USDT' || !qty) return;
+      out.push({
+        at: new Date(at).getTime(),
+        item: { kind: 'flow', currency, qty, price: buyRates[currency] ?? 0 },
+      });
+    };
+
+    for (const m of params.cashMovements ?? []) {
+      const amt = Number((m as any).amount);
+      push((m as any).createdAt, m.currency, m.direction === 'IN' ? amt : -amt);
+    }
+
+    if (params.openedAt) {
+      const transfers = await this.prisma.transfer.findMany({
+        where: {
+          status: 'CONFIRMED',
+          confirmedAt: params.closedAt
+            ? { gte: params.openedAt, lte: params.closedAt }
+            : { gte: params.openedAt },
+          OR: [{ fromDeskId: params.cashDeskId }, { toDeskId: params.cashDeskId }],
+        },
+        select: {
+          currency: true, amount: true, fromDeskId: true, toDeskId: true,
+          counterCurrency: true, counterAmount: true, confirmedAt: true,
+        },
+      });
+      for (const t of transfers) {
+        if (!t.confirmedAt) continue;
+        const incoming = t.toDeskId === params.cashDeskId;
+        const amt = Number(t.amount);
+        push(t.confirmedAt, t.currency, incoming ? amt : -amt);
+        // Своп: зустрічне плече йде у зворотному напрямку.
+        if (t.counterCurrency && t.counterAmount != null) {
+          const cAmt = Number(t.counterAmount);
+          push(t.confirmedAt, t.counterCurrency, incoming ? -cAmt : cAmt);
+        }
+      }
+    }
+
+    return out;
   }
 
   /**
@@ -147,7 +296,7 @@ export class ProfitService {
   async recomputeShiftOps(shiftId: number) {
     const shift = await this.prisma.shift.findUnique({
       where: { id: shiftId },
-      include: { cashDesk: true, operations: true },
+      include: { cashDesk: true, operations: true, cashMovements: true },
     });
     if (!shift) return;
     const res = await this.computeShift({
@@ -155,9 +304,19 @@ export class ProfitService {
       exchangePointId: shift.cashDesk.exchangePointId,
       startBalance: (shift.startBalance as Record<string, number>) ?? {},
       operations: shift.operations as any,
+      cashMovements: shift.cashMovements as any,
+      openedAt: shift.openedAt,
+      closedAt: shift.closedAt,
     });
+    // Пишемо лише ті операції, де прибуток реально змінився: перерахунок робиться
+    // після КОЖНОЇ операції, тож без цієї відсічки зміна на 90 операцій давала б
+    // тисячі зайвих UPDATE (квадратично від кількості операцій).
     const updates = res.ops
-      .map((o: any, i: number) => (o.id != null ? { id: o.id, profit: res.perOp[i] } : null))
+      .map((o: any, i: number) =>
+        o.id != null && Math.abs(Number(o.profit ?? 0) - res.perOp[i]) >= 0.005
+          ? { id: o.id, profit: res.perOp[i] }
+          : null,
+      )
       .filter((x): x is { id: number; profit: number } => x != null);
     if (updates.length) {
       await this.prisma.$transaction(
@@ -166,10 +325,15 @@ export class ProfitService {
     }
   }
 
-  /** Зберігає (переносить) середню собівартість каси після закриття зміни. */
+  /**
+   * Зберігає (переносить) середню собівартість каси після закриття зміни.
+   * Нульову собівартість не пишемо: позиція закрита — старий запис лишається
+   * як остання відома ціна, а нуль зробив би наступний продаж «чистим
+   * прибутком» на всю суму (див. openingCost).
+   */
   async saveBasis(cashDeskId: number, ending: PositionMap) {
     const ops = Object.entries(ending)
-      .filter(([cur]) => cur !== 'UAH')
+      .filter(([cur, p]) => cur !== 'UAH' && cur !== 'USDT' && p.avgCost > 0)
       .map(([currency, p]) =>
         this.prisma.deskCostBasis.upsert({
           where: { cashDeskId_currency: { cashDeskId, currency } },

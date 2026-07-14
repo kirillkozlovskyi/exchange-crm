@@ -72,13 +72,16 @@ export class CashBankService {
     });
   }
 
-  // Адмін: депозит готівки в банк (ззовні).
+  // Адмін: депозит готівки в банк (ззовні). Баланс і запис у журнал — атомарно:
+  // інакше збій логування лишав би рух банку без сліду в історії.
   async deposit(dto: { currency: string; amount: number; note?: string }, userId: number) {
     const amount = Number(dto.amount);
     if (!dto.currency) throw new BadRequestException('Не вказано валюту');
     if (!(amount > 0)) throw new BadRequestException('Сума має бути більшою за 0');
-    await this.credit(dto.currency, amount);
-    await this.log('DEPOSIT', dto.currency, amount, userId, undefined, dto.note);
+    await this.prisma.$transaction(async (tx) => {
+      await this.credit(dto.currency, amount, tx);
+      await this.log('DEPOSIT', dto.currency, amount, userId, undefined, dto.note, tx);
+    });
     return this.getBalances();
   }
 
@@ -87,8 +90,10 @@ export class CashBankService {
     const amount = Number(dto.amount);
     if (!dto.currency) throw new BadRequestException('Не вказано валюту');
     if (!(amount > 0)) throw new BadRequestException('Сума має бути більшою за 0');
-    await this.debit(dto.currency, amount);
-    await this.log('WITHDRAW', dto.currency, -amount, userId, undefined, dto.note);
+    await this.prisma.$transaction(async (tx) => {
+      await this.debit(dto.currency, amount, tx);
+      await this.log('WITHDRAW', dto.currency, -amount, userId, undefined, dto.note, tx);
+    });
     return this.getBalances();
   }
 

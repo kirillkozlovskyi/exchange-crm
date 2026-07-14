@@ -1,4 +1,4 @@
-import { Injectable, BadRequestException, NotFoundException } from '@nestjs/common';
+import { Injectable, BadRequestException, NotFoundException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { format } from 'date-fns';
@@ -10,6 +10,8 @@ import { ProfitService } from '../profit/profit.service';
 
 @Injectable()
 export class OperationsService {
+  private readonly logger = new Logger(OperationsService.name);
+
   constructor(
     private prisma: PrismaService,
     private settings: SettingsService,
@@ -68,6 +70,8 @@ export class OperationsService {
     payCurrency?: string;
     payAmount?: number;
     note?: string;
+    // Необовʼязково: прибуток, який касир порахував сам (для звірки логіки).
+    cashierProfit?: number | null;
     // mode — вкладка касира; для крос визначає BUY/SELL замість EXCHANGE
     mode?: 'BUY' | 'SELL';
     // Офлайн-синк: uuid операції з фронта (ідемпотентність) + реальний час
@@ -99,7 +103,11 @@ export class OperationsService {
     const exchangePointId = shift.cashDesk.exchangePointId;
 
     const getRate = await this.buildRateLookup(exchangePointId, [dto.currency, dto.payCurrency]);
-    const { type, totalUah, profit } = computeOperationTotals(dto, getRate);
+    // profit із computeOperationTotals — стара модель «спред на обох плечах» (вона
+    // ЗАВЖДИ додатна). Не зберігаємо її: справжній прибуток за WAC проставляє
+    // recomputeShiftOps одразу після створення. Якщо перерахунок упаде, у полі
+    // лишиться 0 (недооцінка), а не вигаданий плюс.
+    const { type, totalUah } = computeOperationTotals(dto, getRate);
     this.assertValidAmounts(dto.amount, dto.rate, totalUah);
 
     const payCur = dto.payCurrency || 'UAH';
@@ -138,7 +146,9 @@ export class OperationsService {
           amount: dto.amount,
           rate: dto.rate,
           totalUah,
-          profit,
+          profit: 0, // проставить recomputeShiftOps (WAC) одразу нижче
+          // Довідкове поле: не впливає на розрахунки, лише зберігаємо як ввів касир.
+          cashierProfit: Number.isFinite(Number(dto.cashierProfit)) ? Number(dto.cashierProfit) : null,
           note: dto.note,
           payCurrency: payCur !== 'UAH' ? payCur : null,
           payAmount: dto.payAmount ?? null,
@@ -159,7 +169,7 @@ export class OperationsService {
     }
     // Перераховуємо реалізований прибуток (WAC) по всій зміні — щоб живий
     // підрахунок і фінанси одразу бачили правильні числа.
-    await this.profit.recomputeShiftOps(dto.shiftId).catch(() => {});
+    await this.recomputeProfit(dto.shiftId);
     return created;
   }
 
@@ -208,10 +218,11 @@ export class OperationsService {
 
     const exchangePointId = op.shift.cashDesk.exchangePointId;
 
-    // Перераховуємо totalUah та profit тією ж логікою, що й при створенні.
+    // Перераховуємо totalUah тією ж логікою, що й при створенні (profit не беремо —
+    // це стара, завжди-додатна модель; його проставить recomputeShiftOps за WAC).
     // mode = op.type зберігає тип (важливо для крос-операцій, збережених як BUY/SELL).
     const getRate = await this.buildRateLookup(exchangePointId, [op.currency, op.payCurrency]);
-    const { totalUah, profit } = computeOperationTotals(
+    const { totalUah } = computeOperationTotals(
       {
         currency: op.currency,
         amount: dto.amount,
@@ -240,9 +251,9 @@ export class OperationsService {
 
     const res = await this.prisma.operation.update({
       where: { id },
-      data: { amount: dto.amount, rate: dto.rate, totalUah, profit },
+      data: { amount: dto.amount, rate: dto.rate, totalUah },
     });
-    await this.profit.recomputeShiftOps(op.shiftId).catch(() => {});
+    await this.recomputeProfit(op.shiftId);
     return res;
   }
 
@@ -271,8 +282,25 @@ export class OperationsService {
       where: { id },
       data: { cancelled: true, cancelNote: note ?? null },
     });
-    await this.profit.recomputeShiftOps(op.shiftId).catch(() => {});
+    await this.recomputeProfit(op.shiftId);
     return res;
+  }
+
+  /**
+   * Перерахунок прибутку зміни (WAC) після створення/редагування/сторно.
+   * Помилку НЕ ковтаємо мовчки: сама операція вже збережена й коректна, тож
+   * запит не валимо, але збій має бути видно в логах — інакше в op.profit
+   * тихо лишиться 0 і фінанси недоотримають прибуток до закриття зміни.
+   */
+  private async recomputeProfit(shiftId: number) {
+    try {
+      await this.profit.recomputeShiftOps(shiftId);
+    } catch (e) {
+      this.logger.error(
+        `Не вдалося перерахувати прибуток (WAC) зміни ${shiftId} — profit операцій лишається 0 до закриття зміни`,
+        e as any,
+      );
+    }
   }
 
   async getEdits(operationId: number) {

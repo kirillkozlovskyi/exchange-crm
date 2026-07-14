@@ -1,17 +1,5 @@
 import { useState, useEffect } from 'react';
-import CurrenciesAdmin from './CurrenciesAdmin';
-import ExchangePointsAdmin from './ExchangePointsAdmin';
-import UsersAdmin from './UsersAdmin';
 import api from '../../api/axios';
-
-type SubTab = 'currencies' | 'points' | 'users' | 'operations';
-
-const SUBTABS: { key: SubTab; label: string }[] = [
-  { key: 'currencies', label: '💱 Курс / Валюти' },
-  { key: 'points',     label: '🏢 Точки та каси' },
-  { key: 'users',      label: '👥 Користувачі' },
-  { key: 'operations', label: '⚙️ Операції' },
-];
 
 function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -309,7 +297,7 @@ function TelegramSettings() {
 }
 
 // Курси НБУ: % націнки та автопідтягування за розкладом.
-function NbuSettings() {
+export function NbuSettings() {
   const [buyPct, setBuyPct] = useState<number>(-5);
   const [sellPct, setSellPct] = useState<number>(5);
   const [auto, setAuto] = useState<boolean>(false);
@@ -369,11 +357,70 @@ function NbuSettings() {
   );
 }
 
-function OperationsSettings() {
+// Сповіщення: Telegram-бот + поріг «великої операції» (він і є порогом
+// телеграм-сповіщення, тому живе поруч, а не серед правил операцій).
+export function NotificationsSettings() {
+  const [largeOp, setLargeOp] = useState<number>(0);
+  const [saved, setSaved] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/large-op').then(({ data }) => setLargeOp(data.amount)).catch(() => {});
+  }, []);
+
+  const handleSave = async () => {
+    setLoading(true);
+    setSaved(false);
+    try {
+      await api.put('/settings/large-op', { amount: largeOp });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <TelegramSettings />
+
+      <div className="bg-white rounded-xl shadow p-6 space-y-5">
+        <h3 className="font-semibold text-gray-800 text-base">🔔 Поріг великої операції</h3>
+
+        <div className="space-y-2">
+          <label className="text-sm font-medium text-gray-700">Сума, ₴</label>
+          <p className="text-xs text-gray-400">
+            Операції з гривневою сумою від цього порога надсилаються в Telegram власнику. 0 — вимкнено.
+          </p>
+          <input
+            type="number" min="0" step="1000" value={largeOp}
+            onChange={(e) => setLargeOp(Math.max(0, parseFloat(e.target.value) || 0))}
+            className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-right font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+        </div>
+
+        <div className="flex items-center gap-3 pt-1">
+          <button
+            onClick={handleSave} disabled={loading}
+            className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition">
+            {loading ? 'Збереження...' : 'Зберегти'}
+          </button>
+          {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Каса та операції: реквізити для чеків, швидкі суми, правила роботи каси
+// й дозволи касиру. Рендериться прямо зі сторінки адмінки (пункт сайдбара).
+export default function OperationsSettings() {
   const [minutes, setMinutes] = useState<number>(5);
   const [balanceEdit, setBalanceEdit] = useState<boolean>(true);
   const [seeBank, setSeeBank] = useState<boolean>(false);
-  const [largeOp, setLargeOp] = useState<number>(0);
+  const [seeProfit, setSeeProfit] = useState<boolean>(true);
+  const [bankEnabled, setBankEnabled] = useState<boolean>(true);
+  const [buyback, setBuyback] = useState<boolean>(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -382,12 +429,16 @@ function OperationsSettings() {
       api.get('/settings/storno-window'),
       api.get('/settings/balance-edit'),
       api.get('/settings/cashier-see-bank'),
-      api.get('/settings/large-op'),
-    ]).then(([s, b, k, l]) => {
+      api.get('/settings/cashier-see-profit'),
+      api.get('/settings/cash-bank-enabled'),
+      api.get('/settings/buyback-margin'),
+    ]).then(([s, b, k, p, cb, bm]) => {
       setMinutes(s.data.minutes);
       setBalanceEdit(b.data.enabled);
       setSeeBank(k.data.enabled);
-      setLargeOp(l.data.amount);
+      setSeeProfit(p.data.enabled);
+      setBankEnabled(cb.data.enabled);
+      setBuyback(bm.data.enabled);
     });
   }, []);
 
@@ -399,7 +450,9 @@ function OperationsSettings() {
         api.put('/settings/storno-window', { minutes }),
         api.put('/settings/balance-edit', { enabled: balanceEdit }),
         api.put('/settings/cashier-see-bank', { enabled: seeBank }),
-        api.put('/settings/large-op', { amount: largeOp }),
+        api.put('/settings/cashier-see-profit', { enabled: seeProfit }),
+        api.put('/settings/cash-bank-enabled', { enabled: bankEnabled }),
+        api.put('/settings/buyback-margin', { enabled: buyback }),
       ]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -409,9 +462,8 @@ function OperationsSettings() {
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+    <div className="space-y-6">
       <OrgSettings />
-      <TelegramSettings />
       <QuickAmountsSettings
         endpoint="/settings/quick-amounts"
         title="⚡ Швидкі суми (операції)"
@@ -425,10 +477,8 @@ function OperationsSettings() {
         accent="teal"
       />
 
-      <NbuSettings />
-
       <div className="bg-white rounded-xl shadow p-6 space-y-5">
-        <h3 className="font-semibold text-gray-800 text-base">Налаштування операцій</h3>
+        <h3 className="font-semibold text-gray-800 text-base">Правила та дозволи</h3>
 
         {/* Вікно сторно */}
         <div className="space-y-2">
@@ -474,17 +524,44 @@ function OperationsSettings() {
 
         <div className="border-t border-gray-100" />
 
-        {/* Поріг великої операції (Telegram) */}
-        <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700">Поріг великої операції, ₴</label>
-          <p className="text-xs text-gray-400">
-            Операції з гривневою сумою від цього порога надсилаються в Telegram власнику. 0 — вимкнено.
-          </p>
-          <input
-            type="number" min="0" step="1000" value={largeOp}
-            onChange={(e) => setLargeOp(Math.max(0, parseFloat(e.target.value) || 0))}
-            className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-right font-semibold focus:outline-none focus:ring-2 focus:ring-blue-400"
-          />
+        {/* Видимість прибутку для касира */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-700">Касир бачить прибуток каси</p>
+            <p className="text-xs text-gray-400">
+              Показувати касиру живий прибуток на екрані каси та блок «Прибуток за зміну» при закритті (включно з друкованим звітом).
+            </p>
+          </div>
+          <Toggle enabled={seeProfit} onChange={setSeeProfit} />
+        </div>
+
+        <div className="border-t border-gray-100" />
+
+        {/* Глобальний банк готівки */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-700">Використовувати банк готівки</p>
+            <p className="text-xs text-gray-400">
+              Увімкнено: підкріплення/інкасації рухають спільний банк фірми, є сторінка «Банк».
+              Вимкнено: гроші живуть лише по касах, джерело «Банк» у русі готівки не пропонується.
+            </p>
+          </div>
+          <Toggle enabled={bankEnabled} onChange={setBankEnabled} />
+        </div>
+
+        <div className="border-t border-gray-100" />
+
+        {/* Маржа з відкупу — додатковий показник поруч із прибутком */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-700">Показувати «маржу з відкупу»</p>
+            <p className="text-xs text-gray-400">
+              Додатковий показник поруч із прибутком: заробіток кільця «продав валюту → відкупив
+              її на виручену гривню». Продаж сам по собі маржі не дає — вона виникає при відкупі.
+              На фінанси й прибуток зміни не впливає.
+            </p>
+          </div>
+          <Toggle enabled={buyback} onChange={setBuyback} />
         </div>
 
         <div className="flex items-center gap-3 pt-1">
@@ -496,35 +573,6 @@ function OperationsSettings() {
           {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
         </div>
       </div>
-    </div>
-  );
-}
-
-export default function SettingsAdmin() {
-  const [tab, setTab] = useState<SubTab>('currencies');
-
-  return (
-    <div className="space-y-4">
-      <div className="bg-white rounded-xl shadow p-1 flex gap-1 w-fit">
-        {SUBTABS.map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setTab(t.key)}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-              tab === t.key
-                ? 'bg-blue-700 text-white'
-                : 'text-gray-600 hover:bg-gray-100'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {tab === 'currencies' && <CurrenciesAdmin />}
-      {tab === 'points'     && <ExchangePointsAdmin />}
-      {tab === 'users'      && <UsersAdmin />}
-      {tab === 'operations' && <OperationsSettings />}
     </div>
   );
 }

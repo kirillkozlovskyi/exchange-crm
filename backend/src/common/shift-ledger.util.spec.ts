@@ -1,4 +1,4 @@
-import { shiftCashBalance } from './shift-ledger.util';
+import { shiftCashBalance, confirmedTransfersNetForDesk } from './shift-ledger.util';
 
 /**
  * Ledger-розрахунок поточної готівки зміни — регресія на баг «Недостатньо UAH:
@@ -32,5 +32,39 @@ describe('shiftCashBalance — єдиний ledger', () => {
 
   it('відсутні частини не ламають розрахунок (порожня зміна)', () => {
     expect(shiftCashBalance({ startBalance: { UAH: 100 }, operations: [] })).toEqual({ UAH: 100 });
+  });
+});
+
+describe('confirmedTransfersNetForDesk — часові межі зміни', () => {
+  // Передачі каси беруться з моменту відкриття зміни. Для ЗАКРИТОЇ зміни
+  // обовʼязкова верхня межа (closedAt): інакше передача, підтверджена вже на
+  // НАСТУПНІЙ зміні тієї ж каси, потрапила б у звіт закритої (її confirmedAt
+  // теж >= openedAt закритої) і зіпсувала б її баланс та розбіжність.
+  const openedAt = new Date('2026-07-14T06:00:00Z');
+  const closedAt = new Date('2026-07-14T15:00:00Z');
+
+  function prismaSpy() {
+    const calls: any[] = [];
+    return {
+      calls,
+      transfer: {
+        findMany: jest.fn((args: any) => {
+          calls.push(args);
+          return Promise.resolve([]);
+        }),
+      },
+    };
+  }
+
+  it('закрита зміна: запит обмежено closedAt', async () => {
+    const prisma = prismaSpy();
+    await confirmedTransfersNetForDesk(prisma as any, 7, openedAt, closedAt);
+    expect(prisma.calls[0].where.confirmedAt).toEqual({ gte: openedAt, lte: closedAt });
+  });
+
+  it('відкрита зміна: верхньої межі немає (передачі рахуються далі)', async () => {
+    const prisma = prismaSpy();
+    await confirmedTransfersNetForDesk(prisma as any, 7, openedAt);
+    expect(prisma.calls[0].where.confirmedAt).toEqual({ gte: openedAt });
   });
 });

@@ -142,6 +142,45 @@ export class SettingsService {
     await this.set('cashier_can_see_bank', String(enabled));
   }
 
+  // Чи бачить касир прибуток каси (живий лічильник на екрані каси і блок
+  // «Прибуток за зміну» при закритті). За замовчуванням — так.
+  async getCashierCanSeeProfit(): Promise<boolean> {
+    const v = await this.get('cashier_can_see_profit');
+    return v !== 'false'; // default true
+  }
+
+  async setCashierCanSeeProfit(enabled: boolean): Promise<void> {
+    await this.set('cashier_can_see_profit', String(enabled));
+  }
+
+  /**
+   * Чи використовується глобальний банк готівки. Вимкнено → гроші живуть лише
+   * по касах: у русі готівки немає джерела «Банк», сторінка «Банк» ховається.
+   * За замовчуванням увімкнено (як було до появи налаштування).
+   */
+  async getCashBankEnabled(): Promise<boolean> {
+    const v = await this.get('cash_bank_enabled');
+    return v !== 'false'; // default true
+  }
+
+  async setCashBankEnabled(enabled: boolean): Promise<void> {
+    await this.set('cash_bank_enabled', String(enabled));
+  }
+
+  /**
+   * Чи показувати «маржу з відкупу» — додатковий показник поруч із прибутком
+   * (модель замовника: заробіток кільця «продав валюту → відкупив на гривню»).
+   * За замовчуванням вимкнено — щоб не плутати два числа без потреби.
+   */
+  async getBuybackMarginEnabled(): Promise<boolean> {
+    const v = await this.get('buyback_margin_enabled');
+    return v === 'true'; // default false
+  }
+
+  async setBuybackMarginEnabled(enabled: boolean): Promise<void> {
+    await this.set('buyback_margin_enabled', String(enabled));
+  }
+
   async getCurrencyOrder(): Promise<string[]> {
     const v = await this.get('currency_order');
     if (!v) return [];

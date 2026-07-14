@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
-import { midRates, valueOf } from '../../lib/profit';
+import { sellRates, valueOf } from '../../lib/profit';
 import { netTransfers, type TransferRow } from '../../lib/transfers';
 import { cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 import { usdtCashDelta, usdtProfit, type UsdtOpRow } from '../../lib/usdt';
@@ -48,6 +48,7 @@ export default function CloseShiftForm({
   transfers = [],
   cashMovements = [],
   usdtOperations = [],
+  showProfit = true,
   onClose,
   onCancel,
 }: {
@@ -57,6 +58,9 @@ export default function CloseShiftForm({
   transfers?: TransferRow[];
   cashMovements?: MovementRow[];
   usdtOperations?: (UsdtOpRow & { id?: number; number?: string; usdtAmount?: number | string; createdAt?: string })[];
+  // Адмінське налаштування «Касир бачить прибуток каси»: ховає блок прибутку
+  // на екрані закриття та в друкованому звіті.
+  showProfit?: boolean;
   onClose: (endBalance: Record<string, number>) => Promise<void>;
   onCancel: () => void;
 }) {
@@ -128,7 +132,8 @@ export default function CloseShiftForm({
   const [error, setError] = useState('');
 
   // ── Прибуток = реалізований WAC (сума op.profit, рахує сервер) ──────────────
-  const valuation = useMemo(() => midRates(rates), [rates]); // лише для нестачі/надлишку
+  // Нестача/надлишок оцінюються за курсом ПРОДАЖУ (як на сервері).
+  const valuation = useMemo(() => sellRates(rates), [rates]);
   // Торговий прибуток по валютах = сума op.profit (продаж проти собівартості,
   // позиція переноситься між змінами). Розбивка — по валюті операції.
   const realized = useMemo(() => {
@@ -300,7 +305,7 @@ export default function CloseShiftForm({
         </table>
       </div>
 
-      <div class="section">
+      ${showProfit ? `<div class="section">
         <h2>Прибуток за зміну (по валютах)</h2>
         <table>
           <thead><tr>
@@ -308,7 +313,7 @@ export default function CloseShiftForm({
           </tr></thead>
           <tbody>${profitRowsHtml || '<tr><td colspan="6" style="text-align:center;color:#888">—</td></tr>'}</tbody>
         </table>
-      </div>
+      </div>` : ''}
 
       <div class="section">
         <h2>Залишки каси</h2>
@@ -321,10 +326,10 @@ export default function CloseShiftForm({
       </div>
 
       <div class="totals">
-        <div><span>Торговий прибуток</span><span>${tradingProfit >= 0 ? '+' : ''}${n(tradingProfit)} ₴</span></div>
-        ${Math.abs(usdtMargin) >= 0.005 ? `<div><span>у т.ч. маржа USDT</span><span>${usdtMargin >= 0 ? '+' : ''}${n(usdtMargin)} ₴</span></div>` : ''}
+        ${showProfit ? `<div><span>Торговий прибуток</span><span>${tradingProfit >= 0 ? '+' : ''}${n(tradingProfit)} ₴</span></div>` : ''}
+        ${showProfit && Math.abs(usdtMargin) >= 0.005 ? `<div><span>у т.ч. маржа USDT</span><span>${usdtMargin >= 0 ? '+' : ''}${n(usdtMargin)} ₴</span></div>` : ''}
         ${Math.abs(cashDiff) >= 0.01 ? `<div><span>Нестача/надлишок каси</span><span>${cashDiff >= 0 ? '+' : ''}${n(cashDiff)} ₴</span></div>` : ''}
-        <div class="line"><span>Фактичний результат</span><span>${factualProfit >= 0 ? '+' : ''}${n(factualProfit)} ₴</span></div>
+        ${showProfit ? `<div class="line"><span>Фактичний результат</span><span>${factualProfit >= 0 ? '+' : ''}${n(factualProfit)} ₴</span></div>` : ''}
       </div>
 
       <div class="sign">
@@ -466,7 +471,8 @@ export default function CloseShiftForm({
           )}
         </div>
 
-          {/* Прибуток за зміну — розбивка по валютах */}
+          {/* Прибуток за зміну — розбивка по валютах (якщо дозволено касиру) */}
+          {showProfit && (
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold text-gray-800 mb-1">Прибуток за зміну</h3>
             <p className="text-xs text-gray-400 mb-3">
@@ -552,6 +558,7 @@ export default function CloseShiftForm({
               </div>
             )}
           </div>
+          )}
 
         </div>
 

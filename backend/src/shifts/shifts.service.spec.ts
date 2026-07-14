@@ -6,6 +6,7 @@ import { ProfitService } from '../profit/profit.service';
 // потрібними для WAC методами (собівартість каси, $transaction).
 function build(prisma: any) {
   prisma.deskCostBasis = prisma.deskCostBasis ?? { findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() };
+  prisma.deskSoldPool = prisma.deskSoldPool ?? { findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() };
   prisma.$transaction = prisma.$transaction ?? ((arr: any[]) => Promise.all(arr));
   prisma.rate = prisma.rate ?? { findMany: jest.fn().mockResolvedValue([]) };
   return new ShiftsService(prisma, new ProfitService(prisma));
@@ -60,9 +61,9 @@ describe('ShiftsService — закриття та коригування', () =>
       // calc: USD 100, UAH 5900. Касир нарахував лише 90 USD (нестача 10).
       const res: any = await service.closeShift(1, { UAH: 5900, USD: 90 });
       // Лише купівля (без продажу) → відкупу немає → торговий прибуток 0.
-      // Фактичний = 0 + нестача 10 USD × 41.25 = −412.5.
+      // Нестача оцінюється за курсом ПРОДАЖУ (рішення власника): 10 USD × 41.5.
       expect(Number(res.profit)).toBeCloseTo(0);
-      expect(Number(res.factualProfit)).toBeCloseTo(-412.5);
+      expect(Number(res.factualProfit)).toBeCloseTo(-415);
     });
 
     it('передачі між касами не входять у фактичний прибуток', async () => {
@@ -75,9 +76,11 @@ describe('ShiftsService — закриття та коригування', () =>
         shift: { findUnique: jest.fn().mockResolvedValue(shift), update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })) },
         rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]) }, // mid 41.25
         // На касу 7 надійшла передача 200 USD → фізично в касі 300 USD, але це не прибуток.
-        transfer: { findMany: jest.fn().mockResolvedValue([
-          { currency: 'USD', amount: 200, fromDeskId: 9, toDeskId: 7 },
-        ]) },
+        // Мок чутливий до статусу: перевірка непідтверджених (PENDING) має бачити порожньо.
+        transfer: { findMany: jest.fn(({ where }: any) =>
+          Promise.resolve(where?.status === 'PENDING' ? [] : [
+            { currency: 'USD', amount: 200, fromDeskId: 9, toDeskId: 7 },
+          ])) },
       };
       const service = build(prisma);
       // Касир нарахував 300 USD (100 від операції + 200 передача), UAH 5900.
@@ -118,6 +121,29 @@ describe('ShiftsService — закриття та коригування', () =>
       expect(res.netCashMovements).toEqual({ USD: -40, UAH: 2000 });
     });
 
+    it('НЕ дає закрити зміну з непідтвердженою передачею (інакше — фантомна нестача)', async () => {
+      // Гроші фізично пішли з каси при створенні передачі, але ledger рахує лише
+      // CONFIRMED — закриття показало б хибну нестачу у відправника.
+      const shift = {
+        id: 1, status: 'OPEN', cashDeskId: 7, openedAt: new Date(),
+        cashDesk: { exchangePointId: 1 }, startBalance: { USD: 1000 }, operations: [],
+      };
+      const prisma = {
+        shift: { findUnique: jest.fn().mockResolvedValue(shift), update: jest.fn() },
+        rate: { findMany: jest.fn().mockResolvedValue([]) },
+        transfer: {
+          findMany: jest.fn(({ where }: any) =>
+            Promise.resolve(where?.status === 'PENDING'
+              ? [{ number: 'TR-20260714-0001', currency: 'USD', amount: 500 }]
+              : []),
+          ),
+        },
+      };
+      const service = build(prisma);
+      await expect(service.closeShift(1, { USD: 500 })).rejects.toThrow(/непідтверджені передачі/);
+      expect(prisma.shift.update).not.toHaveBeenCalled();
+    });
+
     it('кидає BadRequestException, якщо зміна вже закрита', async () => {
       const prisma = {
         shift: {
@@ -140,6 +166,7 @@ describe('ShiftsService — закриття та коригування', () =>
         status: 'OPEN',
         cashDeskId: 7,
         openedAt: new Date(),
+        cashDesk: { exchangePointId: 1 },
         startBalance: { UAH: 10000, USD: 500 },
         operations: [
           { type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, cancelled: false },
@@ -166,6 +193,7 @@ describe('ShiftsService — закриття та коригування', () =>
         status: 'OPEN',
         cashDeskId: 7,
         openedAt: new Date(),
+        cashDesk: { exchangePointId: 1 },
         startBalance: { UAH: 1000 },
         operations: [],
         cashMovements: [],
@@ -179,9 +207,10 @@ describe('ShiftsService — закриття та коригування', () =>
         },
         // Отримана передача +200 USD.
         transfer: {
-          findMany: jest.fn().mockResolvedValue([
-            { currency: 'USD', amount: 200, fromDeskId: 9, toDeskId: 7, counterCurrency: null, counterAmount: null },
-          ]),
+          findMany: jest.fn(({ where }: any) =>
+            Promise.resolve(where?.status === 'PENDING' ? [] : [
+              { currency: 'USD', amount: 200, fromDeskId: 9, toDeskId: 7, counterCurrency: null, counterAmount: null },
+            ])),
         },
       };
       const service = build(prisma);

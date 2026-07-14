@@ -67,6 +67,8 @@ export default function OperationForm({
   const [rcvCurSeeded, setRcvCurSeeded] = useState(false); // set once from hConvCur
   const [chgCur, setChgCur] = useState('UAH');
 
+  // Прибуток, який касир рахує САМ (необовʼязково) — для звірки логіки підрахунку.
+  const [cashierProfit, setCashierProfit] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [showConfirm, setShowConfirm] = useState(false);
@@ -423,15 +425,19 @@ export default function OperationForm({
       const resetForm = () => {
         setShowConfirm(false);
         setClientAmt(''); setHSumAmt(''); setHConvAmt(''); setHConvManual(false);
-        setQtyAmt(''); setRcvAmt('');
+        setQtyAmt(''); setRcvAmt(''); setCashierProfit('');
         // Кастомний курс діє лише на одну операцію → повертаємо до ринкового
         setRateManual(false);
         setError('');
       };
 
+      // Прибуток за розрахунком касира — необовʼязковий; порожнє поле = null.
+      const cashierProfitNum = cashierProfit.trim() === '' ? null : parseFloat(cashierProfit);
+
       try {
         const { data } = await api.post('/operations', {
           shiftId, currency, amount, rate, payCurrency: payC, payAmount: payA, mode,
+          cashierProfit: Number.isFinite(cashierProfitNum as number) ? cashierProfitNum : null,
         });
         setLastOp(data);
         resetForm();
@@ -695,6 +701,23 @@ export default function OperationForm({
           </div>
         </>
       )}
+
+      {/* Прибуток за розрахунком касира — НЕОБОВʼЯЗКОВЕ поле (можна лишати порожнім).
+          Не впливає на жоден розрахунок: збираємо, щоб звірити логіку підрахунку. */}
+      <div className="flex items-center gap-2">
+        <label className="text-xs font-semibold text-gray-900 uppercase tracking-wide whitespace-nowrap">
+          Прибуток, ₴
+        </label>
+        <input
+          type="number"
+          step="0.01"
+          inputMode="decimal"
+          value={cashierProfit}
+          onChange={(e) => setCashierProfit(e.target.value)}
+          placeholder="ваш розрахунок (не обовʼязково)"
+          className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+      </div>
 
       {error && <p className="text-red-500 text-sm">{error}</p>}
 

@@ -50,7 +50,7 @@ const profitStub = { recomputeShiftOps: jest.fn().mockResolvedValue(undefined) }
 
 describe('OperationsService — грошова математика', () => {
   describe('create()', () => {
-    it('SELL (клієнт дає UAH, отримує валюту): totalUah = amount × rate, profit = amount × спред', async () => {
+    it('SELL: totalUah = amount × rate; profit НЕ пишеться при створенні (його дає WAC-перерахунок)', async () => {
       const prisma = makePrisma();
       const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
@@ -61,14 +61,17 @@ describe('OperationsService — грошова математика', () => {
 
       expect(res.type).toBe('SELL');
       expect(Number(res.totalUah)).toBeCloseTo(4150); // 100 × 41.5
-      expect(Number(res.profit)).toBeCloseTo(50); // 100 × (41.5 − 41)
+      // Прибуток при створенні = 0: стара модель «спред на обох плечах» завжди
+      // додатна й давала фантомний плюс, якщо WAC-перерахунок не спрацював.
+      expect(Number(res.profit)).toBe(0);
+      expect(profitStub.recomputeShiftOps).toHaveBeenCalledWith(1);
       expect(res.payCurrency).toBeNull();
       expect(res.payAmount).toBeNull();
       expect(res.cashierId).toBe(7);
       expect(res.number).toBe('T1-' + dateStr() + '-000001');
     });
 
-    it('BUY (клієнт дає валюту, отримує UAH): totalUah = amount × rate, profit = amount × спред', async () => {
+    it('BUY: totalUah = amount × rate; profit при створенні = 0 (проставить WAC)', async () => {
       const prisma = makePrisma();
       const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
@@ -79,12 +82,12 @@ describe('OperationsService — грошова математика', () => {
 
       expect(res.type).toBe('BUY');
       expect(Number(res.totalUah)).toBeCloseTo(4100); // 100 × 41
-      expect(Number(res.profit)).toBeCloseTo(50); // 100 × (41.5 − 41)
+      expect(Number(res.profit)).toBe(0);
       expect(res.payCurrency).toBe('USD');
       expect(Number(res.payAmount)).toBe(100);
     });
 
-    it('крос (валюта→валюта) у режимі BUY: type=BUY, totalUah у UAH, profit за крос-формулою', async () => {
+    it('крос (валюта→валюта) у режимі BUY: type=BUY, totalUah у UAH; profit — з WAC, не при створенні', async () => {
       const prisma = makePrisma();
       const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
 
@@ -97,8 +100,7 @@ describe('OperationsService — грошова математика', () => {
       expect(res.type).toBe('BUY'); // успадковує mode касира
       // totalUah = payAmount × buy(USD) = 100 × 41 = 4100
       expect(Number(res.totalUah)).toBeCloseTo(4100);
-      // profit = payAmount × sell(USD) − amount × buy(EUR) = 100×41.5 − 90×44 = 4150 − 3960
-      expect(Number(res.profit)).toBeCloseTo(190);
+      expect(Number(res.profit)).toBe(0);
       expect(res.payCurrency).toBe('USD');
       expect(Number(res.payAmount)).toBe(100);
     });
@@ -224,7 +226,7 @@ describe('OperationsService — грошова математика', () => {
       return prisma;
     }
 
-    it('SELL: перераховує totalUah та profit, пише OperationEdit', async () => {
+    it('SELL: перераховує totalUah, пише OperationEdit; profit лишає WAC-перерахунку', async () => {
       const prisma = prismaForUpdate({
         id: 5, type: 'SELL', currency: 'USD', amount: 100, rate: 41.5, payCurrency: null, payAmount: null,
       });
@@ -233,7 +235,10 @@ describe('OperationsService — грошова математика', () => {
       const res: any = await service.update(5, { amount: 200, rate: 42, note: 'fix' }, 9);
 
       expect(Number(res.totalUah)).toBeCloseTo(8400); // 200 × 42
-      expect(Number(res.profit)).toBeCloseTo(100); // 200 × (41.5 − 41)
+      // profit при редагуванні не переписуємо старою моделлю — його перерахує WAC
+      // по всій зміні (інакше в полі осідав завжди-додатний «спред»).
+      expect(res.profit).toBeUndefined();
+      expect(profitStub.recomputeShiftOps).toHaveBeenCalledWith(1);
       expect(prisma.operationEdit.create).toHaveBeenCalledWith(
         expect.objectContaining({
           data: expect.objectContaining({
@@ -243,7 +248,7 @@ describe('OperationsService — грошова математика', () => {
       );
     });
 
-    it('BUY: profit = новий amount × спред payCurrency', async () => {
+    it('BUY: перераховує totalUah за payCurrency; profit — з WAC', async () => {
       const prisma = prismaForUpdate({
         id: 6, type: 'BUY', currency: 'UAH', amount: 100, rate: 41, payCurrency: 'USD', payAmount: 100,
       });
@@ -252,7 +257,7 @@ describe('OperationsService — грошова математика', () => {
       const res: any = await service.update(6, { amount: 150, rate: 41 }, 9);
 
       expect(Number(res.totalUah)).toBeCloseTo(6150); // 150 × 41
-      expect(Number(res.profit)).toBeCloseTo(75); // 150 × (41.5 − 41)
+      expect(res.profit).toBeUndefined();
     });
 
     it('EXCHANGE: payAmount незмінний, перерахунок на нових курсах', async () => {
@@ -265,8 +270,7 @@ describe('OperationsService — грошова математика', () => {
 
       // totalUah = payAmount × buy(USD) = 100 × 41 = 4100
       expect(Number(res.totalUah)).toBeCloseTo(4100);
-      // profit = payAmount × sell(USD) − amount × buy(EUR) = 100×41.5 − 80×44 = 4150 − 3520
-      expect(Number(res.profit)).toBeCloseTo(630);
+      expect(res.profit).toBeUndefined(); // profit — з WAC-перерахунку зміни
     });
 
     it('крос, збережений як BUY (mode), редагується крос-логікою, а не як звичайний BUY', async () => {
@@ -281,8 +285,7 @@ describe('OperationsService — грошова математика', () => {
 
       // Крос: totalUah = payAmount × buy(USD) = 100 × 41 = 4100 (НЕ 88×0.92)
       expect(Number(res.totalUah)).toBeCloseTo(4100);
-      // profit = payAmount×sell(USD) − amount×buy(EUR) = 100×41.5 − 88×44 = 4150 − 3872
-      expect(Number(res.profit)).toBeCloseTo(278);
+      expect(res.profit).toBeUndefined(); // profit — з WAC-перерахунку зміни
     });
 
     it('кидає BadRequestException при закритій зміні', async () => {

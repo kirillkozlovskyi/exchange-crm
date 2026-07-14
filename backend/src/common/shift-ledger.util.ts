@@ -56,16 +56,21 @@ interface TransferQuerier {
   };
 }
 
-/** Підтверджені передачі каси від моменту `since` (зазвичай openedAt зміни). */
+/**
+ * Підтверджені передачі каси від моменту `since` (зазвичай openedAt зміни).
+ * `until` (closedAt) обовʼязковий для ЗАКРИТИХ змін: без верхньої межі передачі,
+ * підтверджені вже на наступній зміні каси, потрапляли б і в закриту.
+ */
 export async function confirmedTransferRowsForDesk(
   prisma: TransferQuerier,
   deskId: number,
   since: Date,
+  until?: Date | null,
 ): Promise<TransferRow[]> {
   const rows = await prisma.transfer.findMany({
     where: {
       status: 'CONFIRMED',
-      confirmedAt: { gte: since },
+      confirmedAt: until ? { gte: since, lte: until } : { gte: since },
       OR: [{ fromDeskId: deskId }, { toDeskId: deskId }],
     },
     select: {
@@ -92,6 +97,7 @@ export async function confirmedTransfersNetForDesk(
   prisma: TransferQuerier,
   deskId: number,
   since: Date,
+  until?: Date | null,
 ): Promise<Record<string, number>> {
-  return netTransfers(await confirmedTransferRowsForDesk(prisma, deskId, since), deskId);
+  return netTransfers(await confirmedTransferRowsForDesk(prisma, deskId, since, until), deskId);
 }

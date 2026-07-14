@@ -17,7 +17,9 @@
     "db:migrate": "prisma migrate deploy",
     "db:seed": "ts-node prisma/seed.ts",
     "db:reset-ops": "ts-node prisma/reset-operational.ts",
-    "db:reset-ops:go": "CONFIRM_RESET=1 ts-node prisma/reset-operational.ts"
+    "db:reset-ops:go": "CONFIRM_RESET=1 ts-node prisma/reset-operational.ts",
+    "db:cleanup-usdt": "ts-node prisma/cleanup-usdt-cash.ts",
+    "db:cleanup-usdt:go": "CONFIRM_CLEANUP=1 ts-node prisma/cleanup-usdt-cash.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",

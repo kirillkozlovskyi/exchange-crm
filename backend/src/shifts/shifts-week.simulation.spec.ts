@@ -14,6 +14,7 @@ import { ProfitService } from '../profit/profit.service';
 
 function makeWorld(rates: { currency: string; buy: number; sell: number }[]) {
   const basis = new Map<string, number>(); // DeskCostBasis: currency → avgCost
+  const soldPool = new Map<string, { units: number; uah: number }>(); // DeskSoldPool
   let shift: any = null;
   let transfers: any[] = [];
 
@@ -26,13 +27,29 @@ function makeWorld(rates: { currency: string; buy: number; sell: number }[]) {
       }),
     },
     rate: { findMany: jest.fn(() => Promise.resolve(rates.map((r) => ({ ...r })))) },
-    transfer: { findMany: jest.fn(() => Promise.resolve(transfers)) },
+    // Мок чутливий до статусу: перевірка непідтверджених передач (PENDING) при
+    // закритті зміни має бачити порожньо — тут усі передачі вже підтверджені.
+    transfer: {
+      findMany: jest.fn(({ where }: any) =>
+        Promise.resolve(where?.status === 'PENDING' ? [] : transfers),
+      ),
+    },
     deskCostBasis: {
       findMany: jest.fn(() =>
         Promise.resolve([...basis].map(([currency, avgCost]) => ({ currency, avgCost }))),
       ),
       upsert: jest.fn(({ create }: any) => {
         basis.set(create.currency, Number(create.avgCost));
+        return Promise.resolve({});
+      }),
+    },
+    // Пул проданої гривні (маржа з відкупу) — переноситься між змінами, як і basis.
+    deskSoldPool: {
+      findMany: jest.fn(() =>
+        Promise.resolve([...soldPool].map(([currency, p]) => ({ currency, ...p }))),
+      ),
+      upsert: jest.fn(({ create }: any) => {
+        soldPool.set(create.currency, { units: Number(create.units), uah: Number(create.uah) });
         return Promise.resolve({});
       }),
     },
@@ -190,7 +207,7 @@ describe('Симуляція тижня роботи каси (WAC із пере
     weekProfits.push(Number(res.profit));
   });
 
-  it('Сб: нестача касира зменшує ФАКТИЧНИЙ прибуток за серединним курсом, торговий — ні', async () => {
+  it('Сб: нестача касира зменшує ФАКТИЧНИЙ прибуток (за курсом продажу), торговий — ні', async () => {
     const res: any = await world.runDay({
       startBalance: { UAH: 34490, USD: 1287.5, EUR: 104 },
       operations: [world.sell('USD', 100, 41.9)],
@@ -198,8 +215,8 @@ describe('Симуляція тижня роботи каси (WAC із пере
       endBalance: { UAH: 38680, USD: 1177.5, EUR: 104 },
     });
     expect(Number(res.profit)).toBeCloseTo(60, 6); // 100 × 0.6
-    // Фактичний = 60 − 10 × 41.3 (mid) = −353.
-    expect(Number(res.factualProfit)).toBeCloseTo(-353, 6);
+    // Нестача 10 USD оцінюється за курсом ПРОДАЖУ (41.6): 60 − 10 × 41.6 = −356.
+    expect(Number(res.factualProfit)).toBeCloseTo(-356, 6);
     weekProfits.push(Number(res.profit));
   });
 

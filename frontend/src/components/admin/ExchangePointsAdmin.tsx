@@ -95,6 +95,25 @@ function PointCard({ point, onUpdate }: { point: any; onUpdate: () => void }) {
   const [addr, setAddr] = useState(point.address ?? '');
   const [savingAddr, setSavingAddr] = useState(false);
 
+  // Редагування назви точки
+  const [editingName, setEditingName] = useState(false);
+  const [pointName, setPointName] = useState(point.name);
+  const [savingName, setSavingName] = useState(false);
+
+  const saveName = async () => {
+    if (!pointName.trim()) return;
+    setSavingName(true);
+    try {
+      await api.patch(`/exchange-points/${point.id}`, { name: pointName.trim() });
+      setEditingName(false);
+      onUpdate();
+    } catch (err: any) {
+      alert(err.response?.data?.message ?? 'Помилка');
+    } finally {
+      setSavingName(false);
+    }
+  };
+
   const loadDesks = async () => {
     const { data } = await api.get(`/cash-desks?pointId=${point.id}`);
     setDesks(data);
@@ -137,8 +156,46 @@ function PointCard({ point, onUpdate }: { point: any; onUpdate: () => void }) {
         onClick={() => setOpen((v) => !v)}
         className="w-full flex items-center justify-between px-4 py-3 bg-gray-50 hover:bg-gray-100 transition"
       >
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-gray-800">{point.name}</span>
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          {editingName ? (
+            <>
+              <input
+                value={pointName}
+                onChange={(e) => setPointName(e.target.value)}
+                onClick={(e) => e.stopPropagation()}
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') { e.preventDefault(); saveName(); }
+                  if (e.key === 'Escape') { setEditingName(false); setPointName(point.name); }
+                }}
+                className="border rounded px-2 py-1 text-sm font-semibold w-48 focus:outline-none focus:ring-2 focus:ring-blue-300"
+              />
+              <button
+                onClick={(e) => { e.stopPropagation(); saveName(); }}
+                disabled={savingName || !pointName.trim()}
+                className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 disabled:opacity-50"
+              >
+                Зберегти
+              </button>
+              <button
+                onClick={(e) => { e.stopPropagation(); setEditingName(false); setPointName(point.name); }}
+                className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200"
+              >
+                ✕
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="font-semibold text-gray-800">{point.name}</span>
+              <button
+                onClick={(e) => { e.stopPropagation(); setEditingName(true); }}
+                title="Редагувати назву точки"
+                className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200"
+              >
+                Ред.
+              </button>
+            </>
+          )}
           <span className="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono">{point.code}</span>
           <span className="text-xs text-gray-400">{desks.length} кас(и)</span>
         </div>

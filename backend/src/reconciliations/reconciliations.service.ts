@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TelegramService } from '../telegram/telegram.service';
+import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
 
 @Injectable()
 export class ReconciliationsService {
@@ -19,12 +20,31 @@ export class ReconciliationsService {
       select: {
         id: true,
         cashDeskId: true,
+        openedAt: true,
+        closedAt: true,
+        startBalance: true,
+        operations: true,
+        cashMovements: true,
+        usdtOperations: true,
         cashDesk: { select: { name: true, exchangePoint: { select: { name: true } } } },
       },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
 
-    const expected = dto.expected ?? {};
+    // Розрахунковий залишок рахуємо НА СЕРВЕРІ (той самий ledger, що й у закритті).
+    // Раніше він приходив з клієнта — касир міг надіслати «очікувано = фактично»
+    // і звірка ніколи б не показала розбіжності.
+    const expected = shiftCashBalance(
+      {
+        startBalance: (shift.startBalance as Record<string, number>) ?? {},
+        operations: shift.operations,
+        cashMovements: shift.cashMovements,
+        usdtOperations: shift.usdtOperations as any,
+      },
+      await confirmedTransfersNetForDesk(
+        this.prisma, shift.cashDeskId, shift.openedAt, shift.closedAt,
+      ),
+    );
     const actual = dto.actual ?? {};
     const currencies = new Set([...Object.keys(expected), ...Object.keys(actual)]);
     const hasDiscrepancy = [...currencies].some(

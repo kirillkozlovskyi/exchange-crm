@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import api from '../api/axios';
 import AdminOverview from '../components/admin/AdminOverview';
 import RatesAdmin from '../components/admin/RatesAdmin';
 import FinanceAdmin from '../components/admin/FinanceAdmin';
@@ -9,13 +10,16 @@ import CashBankAdmin from '../components/admin/CashBankAdmin';
 import OperationsAdmin from '../components/admin/OperationsAdmin';
 import ShiftsAdmin from '../components/admin/ShiftsAdmin';
 import ReconciliationsAdmin from '../components/admin/ReconciliationsAdmin';
-import SettingsAdmin from '../components/admin/SettingsAdmin';
+import OperationsSettings, { NbuSettings, NotificationsSettings } from '../components/admin/SettingsAdmin';
+import CurrenciesAdmin from '../components/admin/CurrenciesAdmin';
+import ExchangePointsAdmin from '../components/admin/ExchangePointsAdmin';
+import UsersAdmin from '../components/admin/UsersAdmin';
 import ExpensesAdmin from '../components/admin/ExpensesAdmin';
 
 type Tab =
   | 'overview' | 'rates' | 'bank'
   | 'finance' | 'expenses' | 'shiftlog' | 'operations' | 'usdt' | 'transfers' | 'cashmovements' | 'reconciliations'
-  | 'settings';
+  | 'set-currencies' | 'set-points' | 'set-users' | 'set-operations' | 'set-notifications';
 
 // Сайдбар: групи → пункти. Порядок = частота використання.
 const NAV: { header?: string; items: { key: Tab; icon: string; label: string }[] }[] = [
@@ -43,8 +47,14 @@ const NAV: { header?: string; items: { key: Tab; icon: string; label: string }[]
     ],
   },
   {
-    header: 'Система',
-    items: [{ key: 'settings', icon: '⚙️', label: 'Налаштування' }],
+    header: 'Налаштування',
+    items: [
+      { key: 'set-currencies', icon: '💱', label: 'Валюти та курси' },
+      { key: 'set-points', icon: '🏢', label: 'Точки та каси' },
+      { key: 'set-users', icon: '👥', label: 'Користувачі' },
+      { key: 'set-operations', icon: '⚙️', label: 'Каса та операції' },
+      { key: 'set-notifications', icon: '🔔', label: 'Сповіщення' },
+    ],
   },
 ];
 
@@ -60,7 +70,17 @@ const PAGES: Record<Tab, () => JSX.Element> = {
   transfers: () => <TransfersAdmin />,
   cashmovements: () => <CashMovementsAdmin />,
   reconciliations: () => <ReconciliationsAdmin />,
-  settings: () => <SettingsAdmin />,
+  // Курси НБУ (автопідтягування, відсотки) — тут, поруч із валютами й курсами.
+  'set-currencies': () => (
+    <div className="space-y-6">
+      <CurrenciesAdmin />
+      <NbuSettings />
+    </div>
+  ),
+  'set-points': () => <ExchangePointsAdmin />,
+  'set-users': () => <UsersAdmin />,
+  'set-operations': () => <OperationsSettings />,
+  'set-notifications': () => <NotificationsSettings />,
 };
 
 const TAB_KEYS = NAV.flatMap((g) => g.items.map((i) => i.key));
@@ -76,6 +96,17 @@ export default function AdminPage() {
     localStorage.setItem('adminTab', t);
   };
 
+  // Банк можна вимкнути в налаштуваннях — тоді ховаємо його сторінку.
+  const [bankEnabled, setBankEnabled] = useState(true);
+  useEffect(() => {
+    api.get('/settings/cash-bank-enabled')
+      .then(({ data }) => setBankEnabled(!!data.enabled))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    if (!bankEnabled && tab === 'bank') select('overview');
+  }, [bankEnabled, tab]);
+
   const Page = PAGES[tab];
 
   return (
@@ -89,7 +120,7 @@ export default function AdminPage() {
                 {group.header}
               </div>
             )}
-            {group.items.map((item) => (
+            {group.items.filter((item) => bankEnabled || item.key !== 'bank').map((item) => (
               <button
                 key={item.key}
                 onClick={() => select(item.key)}

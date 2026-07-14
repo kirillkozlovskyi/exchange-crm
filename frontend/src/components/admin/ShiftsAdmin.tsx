@@ -37,6 +37,11 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   // Фільтри таблиці операцій зміни.
   const [fType, setFType] = useState<'all' | 'BUY' | 'SELL'>('all');
   const [fCur, setFCur] = useState<string>('all');
+  // Вид звіту зміни: коротка друкована (зведення), повна друкована (зі списками
+  // документів), JSON (ті самі дані для розробника/аналізу).
+  const [reportKind, setReportKind] = useState<'short' | 'full' | 'json'>('short');
+  // «Маржа з відкупу» — додатковий показник, показуємо лише якщо ввімкнено в налаштуваннях.
+  const [showBuyback, setShowBuyback] = useState(false);
 
   useEffect(() => {
     api.get(`/shifts/${shiftId}`).then(({ data }) => setD(data)).catch(() => setD(null));
@@ -44,6 +49,7 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
 
   useEffect(() => {
     api.get('/settings/org-name').then(({ data }) => setOrgName(data.name ?? '')).catch(() => {});
+    api.get('/settings/buyback-margin').then(({ data }) => setShowBuyback(!!data.enabled)).catch(() => {});
   }, []);
 
   if (!d) return <div className="text-sm text-gray-400 py-3 px-1">Завантаження деталей...</div>;
@@ -107,10 +113,15 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
     })).sort((a, b) => a.cur.localeCompare(b.cur));
   })();
 
-  // ── Друк звіту по зміні (А4) — той самий склад, що й у касира при закритті ──
-  const printShiftReport = () => {
+  // ── Друк звіту по зміні (А4) ────────────────────────────────────────────────
+  // short: лише зведення (оборот, прибуток, залишки) — 1 сторінка для клієнта.
+  // full:  зведення + усі документи зміни (операції, рух готівки, USDT,
+  //        передачі, звірки) — той самий склад даних, що й у JSON-звіті.
+  const printShiftReport = (mode: 'short' | 'full' = 'full') => {
+    const full = mode === 'full';
     const n2 = (v: any, dd = 2) => Number(v ?? 0).toFixed(dd);
     const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
+    const tm = (s: string) => format(new Date(s), 'HH:mm');
 
     // Прибуток по валютах = сума op.profit (реалізований WAC), USDT — окремо.
     const realizedByCur: Record<string, number> = {};
@@ -149,6 +160,76 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
         `</tr>`;
     }).join('');
 
+    // ── Деталізація: усі документи зміни (лише для повної версії) ─────────────
+    const opRows = !full ? '' : [...ops]
+      .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))
+      .map((op) => {
+        const type = op.type === 'BUY' ? 'Купівля' : op.type === 'SELL' ? 'Продаж' : 'Обмін';
+        const cross = op.payCurrency ? `${fmt(op.payAmount)} ${op.payCurrency} → ` : '';
+        return `<tr${op.cancelled ? ' class="void"' : ''}>
+          <td>${tm(op.createdAt)}</td>
+          <td>${op.number ?? ''}</td>
+          <td>${type}${op.cancelled ? ' (сторно)' : ''}</td>
+          <td class="num">${cross}${fmt(op.amount)} ${op.currency}</td>
+          <td class="num">${n2(op.rate, 4)}</td>
+          <td class="num">${fmt(op.totalUah)}</td>
+          <td class="num">${op.cancelled ? '—' : (num(op.profit) > 0 ? '+' : '') + n2(op.profit)}</td>
+          <td class="num">${op.cashierProfit != null ? n2(op.cashierProfit) : '—'}</td>
+          <td>${op.cashier?.name ?? ''}</td>
+        </tr>`;
+      }).join('');
+
+    const moveRows = !full ? '' : [...moves]
+      .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))
+      .map((m) => `<tr>
+        <td>${tm(m.createdAt)}</td>
+        <td>${m.number ?? ''}</td>
+        <td>${m.direction === 'IN' ? 'Підкріплення' : 'Інкасація'}</td>
+        <td class="num">${m.direction === 'IN' ? '+' : '−'}${fmt(m.amount)} ${m.currency}</td>
+        <td>${[m.source, m.note].filter(Boolean).join(' · ') || '—'}</td>
+      </tr>`).join('');
+
+    const usdtRows = !full ? '' : [...usdtOps]
+      .sort((a, b) => +new Date(a.createdAt) - +new Date(b.createdAt))
+      .map((u) => `<tr${u.cancelled ? ' class="void"' : ''}>
+        <td>${tm(u.createdAt)}</td>
+        <td>${u.number ?? ''}</td>
+        <td>${u.side === 'SELL' ? 'Продаж' : 'Купівля'}${u.cancelled ? ' (сторно)' : ''}</td>
+        <td class="num">${u.side === 'SELL' ? '−' : '+'}${fmt(u.usdtAmount)} USDT</td>
+        <td class="num">${fmt(u.settleAmount)} ${u.settleCurrency}</td>
+        <td class="num">${u.cancelled ? '—' : '+' + n2(u.profitUah)}</td>
+      </tr>`).join('');
+
+    const transferRows = !full ? '' : transfers.map((t) => {
+      const incoming = t.toDeskId === d.cashDeskId;
+      const counter = t.counterCurrency
+        ? ` ↔ ${incoming ? '−' : '+'}${fmt(t.counterAmount)} ${t.counterCurrency}`
+        : '';
+      return `<tr>
+        <td>${t.confirmedAt ? tm(t.confirmedAt) : '—'}</td>
+        <td>${t.number ?? ''}</td>
+        <td>${incoming ? 'Отримано' : 'Відправлено'}</td>
+        <td class="num">${incoming ? '+' : '−'}${fmt(t.amount)} ${t.currency}${counter}</td>
+      </tr>`;
+    }).join('');
+
+    const reconRows = !full ? '' : recons.map((r) => {
+      const curs = Array.from(new Set([...Object.keys(r.expected || {}), ...Object.keys(r.actual || {})]));
+      const detail = curs.map((c) => {
+        const e = num(r.expected?.[c]); const a = num(r.actual?.[c]);
+        return Math.abs(a - e) >= 0.01 ? `${c}: ${fmt(a)}/${fmt(e)}` : `${c}: ${fmt(a)}`;
+      }).join(' · ');
+      return `<tr>
+        <td>${tm(r.createdAt)}</td>
+        <td>${r.createdBy?.name ?? ''}</td>
+        <td>${r.hasDiscrepancy ? 'розбіжність' : 'збіглося'}</td>
+        <td>${detail}</td>
+      </tr>`;
+    }).join('');
+
+    const empty = (cols: number, text = 'Немає') =>
+      `<tr><td colspan="${cols}" style="text-align:center;color:#888">${text}</td></tr>`;
+
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Звіт по зміні ${d.number}</title>
     <style>
       @page { size: A4; margin: 12mm; }
@@ -164,14 +245,18 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
       td.num { text-align: right; font-variant-numeric: tabular-nums; }
       td.b { font-weight: 700; }
       td.warn { color: #b91c1c; font-weight: 700; }
+      tr.void td { color: #999; text-decoration: line-through; }
       .section { page-break-inside: avoid; }
+      /* Довгі списки документів можуть не влізти на сторінку — рвемо по рядках. */
+      .list { margin-top: 4px; }
+      .list tr { page-break-inside: avoid; }
       .totals { margin-top: 12px; page-break-inside: avoid; }
       .totals div { display: flex; justify-content: space-between; padding: 3px 0; font-size: 12.5px; }
       .totals .line { border-top: 1.5px solid #111; margin-top: 4px; padding-top: 6px; font-weight: 700; font-size: 14px; }
       .sign { margin-top: 26px; display: flex; gap: 40px; page-break-inside: avoid; }
       .sign div { flex: 1; border-top: 1px solid #111; padding-top: 4px; font-size: 11px; color: #555; text-align: center; }
     </style></head><body>
-      <h1>Звіт по зміні №${d.number}${closed ? '' : ' (відкрита)'}</h1>
+      <h1>${full ? 'Повний звіт' : 'Звіт'} по зміні №${d.number}${closed ? '' : ' (відкрита)'}</h1>
       <div class="meta">
         ${orgName ? orgName + ' · ' : ''}${d.cashDesk?.exchangePoint?.name ?? ''} · ${d.cashDesk?.name ?? ''}
         · Касир: ${d.openedBy?.name ?? '—'}<br>
@@ -210,6 +295,47 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
         ${closed ? `<div class="line"><span>Прибуток зміни (збережено)</span><span>${num(d.profit) >= 0 ? '+' : ''}${n2(d.profit)} ₴</span></div>` : ''}
       </div>
 
+      ${full ? `
+      <div class="list">
+        <h2>Операції зміни (${ops.length})</h2>
+        <table>
+          <thead><tr><th>Час</th><th>Номер</th><th>Тип</th><th>Сума</th><th>Курс</th><th>₴</th><th>Прибуток (система)</th><th>Прибуток (касир)</th><th>Касир</th></tr></thead>
+          <tbody>${opRows || empty(9, 'Операцій не було')}</tbody>
+        </table>
+      </div>
+
+      <div class="list">
+        <h2>Рух готівки — підкріплення / інкасації (${moves.length})</h2>
+        <table>
+          <thead><tr><th>Час</th><th>Номер</th><th>Тип</th><th>Сума</th><th>Джерело / примітка</th></tr></thead>
+          <tbody>${moveRows || empty(5)}</tbody>
+        </table>
+      </div>
+
+      <div class="list">
+        <h2>USDT-операції (${usdtOps.length})</h2>
+        <table>
+          <thead><tr><th>Час</th><th>Номер</th><th>Тип</th><th>USDT</th><th>Готівка</th><th>Маржа, ₴</th></tr></thead>
+          <tbody>${usdtRows || empty(6)}</tbody>
+        </table>
+      </div>
+
+      <div class="list">
+        <h2>Передачі / свопи між касами (${transfers.length})</h2>
+        <table>
+          <thead><tr><th>Час</th><th>Номер</th><th>Напрям</th><th>Сума</th></tr></thead>
+          <tbody>${transferRows || empty(4)}</tbody>
+        </table>
+      </div>
+
+      <div class="list">
+        <h2>Проміжні звірки (${recons.length})</h2>
+        <table>
+          <thead><tr><th>Час</th><th>Хто</th><th>Результат</th><th>Деталі (факт/розрахунок)</th></tr></thead>
+          <tbody>${reconRows || empty(4, 'Звірок не було')}</tbody>
+        </table>
+      </div>` : ''}
+
       <div class="sign">
         <div>Касир (підпис, ПІБ)</div>
         <div>Перевірив (підпис, ПІБ)</div>
@@ -247,18 +373,22 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
 
   return (
     <div className="bg-gray-50 border-t border-gray-200 p-3 space-y-3">
-      <div className="flex justify-end gap-2">
-        <button
-          onClick={downloadFullReport}
-          className="px-3 py-1.5 rounded-lg font-medium text-sm bg-gray-700 text-white hover:bg-gray-800"
+      <div className="flex items-center justify-end gap-2">
+        <span className="text-xs text-gray-400">Звіт зміни:</span>
+        <select
+          value={reportKind}
+          onChange={(e) => setReportKind(e.target.value as typeof reportKind)}
+          className="border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
         >
-          ⬇ Повний звіт (JSON)
-        </button>
+          <option value="short">🖨 Коротка (зведення)</option>
+          <option value="full">🖨 Повна (з усіма документами)</option>
+          <option value="json">⬇ JSON (для розробника)</option>
+        </select>
         <button
-          onClick={printShiftReport}
+          onClick={() => (reportKind === 'json' ? downloadFullReport() : printShiftReport(reportKind))}
           className="px-3 py-1.5 rounded-lg font-medium text-sm bg-blue-700 text-white hover:bg-blue-800"
         >
-          🖨 Друк звіту по зміні
+          {reportKind === 'json' ? 'Скачати' : 'Друк'}
         </button>
       </div>
 
@@ -299,10 +429,19 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
           </tbody>
         </table>
         {closed && (
-          <div className="text-sm text-gray-600 mt-2 pt-2 border-t">
-            Прибуток зміни: <span className={`font-bold ${num(d.profit) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {num(d.profit) >= 0 ? '+' : ''}{fmt(d.profit)} ₴
-            </span>
+          <div className="text-sm text-gray-600 mt-2 pt-2 border-t space-y-1">
+            <div>
+              Прибуток зміни: <span className={`font-bold ${num(d.profit) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {num(d.profit) >= 0 ? '+' : ''}{fmt(d.profit)} ₴
+              </span>
+            </div>
+            {showBuyback && d.buybackMargin != null && (
+              <div title="Заробіток кільця «продав валюту → відкупив на виручену гривню». Не входить у фінанси.">
+                Маржа з відкупу: <span className={`font-bold ${num(d.buybackMargin) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {num(d.buybackMargin) >= 0 ? '+' : ''}{fmt(d.buybackMargin)} ₴
+                </span>
+              </div>
+            )}
           </div>
         )}
       </Section>
@@ -374,6 +513,7 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
                   <tr className="text-xs text-gray-400 border-b">
                     <th className="text-left pb-1">Час</th><th className="text-left pb-1">Тип</th>
                     <th className="text-right pb-1">Сума</th><th className="text-right pb-1">Курс</th><th className="text-right pb-1">UAH</th>
+                    <th className="text-right pb-1" title="Прибуток: система / за розрахунком касира">Прибуток</th>
                     <th className="pb-1"></th>
                   </tr>
                 </thead>
@@ -389,6 +529,20 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
                       <td className="py-1 text-right font-medium">{fmt(op.amount)} <span className="text-gray-400 text-xs">{op.currency}</span></td>
                       <td className="py-1 text-right text-gray-500">{num(op.rate).toFixed(2)}</td>
                       <td className="py-1 text-right text-gray-600">{fmt(op.totalUah)}</td>
+                      {/* Прибуток системи (WAC) і, якщо касир вводив, — його власний розрахунок. */}
+                      <td className="py-1 text-right whitespace-nowrap">
+                        <span className={num(op.profit) >= 0 ? 'text-gray-700' : 'text-red-600'}>{fmt(op.profit)}</span>
+                        {op.cashierProfit != null && (
+                          <span
+                            className={`ml-1 text-xs ${
+                              Math.abs(num(op.cashierProfit) - num(op.profit)) >= 0.5 ? 'text-amber-600 font-semibold' : 'text-gray-400'
+                            }`}
+                            title="Розрахунок касира"
+                          >
+                            / {fmt(op.cashierProfit)}
+                          </span>
+                        )}
+                      </td>
                       <td className="py-1 text-right">
                         <button
                           onClick={() => printReceipt(op, receipt)}

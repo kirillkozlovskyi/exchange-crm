@@ -44,7 +44,9 @@ export class FinanceService {
         select: { createdAt: true, profit: true },
       }),
       this.prisma.usdtOperation.findMany({
-        where: { createdAt: { gte: from, lte: to } },
+        // Сторновані USDT-операції не входять у прибуток (як і валютні) — інакше
+        // денна серія показувала маржу скасованих операцій.
+        where: { createdAt: { gte: from, lte: to }, cancelled: false },
         select: { createdAt: true, profitUah: true },
       }),
     ]);
@@ -79,11 +81,18 @@ export class FinanceService {
       this.prisma.operation.findMany({
         // Скасовані (сторно) не входять у фінансові підсумки.
         where: { createdAt: { gte: from, lte: to }, cancelled: false },
-        include: { shift: { include: { cashDesk: { include: { exchangePoint: true } } } } },
+        include: {
+          shift: { include: { cashDesk: { include: { exchangePoint: true } } } },
+          cashier: { select: { id: true, name: true } },
+        },
       }),
       this.prisma.usdtOperation.findMany({
-        where: { createdAt: { gte: from, lte: to } },
-        include: { cashDesk: { include: { exchangePoint: true } } },
+        // Сторновані не входять ані в маржу, ані в обʼєм/лічильник операцій.
+        where: { createdAt: { gte: from, lte: to }, cancelled: false },
+        include: {
+          cashDesk: { include: { exchangePoint: true } },
+          createdBy: { select: { id: true, name: true } },
+        },
       }),
     ]);
 
@@ -171,8 +180,29 @@ export class FinanceService {
         .map((g) => ({ deskName: g.deskName, operationsCount: g.operationsCount, profit: g.profit }))
         .sort((a, b) => a.deskName.localeCompare(b.deskName));
 
+      // Прибуток по КАСИРАХ точки: той самий касир може працювати на різних касах,
+      // тому це окремий розріз, а не похідний від byDesk.
+      const cashiers: Record<string, { cashierName: string; profit: number; operationsCount: number }> = {};
+      const ensureCashier = (u: { id: number; name: string }) =>
+        (cashiers[String(u.id)] ??= { cashierName: u.name, profit: 0, operationsCount: 0 });
+      for (const op of _ops) {
+        const u = (op as any).cashier;
+        if (!u) continue;
+        const g = ensureCashier(u);
+        g.profit += Number(op.profit);
+        g.operationsCount += 1;
+      }
+      for (const u of _usdt) {
+        const who = (u as any).createdBy;
+        if (!who) continue;
+        const g = ensureCashier(who);
+        g.profit += usdtProfit([u as any]);
+        g.operationsCount += 1;
+      }
+      const byCashier = Object.values(cashiers).sort((a, b) => b.profit - a.profit);
+
       const expenses = expensesByPoint[Number(pid)] ?? 0;
-      return { ...rest, expenses, netProfit: rest.totalProfit - expenses, byDesk };
+      return { ...rest, expenses, netProfit: rest.totalProfit - expenses, byDesk, byCashier };
     });
 
     const totalProfit = points.reduce((s, p) => s + p.totalProfit, 0);

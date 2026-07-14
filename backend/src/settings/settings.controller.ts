@@ -109,6 +109,42 @@ export class SettingsController {
     return this.settingsService.setCashierCanSeeBank(body.enabled).then(() => ({ enabled: body.enabled }));
   }
 
+  @Get('cash-bank-enabled')
+  getCashBankEnabled() {
+    return this.settingsService.getCashBankEnabled().then((enabled) => ({ enabled }));
+  }
+
+  @Put('cash-bank-enabled')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setCashBankEnabled(@Body() body: { enabled: boolean }) {
+    return this.settingsService.setCashBankEnabled(body.enabled).then(() => ({ enabled: body.enabled }));
+  }
+
+  @Get('buyback-margin')
+  getBuybackMargin() {
+    return this.settingsService.getBuybackMarginEnabled().then((enabled) => ({ enabled }));
+  }
+
+  @Put('buyback-margin')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setBuybackMargin(@Body() body: { enabled: boolean }) {
+    return this.settingsService.setBuybackMarginEnabled(body.enabled).then(() => ({ enabled: body.enabled }));
+  }
+
+  @Get('cashier-see-profit')
+  getCashierSeeProfit() {
+    return this.settingsService.getCashierCanSeeProfit().then((enabled) => ({ enabled }));
+  }
+
+  @Put('cashier-see-profit')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setCashierSeeProfit(@Body() body: { enabled: boolean }) {
+    return this.settingsService.setCashierCanSeeProfit(body.enabled).then(() => ({ enabled: body.enabled }));
+  }
+
   @Get('currency-order')
   getCurrencyOrder() {
     return this.settingsService.getCurrencyOrder();

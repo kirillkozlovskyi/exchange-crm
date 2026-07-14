@@ -65,6 +65,9 @@ export default function CashierPage() {
   const [showUsdt, setShowUsdt] = useState(false);
   const [quickAmounts, setQuickAmounts] = useState<number[]>([10, 20, 50, 100, 500]);
   const [orgName, setOrgName] = useState('');
+  // Чи показувати касиру прибуток (адмінське налаштування). Поки не завантажено —
+  // ховаємо, щоб прибуток не «блимав» тим, кому його приховали.
+  const [canSeeProfit, setCanSeeProfit] = useState(false);
   const [activeCur, setActiveCur] = useState<string | undefined>(undefined);
 
   // Передачі та сповіщення
@@ -130,6 +133,7 @@ export default function CashierPage() {
         // Завантажуємо налаштування паралельно
         api.get('/settings/quick-amounts').then(({ data }) => setQuickAmounts(data)).catch(() => {});
         api.get('/settings/org-name').then(({ data }) => setOrgName(data.name ?? '')).catch(() => {});
+        api.get('/settings/cashier-see-profit').then(({ data }) => setCanSeeProfit(!!data.enabled)).catch(() => {});
 
         // Спочатку перевіряємо — чи є у юзера вже відкрита зміна
         const myShiftRes = await api.get('/shifts/my').catch(() => null);
@@ -599,6 +603,7 @@ export default function CashierPage() {
           transfers={closeTransfers}
           cashMovements={shift.cashMovements ?? []}
           usdtOperations={shift.usdtOperations ?? []}
+          showProfit={canSeeProfit}
           onClose={handleCloseShift}
           onCancel={() => setClosingShift(false)}
         />
@@ -746,16 +751,19 @@ export default function CashierPage() {
                     </div>
                   ))}
                 </div>
-                {/* Живий прибуток каси за зміну (реаліз. спред + маржа USDT) */}
-                <div className="flex items-center mt-1.5 pt-1.5 border-t border-gray-200 px-1">
-                  <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Прибуток каси</span>
-                  <span
-                    className={`text-xl font-bold ${liveProfit.total >= 0 ? 'text-green-600' : 'text-red-600'}`}
-                    title={`Торговий: ${liveProfit.trading.toFixed(2)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${liveProfit.usdt.toFixed(2)} ₴` : ''}`}
-                  >
-                    {liveProfit.total >= 0 ? '+' : ''}{liveProfit.total.toFixed(2)} ₴
-                  </span>
-                </div>
+                {/* Живий прибуток каси за зміну (реаліз. спред + маржа USDT) —
+                    лише якщо адмін дозволив показ прибутку касиру */}
+                {canSeeProfit && (
+                  <div className="flex items-center mt-1.5 pt-1.5 border-t border-gray-200 px-1">
+                    <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Прибуток каси</span>
+                    <span
+                      className={`text-xl font-bold ${liveProfit.total >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                      title={`Торговий: ${liveProfit.trading.toFixed(2)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${liveProfit.usdt.toFixed(2)} ₴` : ''}`}
+                    >
+                      {liveProfit.total >= 0 ? '+' : ''}{liveProfit.total.toFixed(2)} ₴
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -856,7 +864,11 @@ type MovementItem = {
 //  • «Інше» — гроші ззовні/назовні компанії (не чіпають банк).
 // «Інша каса» прибрано: для переміщень між касами є Передачі (з підтвердженням
 // отримувачем); «Офіс»/«Власник» злиті в «Інше».
+//  • «Коригування» — вирівнювання перерахунку каси (копійки/округлення). Банк не
+//    чіпає, лишає слід у журналі. Доступне, лише якщо адмін дозволив
+//    «Редагування залишків каси».
 const SOURCE_CATEGORIES = ['Банк', 'Інше'];
+const ADJUST_SOURCE = 'Коригування';
 
 // Короткий двотональний сигнал про нову вхідну передачу (WebAudio, без файлів).
 function playTransferBeep() {
@@ -906,8 +918,25 @@ function CashMovementModal({
   const [error, setError] = useState('');
   // Баланс банку — показуємо касиру лише якщо ввімкнено в налаштуваннях і обрано «Банк».
   const [bankBalances, setBankBalances] = useState<Record<string, number> | null>(null);
+  // Банк може бути вимкнений адміном — тоді джерела «Банк» узагалі немає.
+  const [bankEnabled, setBankEnabled] = useState(true);
+  // «Коригування» — окремий інструмент вирівнювання каси (не чіпає банк).
+  const [adjustEnabled, setAdjustEnabled] = useState(false);
+  const sources = [
+    ...(bankEnabled ? SOURCE_CATEGORIES : SOURCE_CATEGORIES.filter((c) => c !== 'Банк')),
+    ...(adjustEnabled ? [ADJUST_SOURCE] : []),
+  ];
 
   useEffect(() => {
+    api.get('/settings/balance-edit')
+      .then(({ data }) => setAdjustEnabled(!!data.enabled))
+      .catch(() => {});
+
+    api.get('/settings/cash-bank-enabled').then(({ data }) => {
+      setBankEnabled(!!data.enabled);
+      if (!data.enabled) setSource('Інше');
+    }).catch(() => {});
+
     api.get('/settings/cashier-see-bank').then(({ data }) => {
       if (data.enabled) {
         api.get('/cash-bank').then(({ data: b }) => {
@@ -995,11 +1024,16 @@ function CashMovementModal({
               onChange={(e) => setSource(e.target.value)}
               className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring}`}
             >
-              {SOURCE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+              {sources.map((c) => <option key={c}>{c}</option>)}
             </select>
             {source === 'Банк' && bankBalances && (
               <p className="text-xs text-gray-500 mt-1">
                 У банку: <span className="font-semibold">{(bankBalances[currency] ?? 0).toFixed(2)} {currency}</span>
+              </p>
+            )}
+            {source === ADJUST_SOURCE && (
+              <p className="text-xs text-amber-600 mt-1">
+                Вирівнювання перерахунку каси. Банк не змінюється; запис лишиться в журналі.
               </p>
             )}
           </div>
