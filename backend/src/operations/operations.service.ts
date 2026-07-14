@@ -116,8 +116,10 @@ export class OperationsService {
     payCurrency?: string;
     payAmount?: number;
     note?: string;
-    // Необовʼязково: прибуток, який касир порахував сам (для звірки логіки).
+    // Необовʼязково: прибуток, який касир порахував сам (для звірки логіки),
+    // і словесний опис, як саме він його порахував.
     cashierProfit?: number | null;
+    cashierProfitNote?: string | null;
     // mode — вкладка касира; для крос визначає BUY/SELL замість EXCHANGE
     mode?: 'BUY' | 'SELL';
     // Офлайн-синк: uuid операції з фронта (ідемпотентність) + реальний час
@@ -203,8 +205,9 @@ export class OperationsService {
           rate: dto.rate,
           totalUah,
           profit: 0, // проставить recomputeShiftOps (WAC) одразу нижче
-          // Довідкове поле: не впливає на розрахунки, лише зберігаємо як ввів касир.
+          // Довідкові поля: не впливають на розрахунки, зберігаємо як ввів касир.
           cashierProfit: Number.isFinite(Number(dto.cashierProfit)) ? Number(dto.cashierProfit) : null,
+          cashierProfitNote: dto.cashierProfitNote?.trim() || null,
           note: dto.note,
           payCurrency: payCur !== 'UAH' ? payCur : null,
           payAmount: dto.payAmount ?? null,

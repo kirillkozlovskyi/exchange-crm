@@ -221,6 +221,8 @@ model Operation {
   // Прибуток, який касир порахував САМ (необовʼязково). Не використовується в
   // розрахунках — потрібен, щоб порівняти логіку касирів із моделями системи.
   cashierProfit   Decimal?      @db.Decimal(15, 2)
+  // Як саме касир його порахував (необовʼязково) — словами, у вільній формі.
+  cashierProfitNote String?
   note            String?
   createdAt       DateTime      @default(now())
   cancelled       Boolean       @default(false)

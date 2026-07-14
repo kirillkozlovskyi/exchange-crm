@@ -175,6 +175,7 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
           <td class="num">${fmt(op.totalUah)}</td>
           <td class="num">${op.cancelled ? '—' : (num(op.profit) > 0 ? '+' : '') + n2(op.profit)}</td>
           <td class="num">${op.cashierProfit != null ? n2(op.cashierProfit) : '—'}</td>
+          <td>${op.cashierProfitNote ?? '—'}</td>
           <td>${op.cashier?.name ?? ''}</td>
         </tr>`;
       }).join('');
@@ -299,8 +300,8 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
       <div class="list">
         <h2>Операції зміни (${ops.length})</h2>
         <table>
-          <thead><tr><th>Час</th><th>Номер</th><th>Тип</th><th>Сума</th><th>Курс</th><th>₴</th><th>Прибуток (система)</th><th>Прибуток (касир)</th><th>Касир</th></tr></thead>
-          <tbody>${opRows || empty(9, 'Операцій не було')}</tbody>
+          <thead><tr><th>Час</th><th>Номер</th><th>Тип</th><th>Сума</th><th>Курс</th><th>₴</th><th>Прибуток (система)</th><th>Прибуток (касир)</th><th>Як рахував касир</th><th>Касир</th></tr></thead>
+          <tbody>${opRows || empty(10, 'Операцій не було')}</tbody>
         </table>
       </div>
 
@@ -537,10 +538,15 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
                             className={`ml-1 text-xs ${
                               Math.abs(num(op.cashierProfit) - num(op.profit)) >= 0.5 ? 'text-amber-600 font-semibold' : 'text-gray-400'
                             }`}
-                            title="Розрахунок касира"
+                            title={op.cashierProfitNote || 'Розрахунок касира'}
                           >
                             / {fmt(op.cashierProfit)}
                           </span>
+                        )}
+                        {op.cashierProfitNote && (
+                          <div className="text-[11px] text-gray-400 italic max-w-[220px] truncate ml-auto" title={op.cashierProfitNote}>
+                            {op.cashierProfitNote}
+                          </div>
                         )}
                       </td>
                       <td className="py-1 text-right">
