@@ -172,6 +172,31 @@ export class TransfersService {
     return updated;
   }
 
+  /**
+   * Скасування передачі ВІДПРАВНИКОМ (поки її не підтвердили).
+   *
+   * Навіщо: відхилити передачу може лише каса-отримувач — а якщо вона вже
+   * зачинилась, відправник лишався б із «підвислою» PENDING-передачею і не міг
+   * закрити зміну (закриття з непідтвердженими передачами блокується, бо дає
+   * хибну нестачу). Скасування повертає гроші у розпорядження каси: PENDING
+   * нічого не рухає, тож достатньо перевести передачу в REJECTED.
+   */
+  async cancel(id: number, userId: number, note?: string, actor?: Actor) {
+    const transfer = await this.prisma.transfer.findUnique({ where: { id } });
+    if (!transfer) throw new NotFoundException('Передачу не знайдено');
+    if (transfer.status !== 'PENDING') throw new BadRequestException('Передача вже оброблена');
+    if (!isSupervisor(actor) && transfer.sentById !== userId)
+      throw new BadRequestException('Скасувати можна лише власну передачу');
+
+    return this.prisma.transfer.update({
+      where: { id },
+      data: {
+        status: 'REJECTED',
+        rejectNote: note?.trim() || 'Скасовано відправником',
+      },
+    });
+  }
+
   async reject(id: number, userId: number, rejectNote?: string, actor?: Actor) {
     const transfer = await this.prisma.transfer.findUnique({
       where: { id },
@@ -215,6 +240,19 @@ export class TransfersService {
       where: { toDeskId: deskId, status: 'PENDING' },
       include: {
         fromDesk: { include: { exchangePoint: true } },
+        sentBy: { select: { name: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  // Власні ВІДПРАВЛЕНІ, ще не підтверджені передачі. Касир має їх бачити: гроші
+  // вже пішли з каси, і поки отримувач не підтвердив, зміну закрити не можна.
+  async getPendingOut(deskId: number) {
+    return this.prisma.transfer.findMany({
+      where: { fromDeskId: deskId, status: 'PENDING' },
+      include: {
+        toDesk: { include: { exchangePoint: true } },
         sentBy: { select: { name: true } },
       },
       orderBy: { createdAt: 'desc' },

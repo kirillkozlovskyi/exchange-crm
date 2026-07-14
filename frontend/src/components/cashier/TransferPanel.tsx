@@ -33,11 +33,33 @@ export default function TransferPanel({
   const [rejectNote, setRejectNote] = useState('');
   const [rejectLoading, setRejectLoading] = useState(false);
 
+  // Власні відправлені, ще не підтверджені: гроші вже пішли з каси, і поки
+  // отримувач не підтвердив, зміну закрити не можна — касир має їх бачити.
+  const [pendingOut, setPendingOut] = useState<any[]>([]);
+  const [cancelling, setCancelling] = useState<number | null>(null);
+
   const loadPending = useCallback(async () => {
-    const { data } = await api.get(`/transfers/pending?deskId=${cashDeskId}`);
-    setPending(data);
-    onPendingCountChange?.(data.length);
+    const [inc, out] = await Promise.all([
+      api.get(`/transfers/pending?deskId=${cashDeskId}`),
+      api.get(`/transfers/pending-out?deskId=${cashDeskId}`).catch(() => ({ data: [] })),
+    ]);
+    setPending(inc.data);
+    setPendingOut(out.data);
+    onPendingCountChange?.(inc.data.length);
   }, [cashDeskId, onPendingCountChange]);
+
+  const handleCancel = async (id: number) => {
+    setCancelling(id);
+    try {
+      await api.patch(`/transfers/${id}/cancel`, {});
+      await loadPending();
+      onBalanceChange?.();
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Не вдалося скасувати передачу');
+    } finally {
+      setCancelling(null);
+    }
+  };
 
   useEffect(() => {
     api.get('/cash-desks').then(({ data }) =>
@@ -257,6 +279,46 @@ export default function TransferPanel({
             {loading ? 'Відправлення...' : isSwap ? 'Відправити своп' : 'Відправити'}
           </button>
         </div>
+
+        {/* Відправлені, ще не підтверджені — блокують закриття зміни */}
+        {pendingOut.length > 0 && (
+          <div className="bg-white rounded-xl shadow p-5">
+            <h3 className="font-semibold text-gray-800 mb-1">
+              Відправлені — очікують підтвердження
+              <span className="ml-2 bg-orange-100 text-orange-600 text-xs font-bold px-2 py-0.5 rounded-full">
+                {pendingOut.length}
+              </span>
+            </h3>
+            <p className="text-xs text-gray-400 mb-3">
+              Гроші вже пішли з каси. Поки отримувач не підтвердить, зміну закрити не можна —
+              або скасуйте передачу й поверніть гроші в касу.
+            </p>
+            <div className="space-y-2">
+              {pendingOut.map((t) => (
+                <div key={t.id} className="border border-orange-200 bg-orange-50 rounded-lg p-3 flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium">
+                      −{Number(t.amount).toFixed(2)} {t.currency}
+                      {t.counterCurrency && (
+                        <span className="text-gray-500"> ↔ +{Number(t.counterAmount).toFixed(2)} {t.counterCurrency}</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-gray-500">
+                      кому: {t.toDesk?.exchangePoint?.name} · {t.toDesk?.name}
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => handleCancel(t.id)}
+                    disabled={cancelling === t.id}
+                    className="text-xs bg-white border border-orange-300 text-orange-700 px-3 py-1.5 rounded-lg hover:bg-orange-100 disabled:opacity-50"
+                  >
+                    {cancelling === t.id ? 'Скасування...' : 'Скасувати'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
 
         {/* Incoming pending */}
         <div className="bg-white rounded-xl shadow p-5">

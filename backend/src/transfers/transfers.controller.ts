@@ -18,6 +18,12 @@ export class TransfersController {
     return this.service.getPending(deskId);
   }
 
+  // Власні відправлені, ще не підтверджені (блокують закриття зміни).
+  @Get('pending-out')
+  getPendingOut(@Query('deskId', ParseIntPipe) deskId: number) {
+    return this.service.getPendingOut(deskId);
+  }
+
   @Get('confirmed')
   getConfirmedForDesk(
     @Query('deskId', ParseIntPipe) deskId: number,
@@ -43,5 +49,17 @@ export class TransfersController {
     @CurrentUser() user: any,
   ) {
     return this.service.reject(id, user.sub, body.rejectNote, { sub: user.sub, role: user.role });
+  }
+
+  // Скасування власної непідтвердженої передачі (відправником) — щоб зміна не
+  // «зависла», якщо каса-отримувач уже зачинилась і не може ані підтвердити,
+  // ані відхилити.
+  @Patch(':id/cancel')
+  cancel(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { note?: string },
+    @CurrentUser() user: any,
+  ) {
+    return this.service.cancel(id, user.sub, body.note, { sub: user.sub, role: user.role });
   }
 }

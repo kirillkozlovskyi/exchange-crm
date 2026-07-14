@@ -20,9 +20,18 @@ function makePrisma(opts: { ratesPresent?: boolean } = {}) {
       findUnique: jest.fn().mockResolvedValue({
         id: 1,
         status: 'OPEN',
+        cashDeskId: 7,
+        openedAt: new Date(),
+        // Каса має запас — інакше серверна перевірка достатності готівки
+        // (assertEnoughCash) не дасть провести операцію.
+        startBalance: { UAH: 1_000_000, USD: 10_000, EUR: 10_000 },
+        operations: [],
+        cashMovements: [],
+        usdtOperations: [],
         cashDesk: { exchangePointId: 1, exchangePoint: { code: 'T1' } },
       }),
     },
+    transfer: { findMany: jest.fn().mockResolvedValue([]) },
     rate: {
       findFirst: jest.fn(({ where }: any) => {
         if (!ratesPresent) return Promise.resolve(null);
@@ -103,6 +112,36 @@ describe('OperationsService — грошова математика', () => {
       expect(Number(res.profit)).toBe(0);
       expect(res.payCurrency).toBe('USD');
       expect(Number(res.payAmount)).toBe(100);
+    });
+
+    it('НЕ дає видати більше валюти, ніж є в касі (раніше перевірка була лише на фронті)', async () => {
+      const prisma = makePrisma();
+      // У касі 10 000 USD (див. makePrisma) — продаж 20 000 має впасти.
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
+      await expect(
+        service.create({ shiftId: 1, currency: 'USD', amount: 20000, rate: 41.5, mode: 'SELL' }, 7),
+      ).rejects.toThrow(/Недостатньо USD/);
+      expect(prisma.operation.create).not.toHaveBeenCalled();
+    });
+
+    it('НЕ дає видати більше гривні, ніж є в касі (купівля валюти у клієнта)', async () => {
+      const prisma = makePrisma();
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
+      // Купівля 50 000 USD по 41 = 2 050 000 грн, а в касі 1 000 000.
+      await expect(
+        service.create({ shiftId: 1, currency: 'USD', amount: 50000, rate: 41, mode: 'BUY' }, 7),
+      ).rejects.toThrow(/Недостатньо UAH/);
+    });
+
+    it('офлайн-синк (clientId) НЕ блокується перевіркою залишку — операція вже сталася в касі', async () => {
+      const prisma = makePrisma();
+      const service = new OperationsService(prisma as any, settingsStub as any, profitStub as any);
+      const res: any = await service.create(
+        { shiftId: 1, currency: 'USD', amount: 20000, rate: 41.5, mode: 'SELL', clientId: 'uuid-1' },
+        7,
+      );
+      expect(res.id).toBe(1);
+      expect(prisma.operation.create).toHaveBeenCalled();
     });
 
     it('крос без вказаного mode → type=EXCHANGE (fallback)', async () => {

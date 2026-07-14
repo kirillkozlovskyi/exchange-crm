@@ -4,6 +4,9 @@ import { SettingsService } from '../settings/settings.service';
 import { format } from 'date-fns';
 import { computeOperationTotals, RateLookup } from './operations.math';
 import { nextDocNumber } from '../common/number-seq.util';
+import { operationsDelta, BalanceOperation } from '../common/balance.util';
+import { CashMovementRow } from '../common/cash-movements.util';
+import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
 import { TelegramService } from '../telegram/telegram.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ProfitService } from '../profit/profit.service';
@@ -34,6 +37,49 @@ export class OperationsService {
       throw new BadRequestException(
         'Сума операції в грн вийшла 0 — перевірте кількість, курс і суму до сплати',
       );
+  }
+
+  /**
+   * Перевірка достатності готівки для операції: беремо ledger-залишок зміни
+   * (той самий, що бачить касир) і застосовуємо дельту операції — жодна валюта
+   * не має піти в мінус.
+   *
+   * Офлайн-синк (clientId) НЕ блокуємо: операція фізично вже відбулась у касі,
+   * відхилити її при синхронізації означало б втратити реальний документ.
+   */
+  private async assertEnoughCash(
+    shift: {
+      cashDeskId: number;
+      openedAt: Date;
+      startBalance: unknown;
+      operations: BalanceOperation[];
+      cashMovements: CashMovementRow[];
+      usdtOperations: unknown[];
+    },
+    op: BalanceOperation & { clientId?: string },
+  ) {
+    if (op.clientId) return; // офлайн-синк: факт, що вже стався
+
+    const balance = shiftCashBalance(
+      {
+        startBalance: (shift.startBalance as Record<string, number>) ?? {},
+        operations: shift.operations,
+        cashMovements: shift.cashMovements,
+        usdtOperations: shift.usdtOperations as any,
+      },
+      await confirmedTransfersNetForDesk(this.prisma, shift.cashDeskId, shift.openedAt),
+    );
+
+    for (const [cur, delta] of Object.entries(operationsDelta([op]))) {
+      if (delta >= 0) continue; // каса приймає цю валюту — перевіряти нічого
+      const have = balance[cur] ?? 0;
+      const need = -delta;
+      if (have + 0.01 < need) {
+        throw new BadRequestException(
+          `Недостатньо ${cur} у касі: є ${have.toFixed(2)}, потрібно видати ${need.toFixed(2)}`,
+        );
+      }
+    }
   }
 
   private async generateNumber(pointCode: string) {
@@ -90,7 +136,12 @@ export class OperationsService {
 
     const shift = await this.prisma.shift.findUnique({
       where: { id: dto.shiftId },
-      include: { cashDesk: { include: { exchangePoint: true } } },
+      include: {
+        cashDesk: { include: { exchangePoint: true } },
+        operations: true,
+        cashMovements: true,
+        usdtOperations: true,
+      },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status === 'CLOSED') throw new BadRequestException('Зміна закрита');
@@ -109,6 +160,11 @@ export class OperationsService {
     // лишиться 0 (недооцінка), а не вигаданий плюс.
     const { type, totalUah } = computeOperationTotals(dto, getRate);
     this.assertValidAmounts(dto.amount, dto.rate, totalUah);
+
+    // Каса не може віддати більше, ніж має. Раніше перевірка була ЛИШЕ на фронті:
+    // прямий запит (або баг у формі) міг завести касу в мінус, а мінусова позиція
+    // ламає й прибуток (WAC починає рахувати «продаж у борг»).
+    await this.assertEnoughCash(shift, { ...dto, type, totalUah });
 
     const payCur = dto.payCurrency || 'UAH';
     const number = await this.generateNumber(shift.cashDesk.exchangePoint.code);
