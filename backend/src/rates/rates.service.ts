@@ -121,6 +121,7 @@ export class RatesService {
         buy: Number(r.buy),
         sell,
         trend,
+        delta: prevSell != null ? sell - prevSell : null,
       });
     }
 

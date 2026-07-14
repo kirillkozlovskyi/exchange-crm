@@ -9,8 +9,12 @@ import api from '../../api/axios';
 
 const THEMES: { key: string; label: string; hint: string }[] = [
   { key: 'classic', label: 'Класика', hint: 'Зелень + золото, як на зразку' },
-  { key: 'dark', label: 'Преміум (темна)', hint: 'Графіт + золото, дорого й контрастно' },
-  { key: 'minimal', label: 'Мінімалізм', hint: 'Білий + синій, строго й сучасно' },
+  { key: 'dark', label: 'Преміум', hint: 'Та сама розкладка, графіт + золото' },
+  { key: 'minimal', label: 'Мінімалізм', hint: 'Та сама розкладка, білий + синій' },
+  { key: 'board', label: 'Табло', hint: 'Величезні цифри на чорному — читається навіть у прев\'ю стрічки' },
+  { key: 'editorial', label: 'Журнал', hint: 'Двоколонка: ліворуч про нас, праворуч курси. Багато повітря' },
+  { key: 'grid', label: 'Плитки', hint: 'Кожна валюта — окрема картка. Зручно з телефона' },
+  { key: 'story', label: 'Сторіз 9:16', hint: 'Вертикальний формат для сторіз/статусів' },
 ];
 
 type Cfg = {
@@ -117,7 +121,7 @@ export default function RateCardAdmin() {
           {/* Стиль */}
           <div>
             <label className="text-sm font-medium text-gray-700 block mb-2">Стиль</label>
-            <div className="grid grid-cols-3 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
               {THEMES.map((t) => (
                 <button
                   key={t.key}

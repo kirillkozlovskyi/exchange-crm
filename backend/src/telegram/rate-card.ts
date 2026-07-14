@@ -20,6 +20,7 @@ export interface RateCardRow {
   buy: number;
   sell: number;
   trend: Trend;
+  delta?: number | null; // зміна курсу продажу проти попереднього (для «табло»)
 }
 
 export interface RateCardConfig {
@@ -71,7 +72,17 @@ export const CURRENCY_NAMES: Record<string, string> = {
 };
 
 // ── Теми оформлення ─────────────────────────────────────────────────────────
-export type CardTheme = 'classic' | 'dark' | 'minimal';
+/**
+ * Дизайн картки = композиція (розкладка блоків) + палітра.
+ *  • classic / dark / minimal — базова розкладка (як у зразка) у трьох палітрах;
+ *  • board    — «табло обмінника»: величезні цифри, темний фон, максимум читаності
+ *               в стрічці; усе зайве прибрано, курс — головний герой;
+ *  • editorial— журнальна двоколонка: ліворуч бренд і послуги, праворуч курси
+ *               з повітрям і тонкими лініями;
+ *  • grid     — плитки: кожна валюта окремою карткою (легко сканувати з телефона);
+ *  • story    — вертикальний формат 9:16 для сторіз: лише бренд, курси, контакт.
+ */
+export type CardTheme = 'classic' | 'dark' | 'minimal' | 'board' | 'editorial' | 'grid' | 'story';
 
 interface Palette {
   bg: string; bgGrad2: string; panel: string; panelSoft: string; rowAlt: string;
@@ -100,6 +111,42 @@ export const THEMES: Record<CardTheme, Palette> = {
     footerBg: '#E3B85C', footerText: '#12161C', badgeBg: '#E3B85C',
     iconRing: '#E3B85C', iconInner: '#1B212B', iconText: '#E3B85C',
     up: '#2ECC71', down: '#E74C3C', flat: '#7F8C99',
+  },
+  // Табло: майже чорний фон + бурштин. Максимальний контраст, цифри — головні.
+  board: {
+    bg: '#0B0F14', bgGrad2: '#0B0F14', panel: '#12181F', panelSoft: '#161D26', rowAlt: '#0F151C',
+    brand: '#FFB020', brandSub: '#8C97A5', accent: '#FFB020', accentSoft: '#1B242F',
+    title: '#FFFFFF', rateText: '#FFFFFF', text: '#E8EDF3', muted: '#7E8B9A', line: '#1E2731',
+    footerBg: '#12181F', footerText: '#8C97A5', badgeBg: '#FFB020',
+    iconRing: '#FFB020', iconInner: '#0B0F14', iconText: '#FFB020',
+    up: '#3DDC84', down: '#FF5A5F', flat: '#6B7787',
+  },
+  // Журнал: тепла крейда + графіт, акцент — теракота. Багато повітря.
+  editorial: {
+    bg: '#FBF9F5', bgGrad2: '#F3EFE8', panel: '#FFFFFF', panelSoft: '#F6F2EC', rowAlt: '#FFFFFF',
+    brand: '#1D1D1B', brandSub: '#9A8F80', accent: '#B4532A', accentSoft: '#F3E6DF',
+    title: '#1D1D1B', rateText: '#1D1D1B', text: '#2B2A28', muted: '#8C8377', line: '#E5DED4',
+    footerBg: '#1D1D1B', footerText: '#FBF9F5', badgeBg: '#B4532A',
+    iconRing: '#B4532A', iconInner: '#FBF9F5', iconText: '#B4532A',
+    up: '#2E7D4F', down: '#B4302A', flat: '#A79C8E',
+  },
+  // Плитки: холодний світлий фон, глибокий індиго + м'ятний акцент.
+  grid: {
+    bg: '#F4F6FB', bgGrad2: '#E9EDF6', panel: '#FFFFFF', panelSoft: '#EEF2FA', rowAlt: '#FFFFFF',
+    brand: '#1B2559', brandSub: '#6B77A8', accent: '#4F5DFF', accentSoft: '#E7EAFF',
+    title: '#1B2559', rateText: '#1B2559', text: '#243056', muted: '#7A85AD', line: '#E3E8F3',
+    footerBg: '#1B2559', footerText: '#FFFFFF', badgeBg: '#4F5DFF',
+    iconRing: '#4F5DFF', iconInner: '#FFFFFF', iconText: '#4F5DFF',
+    up: '#12B76A', down: '#F04438', flat: '#98A2B3',
+  },
+  // Сторіз: смарагдовий градієнт, білий текст. Крупно й лаконічно.
+  story: {
+    bg: '#0E3B2E', bgGrad2: '#07231B', panel: 'rgba(255,255,255,0.08)', panelSoft: 'rgba(255,255,255,0.06)', rowAlt: 'rgba(255,255,255,0.04)',
+    brand: '#F2C879', brandSub: '#9FC7B4', accent: '#F2C879', accentSoft: 'rgba(255,255,255,0.1)',
+    title: '#FFFFFF', rateText: '#FFFFFF', text: '#EAF5EF', muted: '#9FC7B4', line: 'rgba(255,255,255,0.14)',
+    footerBg: '#F2C879', footerText: '#0E3B2E', badgeBg: '#F2C879',
+    iconRing: '#F2C879', iconInner: '#0E3B2E', iconText: '#F2C879',
+    up: '#5BE59A', down: '#FF7A7A', flat: '#8FA9A0',
   },
   // Мінімалізм: білий + синій акцент, без золота. Строго й сучасно.
   minimal: {
@@ -212,9 +259,21 @@ export interface RateCardData {
   theme?: CardTheme; // classic (за замовч.) | dark | minimal
 }
 
-/** Повний SVG картки. Ширина 1000, висота залежить від кількості валют. */
+/** Диспетчер: обираємо композицію за темою. */
 export function buildRateCardSvg(data: RateCardData): string {
-  C = THEMES[data.theme ?? 'classic'];
+  const theme = data.theme ?? 'classic';
+  C = THEMES[theme];
+  switch (theme) {
+    case 'board': return layoutBoard(data);
+    case 'editorial': return layoutEditorial(data);
+    case 'grid': return layoutGrid(data);
+    case 'story': return layoutStory(data);
+    default: return layoutClassic(data);
+  }
+}
+
+/** Базова розкладка (за зразком замовника). Ширина 1000. */
+function layoutClassic(data: RateCardData): string {
   const cfg = data.config;
   const W = 1000;
   const rowH = 92;
@@ -400,6 +459,301 @@ export function buildRateCardSvg(data: RateCardData): string {
   </defs>
   ${t.join('\n  ')}
 </svg>`;
+}
+
+
+// ── Спільні дрібниці для нових макетів ──────────────────────────────────────
+
+/** Текстовий примітив (використовують усі макети). */
+function T(
+  x: number, y: number, str: string,
+  o: { size?: number; w?: number; fill?: string; anchor?: string; ls?: number; op?: number } = {},
+): string {
+  return `<text x="${x}" y="${y}" font-family="Montserrat" font-size="${o.size ?? 20}" font-weight="${o.w ?? 500}" ` +
+    `fill="${o.fill ?? C.text}" text-anchor="${o.anchor ?? 'start'}"` +
+    `${o.ls ? ` letter-spacing="${o.ls}"` : ''}${o.op != null ? ` opacity="${o.op}"` : ''}>${esc(str)}</text>`;
+}
+
+/** Дельта курсу текстом: +0.05 / −0.03 (для «табло» і «журналу»). */
+function deltaText(r: RateCardRow): string {
+  if (r.delta == null || Math.abs(r.delta) < 0.0001) return '';
+  const sign = r.delta > 0 ? '+' : '−';
+  return `${sign}${Math.abs(r.delta).toFixed(2)}`;
+}
+
+/** Маленький трикутник тренду (для компактних макетів). */
+function tri(t: Trend, cx: number, cy: number, s = 7): string {
+  if (t === 'flat') return `<rect x="${cx - s}" y="${cy - 1.5}" width="${s * 2}" height="3" rx="1.5" fill="${C.flat}"/>`;
+  const up = t === 'up';
+  const fill = up ? C.up : C.down;
+  return up
+    ? `<path d="M${cx},${cy - s} L${cx + s},${cy + s * 0.7} L${cx - s},${cy + s * 0.7} Z" fill="${fill}"/>`
+    : `<path d="M${cx},${cy + s} L${cx + s},${cy - s * 0.7} L${cx - s},${cy - s * 0.7} Z" fill="${fill}"/>`;
+}
+
+const defs = () => `<defs>
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="${C.bg}"/>
+      <stop offset="1" stop-color="${C.bgGrad2}"/>
+    </linearGradient>
+    <linearGradient id="accGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="${C.accent}"/>
+      <stop offset="1" stop-color="${C.brand}"/>
+    </linearGradient>
+  </defs>`;
+
+const wrap = (W: number, H: number, body: string) =>
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">
+  ${defs()}
+  <rect width="${W}" height="${H}" fill="url(#bgGrad)"/>
+  ${body}
+</svg>`;
+
+// ── МАКЕТ «ТАБЛО» ───────────────────────────────────────────────────────────
+// Головний принцип: у стрічці Telegram картинку бачать маленькою — тому курс
+// має читатись навіть у прев'ю. Цифри — найбільший елемент, усе інше приглушене.
+function layoutBoard(data: RateCardData): string {
+  const cfg = data.config;
+  const W = 1000;
+  const rowH = 118;
+  const top = 208;
+  const H = top + data.rows.length * rowH + 168;
+  const t: string[] = [];
+
+  // Шапка: бренд ліворуч, час праворуч — один рядок, без «коробок».
+  t.push(T(48, 76, cfg.brand, { size: 40, w: 900, fill: C.brand, ls: 3 }));
+  t.push(T(48, 104, cfg.brandSuffix, { size: 14, w: 600, fill: C.muted, ls: 8 }));
+  t.push(`<circle cx="${W - 48 - 210}" cy="62" r="4" fill="${C.up}"/>`);
+  t.push(T(W - 48 - 196, 67, 'LIVE', { size: 13, w: 800, fill: C.up, ls: 3 }));
+  t.push(T(W - 48, 71, data.time, { size: 30, w: 800, fill: C.title, anchor: 'end' }));
+  t.push(T(W - 48, 100, data.date, { size: 14, w: 600, fill: C.muted, anchor: 'end', ls: 1 }));
+
+  // Заголовок-рубрика + шапка колонок.
+  t.push(T(48, 158, 'КУРСИ ВАЛЮТ', { size: 22, w: 800, fill: C.title, ls: 6 }));
+  t.push(T(560, 158, 'КУПІВЛЯ', { size: 13, w: 700, fill: C.muted, anchor: 'middle', ls: 3 }));
+  t.push(T(800, 158, 'ПРОДАЖ', { size: 13, w: 700, fill: C.muted, anchor: 'middle', ls: 3 }));
+  t.push(`<line x1="48" y1="182" x2="${W - 48}" y2="182" stroke="${C.line}" stroke-width="2"/>`);
+
+  data.rows.forEach((r, i) => {
+    const cy = top + i * rowH + rowH / 2;
+    t.push(flag(r.currency, 78, cy, 26));
+    t.push(T(122, cy + 12, r.currency, { size: 38, w: 900, fill: C.title, ls: 1 }));
+
+    // Курси — герой макета.
+    t.push(T(560, cy + 20, n2(r.buy), { size: 58, w: 800, fill: C.rateText, anchor: 'middle' }));
+    t.push(T(800, cy + 20, n2(r.sell), { size: 58, w: 800, fill: C.accent, anchor: 'middle' }));
+
+    // Тренд + величина зміни.
+    t.push(tri(r.trend, W - 74, cy - 8, 9));
+    const d = deltaText(r);
+    if (d) t.push(T(W - 74, cy + 24, d, { size: 15, w: 700, fill: r.trend === 'up' ? C.up : C.down, anchor: 'middle' }));
+
+    if (i < data.rows.length - 1)
+      t.push(`<line x1="48" y1="${top + (i + 1) * rowH}" x2="${W - 48}" y2="${top + (i + 1) * rowH}" stroke="${C.line}" stroke-width="1"/>`);
+  });
+
+  // Підвал: один рядок контактів — нічого зайвого.
+  const fy = H - 96;
+  t.push(`<rect x="0" y="${fy}" width="${W}" height="96" fill="${C.panel}"/>`);
+  t.push(T(48, fy + 40, cfg.address, { size: 17, w: 700, fill: C.text }));
+  t.push(T(48, fy + 66, cfg.phones.join('   ·   '), { size: 15, w: 600, fill: C.muted }));
+  t.push(T(W - 48, fy + 40, cfg.channel, { size: 17, w: 700, fill: C.accent, anchor: 'end' }));
+  t.push(T(W - 48, fy + 66, cfg.tagline, { size: 13, w: 600, fill: C.muted, anchor: 'end', ls: 2 }));
+
+  return wrap(W, H, t.join('\n  '));
+}
+
+// ── МАКЕТ «ЖУРНАЛ» ──────────────────────────────────────────────────────────
+// Двоколонка: ліворуч — «про нас» (бренд, послуги, адреса), праворуч — курси.
+// Багато повітря, тонкі лінії замість карток, стриманий акцент.
+function layoutEditorial(data: RateCardData): string {
+  const cfg = data.config;
+  const W = 1000;
+  const L = 44;              // поле
+  const colX = 420;          // початок правої колонки
+  const rowH = 104;
+  const ratesTop = 250;
+  const ratesH = data.rows.length * rowH;
+  const H = Math.max(ratesTop + ratesH + 120, 980);
+  const t: string[] = [];
+
+  // Верхня лінійка з датою
+  t.push(T(L, 56, cfg.tagline, { size: 12, w: 700, fill: C.muted, ls: 5 }));
+  t.push(T(W - L, 56, `${data.date}  ·  ${data.time}`, { size: 12, w: 700, fill: C.muted, anchor: 'end', ls: 2 }));
+  t.push(`<line x1="${L}" y1="76" x2="${W - L}" y2="76" stroke="${C.line}" stroke-width="1"/>`);
+
+  // Бренд — велика типографіка
+  t.push(T(L, 150, cfg.brand, { size: 62, w: 900, fill: C.brand, ls: 1 }));
+  t.push(T(L, 180, cfg.brandSuffix, { size: 14, w: 600, fill: C.brandSub, ls: 10 }));
+  t.push(`<rect x="${L}" y="204" width="64" height="4" fill="${C.accent}"/>`);
+
+  // Рубрика правої колонки
+  t.push(T(colX, 150, 'КУРСИ', { size: 44, w: 900, fill: C.title, ls: 2 }));
+  t.push(T(colX, 186, 'ВАЛЮТ', { size: 44, w: 900, fill: C.accent, ls: 2 }));
+  t.push(T(W - L - 190, 186, 'КУПІВЛЯ', { size: 11, w: 700, fill: C.muted, anchor: 'end', ls: 3 }));
+  t.push(T(W - L - 34, 186, 'ПРОДАЖ', { size: 11, w: 700, fill: C.accent, anchor: 'end', ls: 3 }));
+  t.push(`<line x1="${colX}" y1="212" x2="${W - L}" y2="212" stroke="${C.text}" stroke-width="2"/>`);
+
+  // Курси — праворуч, тонкі роздільники
+  data.rows.forEach((r, i) => {
+    const y = ratesTop + i * rowH;
+    const cy = y + rowH / 2;
+    t.push(flag(r.currency, colX + 22, cy - 6, 20));
+    t.push(T(colX + 56, cy + 2, r.currency, { size: 27, w: 800, fill: C.text }));
+    t.push(T(colX + 56, cy + 24, r.name, { size: 10, w: 600, fill: C.muted, ls: 1 }));
+
+    // Купівля — приглушена й лівіше; продаж — акцент, притиснутий до правого поля.
+    t.push(T(W - L - 190, cy + 6, n2(r.buy), { size: 32, w: 700, fill: C.muted, anchor: 'end' }));
+    t.push(T(W - L - 34, cy + 6, n2(r.sell), { size: 40, w: 900, fill: C.rateText, anchor: 'end' }));
+    t.push(tri(r.trend, W - L - 12, cy - 6, 6));
+    const d = deltaText(r);
+    if (d) t.push(T(W - L - 34, cy + 30, d, { size: 12, w: 700, fill: r.trend === 'up' ? C.up : C.down, anchor: 'end' }));
+
+    t.push(`<line x1="${colX}" y1="${y + rowH}" x2="${W - L}" y2="${y + rowH}" stroke="${C.line}" stroke-width="1"/>`);
+  });
+
+  // Ліва колонка: послуги
+  t.push(T(L, 258, 'ПОСЛУГИ', { size: 12, w: 800, fill: C.muted, ls: 4 }));
+  cfg.services.forEach((sv, i) => {
+    const y = 292 + i * 34;
+    t.push(`<circle cx="${L + 4}" cy="${y - 5}" r="3" fill="${C.accent}"/>`);
+    t.push(T(L + 18, y, sv, { size: 13, w: 500, fill: C.text }));
+  });
+
+  // Ліва колонка: адреса й графік
+  const ay = 292 + cfg.services.length * 34 + 30;
+  t.push(T(L, ay, 'АДРЕСА', { size: 12, w: 800, fill: C.muted, ls: 4 }));
+  t.push(T(L, ay + 30, cfg.address, { size: 17, w: 700, fill: C.text }));
+  t.push(T(L, ay + 52, cfg.addressNote, { size: 12, w: 500, fill: C.muted }));
+  t.push(T(L, ay + 96, 'ГРАФІК', { size: 12, w: 800, fill: C.muted, ls: 4 }));
+  t.push(T(L, ay + 126, cfg.hoursWeek, { size: 14, w: 600, fill: C.text }));
+  t.push(T(L, ay + 150, cfg.hoursWeekend, { size: 14, w: 600, fill: C.text }));
+  t.push(T(L, ay + 194, cfg.phones.join('   ·   '), { size: 17, w: 800, fill: C.accent }));
+
+  // Підвал
+  const fy = H - 56;
+  t.push(`<rect x="0" y="${fy}" width="${W}" height="56" fill="${C.footerBg}"/>`);
+  t.push(T(L, fy + 35, cfg.channel, { size: 14, w: 700, fill: C.footerText, ls: 1 }));
+  t.push(T(W / 2, fy + 35, cfg.footer, { size: 13, w: 600, fill: C.footerText, anchor: 'middle', op: 0.85 }));
+  t.push(T(W - L, fy + 35, cfg.bot, { size: 13, w: 600, fill: C.footerText, anchor: 'end', op: 0.85 }));
+
+  return wrap(W, H, t.join('\n  '));
+}
+
+// ── МАКЕТ «ПЛИТКИ» ──────────────────────────────────────────────────────────
+// Кожна валюта — окрема картка у сітці 2×N. Легко сканувати з телефона,
+// добре працює, коли валют багато.
+function layoutGrid(data: RateCardData): string {
+  const cfg = data.config;
+  const W = 1000;
+  const L = 32;
+  const gap = 16;
+  const tileW = (W - L * 2 - gap) / 2;
+  const tileH = 168;
+  const top = 268;
+  const rowsN = Math.ceil(data.rows.length / 2);
+  const H = top + rowsN * (tileH + gap) + 236;
+  const t: string[] = [];
+
+  // Герой-шапка з градієнтом
+  t.push(`<rect x="0" y="0" width="${W}" height="220" fill="url(#accGrad)"/>`);
+  t.push(T(L, 84, cfg.brand, { size: 46, w: 900, fill: '#FFFFFF', ls: 2 }));
+  t.push(T(L, 112, cfg.brandSuffix, { size: 13, w: 600, fill: '#FFFFFF', ls: 8, op: 0.85 }));
+  t.push(T(L, 168, 'КУРСИ ВАЛЮТ', { size: 34, w: 900, fill: '#FFFFFF', ls: 2 }));
+  // Чіп із датою/часом
+  t.push(`<rect x="${W - L - 220}" y="60" width="220" height="64" rx="14" fill="#FFFFFF" opacity="0.16"/>`);
+  t.push(T(W - L - 110, 90, data.date, { size: 19, w: 800, fill: '#FFFFFF', anchor: 'middle' }));
+  t.push(T(W - L - 110, 112, `оновлено ${data.time}`, { size: 12, w: 600, fill: '#FFFFFF', anchor: 'middle', op: 0.85 }));
+
+  // Плитки валют
+  data.rows.forEach((r, i) => {
+    const cx = L + (i % 2) * (tileW + gap);
+    const cy = top + Math.floor(i / 2) * (tileH + gap);
+    t.push(`<rect x="${cx}" y="${cy}" width="${tileW}" height="${tileH}" rx="20" fill="${C.panel}"/>`);
+    t.push(flag(r.currency, cx + 44, cy + 44, 22));
+    t.push(T(cx + 78, cy + 40, r.currency, { size: 26, w: 900, fill: C.title }));
+    t.push(T(cx + 78, cy + 60, r.name, { size: 10, w: 600, fill: C.muted, ls: 0.5 }));
+    t.push(trendBadge(r.trend, cx + tileW - 40, cy + 42, 18));
+
+    // Дві половинки: купівля / продаж
+    t.push(`<rect x="${cx + 20}" y="${cy + 82}" width="${tileW / 2 - 26}" height="66" rx="14" fill="${C.panelSoft}"/>`);
+    t.push(`<rect x="${cx + tileW / 2 + 6}" y="${cy + 82}" width="${tileW / 2 - 26}" height="66" rx="14" fill="${C.accentSoft}"/>`);
+    t.push(T(cx + 20 + (tileW / 2 - 26) / 2, cy + 104, 'КУПІВЛЯ', { size: 10, w: 700, fill: C.muted, anchor: 'middle', ls: 2 }));
+    t.push(T(cx + 20 + (tileW / 2 - 26) / 2, cy + 136, n2(r.buy), { size: 30, w: 800, fill: C.rateText, anchor: 'middle' }));
+    t.push(T(cx + tileW / 2 + 6 + (tileW / 2 - 26) / 2, cy + 104, 'ПРОДАЖ', { size: 10, w: 700, fill: C.accent, anchor: 'middle', ls: 2 }));
+    t.push(T(cx + tileW / 2 + 6 + (tileW / 2 - 26) / 2, cy + 136, n2(r.sell), { size: 30, w: 800, fill: C.accent, anchor: 'middle' }));
+  });
+
+  // Контактна панель
+  const cyB = top + rowsN * (tileH + gap) + 12;
+  t.push(`<rect x="${L}" y="${cyB}" width="${W - L * 2}" height="140" rx="20" fill="${C.panel}"/>`);
+  t.push(T(L + 28, cyB + 44, cfg.address, { size: 17, w: 700, fill: C.text }));
+  t.push(T(L + 28, cyB + 68, cfg.addressNote, { size: 12, w: 500, fill: C.muted }));
+  t.push(T(L + 28, cyB + 106, cfg.phones.join('   ·   '), { size: 20, w: 800, fill: C.accent }));
+  t.push(T(W - L - 28, cyB + 44, cfg.hoursWeek, { size: 13, w: 600, fill: C.text, anchor: 'end' }));
+  t.push(T(W - L - 28, cyB + 68, cfg.hoursWeekend, { size: 13, w: 600, fill: C.text, anchor: 'end' }));
+  t.push(T(W - L - 28, cyB + 106, cfg.channel, { size: 16, w: 700, fill: C.accent, anchor: 'end' }));
+
+  // Нижній рядок
+  t.push(T(W / 2, H - 30, cfg.footer, { size: 14, w: 700, fill: C.muted, anchor: 'middle' }));
+
+  return wrap(W, H, t.join('\n  '));
+}
+
+// ── МАКЕТ «СТОРІЗ» (9:16) ───────────────────────────────────────────────────
+// Вертикальний формат для сторіз/статусів: лише бренд, курси й один контакт.
+// Крупно, без дрібниць — читається з витягнутої руки.
+function layoutStory(data: RateCardData): string {
+  const cfg = data.config;
+  const W = 1000;
+  const H = 1778; // 9:16
+  const L = 60;
+  const t: string[] = [];
+
+  // Декоративні кола (глибина фону)
+  t.push(`<circle cx="${W - 60}" cy="120" r="220" fill="${C.accent}" opacity="0.07"/>`);
+  t.push(`<circle cx="60" cy="${H - 160}" r="260" fill="${C.accent}" opacity="0.05"/>`);
+
+  // Бренд
+  t.push(T(W / 2, 168, cfg.brand, { size: 76, w: 900, fill: C.brand, anchor: 'middle', ls: 4 }));
+  t.push(T(W / 2, 208, cfg.brandSuffix, { size: 17, w: 600, fill: C.brandSub, anchor: 'middle', ls: 14 }));
+  t.push(`<rect x="${W / 2 - 40}" y="240" width="80" height="4" rx="2" fill="${C.accent}"/>`);
+
+  // Рубрика + час
+  t.push(T(W / 2, 320, 'КУРСИ ВАЛЮТ', { size: 40, w: 900, fill: C.title, anchor: 'middle', ls: 4 }));
+  t.push(T(W / 2, 356, `${data.date}   ·   ${data.time}`, { size: 16, w: 600, fill: C.muted, anchor: 'middle', ls: 2 }));
+
+  // Курси — великі рядки на напівпрозорих панелях
+  // Рядки рівномірно заповнюють вільну висоту між шапкою і CTA — без «дірки».
+  const areaTop = 420;
+  const areaBottom = H - 230;
+  const n = Math.max(data.rows.length, 1);
+  const gapY = 14;
+  const rowH = Math.max(96, Math.min(170, Math.floor((areaBottom - areaTop - gapY * (n - 1)) / n)));
+  const top = areaTop + Math.max(0, Math.floor((areaBottom - areaTop - (rowH * n + gapY * (n - 1))) / 2));
+  data.rows.forEach((r, i) => {
+    const y = top + i * (rowH + gapY);
+    t.push(`<rect x="${L}" y="${y}" width="${W - L * 2}" height="${rowH}" rx="24" fill="${C.panel}"/>`);
+    const cy = y + rowH / 2;
+    t.push(flag(r.currency, L + 52, cy, 28));
+    t.push(T(L + 98, cy + 4, r.currency, { size: 34, w: 900, fill: C.title }));
+    t.push(T(L + 98, cy + 28, r.name, { size: 11, w: 600, fill: C.muted, ls: 0.5 }));
+
+    t.push(T(W / 2 + 80, cy - 6, 'КУПІВЛЯ', { size: 11, w: 700, fill: C.muted, anchor: 'middle', ls: 2 }));
+    t.push(T(W / 2 + 80, cy + 30, n2(r.buy), { size: 38, w: 800, fill: C.rateText, anchor: 'middle' }));
+    t.push(T(W - L - 116, cy - 6, 'ПРОДАЖ', { size: 11, w: 700, fill: C.accent, anchor: 'middle', ls: 2 }));
+    t.push(T(W - L - 116, cy + 30, n2(r.sell), { size: 38, w: 800, fill: C.accent, anchor: 'middle' }));
+    t.push(tri(r.trend, W - L - 34, cy + 20, 8));
+  });
+
+  // Контактний блок унизу — велика плашка-CTA
+  const fy = H - 190;
+  t.push(`<rect x="${L}" y="${fy}" width="${W - L * 2}" height="120" rx="28" fill="${C.footerBg}"/>`);
+  t.push(T(W / 2, fy + 48, cfg.address, { size: 22, w: 800, fill: C.footerText, anchor: 'middle' }));
+  t.push(T(W / 2, fy + 84, cfg.phones.join('   ·   '), { size: 24, w: 900, fill: C.footerText, anchor: 'middle' }));
+  t.push(T(W / 2, H - 34, cfg.channel, { size: 16, w: 700, fill: C.muted, anchor: 'middle', ls: 2 }));
+
+  return wrap(W, H, t.join('\n  '));
 }
 
 /** Шляхи до вбудованих шрифтів (Montserrat) — щоб рендер не залежав від системних. */
