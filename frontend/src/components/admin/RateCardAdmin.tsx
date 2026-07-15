@@ -7,16 +7,6 @@ import api from '../../api/axios';
  * перемикач «постити картинкою замість тексту».
  */
 
-const THEMES: { key: string; label: string; hint: string }[] = [
-  { key: 'classic', label: 'Класика', hint: 'Зелень + золото, як на зразку' },
-  { key: 'dark', label: 'Преміум', hint: 'Та сама розкладка, графіт + золото' },
-  { key: 'minimal', label: 'Мінімалізм', hint: 'Та сама розкладка, білий + синій' },
-  { key: 'board', label: 'Табло', hint: 'Величезні цифри на чорному — читається навіть у прев\'ю стрічки' },
-  { key: 'editorial', label: 'Журнал', hint: 'Двоколонка: ліворуч про нас, праворуч курси. Багато повітря' },
-  { key: 'grid', label: 'Плитки', hint: 'Кожна валюта — окрема картка. Зручно з телефона' },
-  { key: 'story', label: 'Сторіз 9:16', hint: 'Вертикальний формат для сторіз/статусів' },
-];
-
 type Cfg = {
   brand: string; brandSuffix: string; tagline: string;
   address: string; addressNote: string;
@@ -28,7 +18,6 @@ type Cfg = {
 export default function RateCardAdmin() {
   const [points, setPoints] = useState<any[]>([]);
   const [pointId, setPointId] = useState<number | null>(null);
-  const [theme, setTheme] = useState('classic');
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [preview, setPreview] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -46,11 +35,11 @@ export default function RateCardAdmin() {
     });
   }, []);
 
-  // Вміст картки: глобальний або точки (scope + pointId).
+  // Вміст картки: глобальний або точки (scope + pointId). Тему НЕ чіпаємо тут —
+  // дропдаун стилю на цій сторінці лише для перегляду (не зберігається).
   const loadConfig = (sc = scope, p = pointId) => {
     const q = sc === 'point' && p ? `?pointId=${p}` : '';
     api.get(`/settings/rate-card${q}`).then(({ data }) => {
-      setTheme(data.theme);
       setCfg(data.config);
     }).catch(() => {});
   };
@@ -60,13 +49,14 @@ export default function RateCardAdmin() {
   }, [scope, pointId]);
 
 
-  // Прев'ю — PNG із сервера (та сама картинка, що піде в Telegram).
-  const loadPreview = async (t = theme, p = pointId) => {
+  // Прев'ю — PNG із сервера: вміст точки в її реальному стилі (тема першого
+  // каналу точки). Без вибору стилю — він задається на «Сповіщеннях».
+  const loadPreview = async (p = pointId) => {
     if (!p) return;
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.get(`/rates/card/${p}?theme=${t}`, { responseType: 'blob' });
+      const { data } = await api.get(`/rates/card/${p}`, { responseType: 'blob' });
       setPreview((old) => {
         if (old) URL.revokeObjectURL(old);
         return URL.createObjectURL(data);
@@ -80,14 +70,15 @@ export default function RateCardAdmin() {
   };
 
   useEffect(() => {
-    if (pointId) loadPreview(theme, pointId);
+    if (pointId) loadPreview(pointId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pointId, theme]);
+  }, [pointId]);
 
   const save = async () => {
     setSaved(false);
-    // Вміст пишемо в глобальний або в точку (за scope); тему — глобально.
-    const body: any = { theme, config: cfg };
+    // Зберігаємо лише ВМІСТ (глобальний або точки). Тему не шлемо — вона
+    // задається per-channel на «Сповіщеннях», а дропдаун тут лише для перегляду.
+    const body: any = { config: cfg };
     if (scope === 'point' && pointId) body.pointId = pointId;
     await api.put('/settings/rate-card', body);
     setSaved(true);
@@ -156,12 +147,22 @@ export default function RateCardAdmin() {
                 >
                   По точці
                 </button>
+                {/* Яку саме точку редагуємо — видно й змінюється тут. */}
+                {scope === 'point' && (
+                  <select
+                    value={pointId ?? ''}
+                    onChange={(e) => setPointId(Number(e.target.value))}
+                    className="border border-gray-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  >
+                    {points.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                )}
               </div>
             </div>
             <p className="text-xs text-gray-400">
               {scope === 'global'
                 ? 'Спільний вміст для всіх точок (бренд, слоган, послуги…).'
-                : `Перекриття для «${points.find((p) => p.id === pointId)?.name ?? ''}»: заповнене тут замінює загальне (адреса, телефони, графік).`}
+                : `Редагуєте вміст точки «${points.find((p) => p.id === pointId)?.name ?? ''}». Заповнене тут замінює загальне (адреса, телефони, графік); порожнє поле — береться загальне.`}
             </p>
             <div className="grid grid-cols-2 gap-3">
               {field('Бренд', cfg.brand, (v) => setCfg({ ...cfg, brand: v }))}
@@ -201,10 +202,10 @@ export default function RateCardAdmin() {
         )}
       </div>
 
-      {/* Праворуч: стиль + живе прев'ю (в одному блоці) */}
+      {/* Праворуч: прев'ю (стиль тут — лише для перегляду) */}
       <div className="bg-white rounded-xl shadow p-4 space-y-3 xl:sticky xl:top-4">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="font-semibold text-gray-800 text-sm">Стиль і прев'ю</h3>
+          <h3 className="font-semibold text-gray-800 text-sm">Прев'ю</h3>
           <select
             value={pointId ?? ''}
             onChange={(e) => setPointId(Number(e.target.value))}
@@ -217,21 +218,9 @@ export default function RateCardAdmin() {
           </select>
         </div>
 
-        {/* Вибір стилю — дропдаун */}
-        <div>
-          <select
-            value={theme}
-            onChange={(e) => setTheme(e.target.value)}
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-400"
-          >
-            {THEMES.map((t) => (
-              <option key={t.key} value={t.key}>{t.label}</option>
-            ))}
-          </select>
-          <p className="text-[11px] text-gray-400 mt-1">
-            {THEMES.find((t) => t.key === theme)?.hint}
-          </p>
-        </div>
+        <p className="text-[11px] text-gray-400">
+          Прев'ю — у стилі каналу цієї точки. Стиль задається на «Сповіщеннях» для кожного каналу.
+        </p>
 
         <div className="rounded-lg overflow-hidden border border-gray-200 bg-gray-50 min-h-[300px] flex items-center justify-center">
           {loading ? (

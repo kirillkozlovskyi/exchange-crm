@@ -102,7 +102,13 @@ export class RatesService {
     if (!rates.length) return null;
 
     const cfg = await this.settings.getRateCardConfig(exchangePointId);
-    const cardTheme = theme ?? (await this.settings.getRateCardTheme());
+    // Тема: явна (для перегляду) → тема першого каналу точки (реальна публікація)
+    // → глобальна. Так прев'ю без вибору показує, як картка піде в канал.
+    let cardTheme = theme;
+    if (!cardTheme) {
+      const chans = await this.settings.getChannelsForPoint(exchangePointId);
+      cardTheme = chans.find((c) => c.theme)?.theme ?? (await this.settings.getRateCardTheme());
+    }
     const rows: RateCardRow[] = [];
 
     for (const r of rates) {
