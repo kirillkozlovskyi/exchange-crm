@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
+import { fmtMoney } from '../../lib/format';
 
 type Period = 'daily' | 'weekly' | 'monthly';
 
@@ -77,16 +78,16 @@ export default function FinanceAdmin() {
           {/* Total */}
           <div className="bg-blue-700 text-white rounded-xl shadow p-5">
             <div className="text-sm opacity-80">{periodLabel[period]} — мережа</div>
-            <div className="text-3xl font-bold mt-1">{Number(data.totalNetProfit ?? data.totalProfit).toFixed(2)} ₴</div>
+            <div className="text-3xl font-bold mt-1">{fmtMoney(data.totalNetProfit ?? data.totalProfit)} ₴</div>
             <div className="text-sm opacity-70 mt-1">чистий прибуток</div>
             <div className="flex gap-4 mt-3 pt-3 border-t border-white/20 text-sm">
               <div>
                 <div className="opacity-70 text-xs">валовий</div>
-                <div className="font-semibold">{Number(data.totalProfit).toFixed(2)} ₴</div>
+                <div className="font-semibold">{fmtMoney(data.totalProfit)} ₴</div>
               </div>
               <div>
                 <div className="opacity-70 text-xs">витрати</div>
-                <div className="font-semibold">−{Number(data.totalExpenses ?? 0).toFixed(2)} ₴</div>
+                <div className="font-semibold">−{fmtMoney(data.totalExpenses ?? 0)} ₴</div>
               </div>
             </div>
           </div>
@@ -99,13 +100,13 @@ export default function FinanceAdmin() {
                 <div className="text-right">
                   <div>
                     <span className={`font-bold ${Number(pt.netProfit ?? pt.totalProfit) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {Number(pt.netProfit ?? pt.totalProfit).toFixed(2)} ₴
+                      {fmtMoney(pt.netProfit ?? pt.totalProfit)} ₴
                     </span>
                     <span className="text-xs text-gray-400 ml-2">чистий · {pt.operationsCount} оп.</span>
                   </div>
                   {Number(pt.expenses ?? 0) > 0 && (
                     <div className="text-xs text-gray-400 mt-0.5">
-                      валовий {Number(pt.totalProfit).toFixed(2)} − витрати {Number(pt.expenses).toFixed(2)}
+                      валовий {fmtMoney(pt.totalProfit)} − витрати {fmtMoney(pt.expenses)}
                     </div>
                   )}
                 </div>
@@ -118,7 +119,7 @@ export default function FinanceAdmin() {
                       <div key={di} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                         <div className="text-xs text-gray-500">{dk.deskName} · {dk.operationsCount} оп.</div>
                         <div className={`text-sm font-bold ${dk.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {dk.profit >= 0 ? '+' : ''}{Number(dk.profit).toFixed(2)} ₴
+                          {dk.profit >= 0 ? '+' : ''}{fmtMoney(dk.profit)} ₴
                         </div>
                       </div>
                     ))}
@@ -134,7 +135,7 @@ export default function FinanceAdmin() {
                       <div key={ci} className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
                         <div className="text-xs text-gray-600">{ch.cashierName} · {ch.operationsCount} оп.</div>
                         <div className={`text-sm font-bold ${ch.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {ch.profit >= 0 ? '+' : ''}{Number(ch.profit).toFixed(2)} ₴
+                          {ch.profit >= 0 ? '+' : ''}{fmtMoney(ch.profit)} ₴
                         </div>
                       </div>
                     ))}
@@ -154,8 +155,8 @@ export default function FinanceAdmin() {
                     {Object.entries(pt.byCurrency).map(([cur, d]: any) => (
                       <tr key={cur} className="border-b last:border-0">
                         <td className="py-1.5 font-bold">{cur}</td>
-                        <td className="py-1.5 text-right">{Number(d.volume).toFixed(2)}</td>
-                        <td className="py-1.5 text-right text-green-600">{Number(d.profit).toFixed(2)} ₴</td>
+                        <td className="py-1.5 text-right">{fmtMoney(d.volume)}</td>
+                        <td className="py-1.5 text-right text-green-600">{fmtMoney(d.profit)} ₴</td>
                       </tr>
                     ))}
                   </tbody>

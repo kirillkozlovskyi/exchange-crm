@@ -6,6 +6,7 @@ import { netTransfers, type TransferRow } from '../../lib/transfers';
 import { cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 import { usdtCashDelta, usdtProfit, type UsdtOpRow } from '../../lib/usdt';
 import { shiftCashBalance } from '../../lib/shift-balance';
+import { fmtMoney } from '../../lib/format';
 
 type Operation = {
   id: number;
@@ -502,7 +503,7 @@ export default function CloseShiftForm({
                 {profitRows.map((r) => (
                   <tr key={r.cur} className="border-b last:border-0">
                     <td className="py-2 font-bold text-gray-800">{r.cur}</td>
-                    <td className="py-2 text-right text-gray-500">{r.open.toFixed(2)}</td>
+                    <td className="py-2 text-right text-gray-500">{fmtMoney(r.open)}</td>
                     {hasTransfers && (
                       <td className={`py-2 text-right ${
                         Math.abs(r.transfer) < 0.005 ? 'text-gray-300' :
@@ -519,7 +520,7 @@ export default function CloseShiftForm({
                         {Math.abs(r.movement) < 0.005 ? '—' : (r.movement > 0 ? '+' : '−') + Math.abs(r.movement).toFixed(2)}
                       </td>
                     )}
-                    <td className="py-2 text-right font-medium text-gray-700">{r.close.toFixed(2)}</td>
+                    <td className="py-2 text-right font-medium text-gray-700">{fmtMoney(r.close)}</td>
                     <td className="py-2 text-right text-gray-500">
                       {costBasisLive[r.cur] ? Number(costBasisLive[r.cur]).toFixed(4) : '—'}
                     </td>
@@ -538,7 +539,7 @@ export default function CloseShiftForm({
                     Торговий прибуток
                   </td>
                   <td className={`pt-2.5 text-right text-lg font-bold ${tradingProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {tradingProfit >= 0 ? '+' : ''}{tradingProfit.toFixed(2)}
+                    {tradingProfit >= 0 ? '+' : ''}{fmtMoney(tradingProfit)}
                   </td>
                 </tr>
               </tfoot>
@@ -555,7 +556,7 @@ export default function CloseShiftForm({
                 </div>
               </div>
               <span className={`text-lg font-bold ${factualProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {factualProfit >= 0 ? '+' : ''}{factualProfit.toFixed(2)} ₴
+                {factualProfit >= 0 ? '+' : ''}{fmtMoney(factualProfit)} ₴
               </span>
             </div>
             {Math.abs(cashDiff) >= 0.01 && (

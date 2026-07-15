@@ -6,6 +6,7 @@ import { format } from 'date-fns';
 import OperationForm from '../components/cashier/OperationForm';
 import OperationsList from '../components/cashier/OperationsList';
 import TransferPanel from '../components/cashier/TransferPanel';
+import { fmtInt, fmtMoney } from '../lib/format';
 import OpenShiftForm from '../components/cashier/OpenShiftForm';
 import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
@@ -750,14 +751,14 @@ export default function CashierPage() {
                     <div className="flex items-center py-1 px-1">
                       <span className="text-lg w-7 text-center"><Flag currency="UAH" /></span>
                       <span className="font-bold text-lg flex-1 text-gray-800">UAH</span>
-                      <span className="text-xl font-bold text-blue-800">{Number(currentBalance['UAH']).toFixed(0)}</span>
+                      <span className="text-xl font-bold text-blue-800">{fmtInt(currentBalance['UAH'])}</span>
                     </div>
                   )}
                   {Object.entries(currentBalance).filter(([c]) => c !== 'UAH').map(([cur, amt]) => (
                     <div key={cur} className="flex items-center py-1 px-1">
                       <span className="text-lg w-7 text-center"><Flag currency={cur} /></span>
                       <span className="font-bold text-lg flex-1 text-gray-800">{cur}</span>
-                      <span className={`text-xl font-bold ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{Number(amt).toFixed(0)}</span>
+                      <span className={`text-xl font-bold ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{fmtInt(amt)}</span>
                     </div>
                   ))}
                 </div>
@@ -770,7 +771,7 @@ export default function CashierPage() {
                       className={`text-xl font-bold ${liveProfit.total >= 0 ? 'text-green-600' : 'text-red-600'}`}
                       title={`Торговий: ${liveProfit.trading.toFixed(2)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${liveProfit.usdt.toFixed(2)} ₴` : ''}`}
                     >
-                      {liveProfit.total >= 0 ? '+' : ''}{liveProfit.total.toFixed(2)} ₴
+                      {liveProfit.total >= 0 ? '+' : ''}{fmtMoney(liveProfit.total)} ₴
                     </span>
                   </div>
                 )}
@@ -1069,7 +1070,7 @@ function CashMovementModal({
                 className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring}`}
               >
                 {currencies.map((c) => (
-                  <option key={c} value={c}>{c} (в касі {Number(balance[c] ?? 0).toFixed(0)})</option>
+                  <option key={c} value={c}>{c} (в касі {fmtInt(balance[c] ?? 0)})</option>
                 ))}
               </select>
             </div>
@@ -1099,7 +1100,7 @@ function CashMovementModal({
             </select>
             {source === 'Банк' && bankBalances && (
               <p className="text-xs text-gray-500 mt-1">
-                У банку: <span className="font-semibold">{(bankBalances[currency] ?? 0).toFixed(2)} {currency}</span>
+                У банку: <span className="font-semibold">{fmtMoney(bankBalances[currency] ?? 0)} {currency}</span>
               </p>
             )}
             {source === ADJUST_SOURCE && (

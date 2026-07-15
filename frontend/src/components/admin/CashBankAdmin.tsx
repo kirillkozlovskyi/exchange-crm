@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
+import { fmtMoney } from '../../lib/format';
 import { format } from 'date-fns';
 import CompanyBalanceCard from './CompanyBalanceCard';
 import UsdtBankSection from './UsdtBankSection';
@@ -85,7 +86,7 @@ export default function CashBankAdmin() {
             {balances.currencies.map((c) => (
               <div key={c.currency} className="border border-gray-200 rounded-lg px-4 py-2 min-w-[120px]">
                 <div className="text-xs text-gray-400">{c.currency}</div>
-                <div className="font-bold text-gray-800 text-lg tabular-nums">{c.amount.toFixed(2)}</div>
+                <div className="font-bold text-gray-800 text-lg tabular-nums">{fmtMoney(c.amount)}</div>
               </div>
             ))}
             {/* USDT — частина банку, візуально відділено */}
@@ -150,7 +151,7 @@ export default function CashBankAdmin() {
                         {m.cashDesk ? `${m.cashDesk.exchangePoint?.name ?? ''} · ${m.cashDesk.name}` : '—'}
                       </td>
                       <td className={`py-1.5 px-2 text-right font-medium tabular-nums whitespace-nowrap ${d >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {d >= 0 ? '+' : '−'}{Math.abs(d).toFixed(2)} {m.currency}
+                        {d >= 0 ? '+' : '−'}{fmtMoney(Math.abs(d))} {m.currency}
                       </td>
                       <td className="py-1.5 px-2 text-gray-500 whitespace-nowrap">{m.createdBy?.name ?? '—'}</td>
                     </tr>
