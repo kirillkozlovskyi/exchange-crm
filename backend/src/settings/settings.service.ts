@@ -88,7 +88,7 @@ export class SettingsService {
   async setTelegram(dto: {
     token?: string;
     chatId?: string;
-    channels?: { id: string; label?: string; theme?: string }[];
+    channels?: { id: string; label?: string; theme?: string; pointId?: number | null }[];
     rateAutopost?: boolean;
   }): Promise<void> {
     // Порожній рядок = очистити (повернутись до env-fallback, якщо він є).
@@ -101,6 +101,8 @@ export class SettingsService {
           label: String(c.label ?? '').trim(),
           // Тема картки цього каналу; порожньо = глобальна тема з налаштувань.
           theme: parseCardTheme(c.theme),
+          // Точка каналу: пост іде в канал лише при зміні курсу ЦІЄЇ точки.
+          pointId: c.pointId != null && Number.isFinite(Number(c.pointId)) ? Number(c.pointId) : null,
         }))
         .filter((c) => c.id);
       await this.set('telegram_channels', JSON.stringify(clean));
@@ -109,7 +111,9 @@ export class SettingsService {
   }
 
   /** Список каналів для постів про курси (окремо від чату адмін-сповіщень). */
-  async getTelegramChannels(): Promise<{ id: string; label: string; theme?: CardTheme }[]> {
+  async getTelegramChannels(): Promise<
+    { id: string; label: string; theme?: CardTheme; pointId: number | null }[]
+  > {
     const raw = await this.get('telegram_channels');
     if (!raw) return [];
     try {
@@ -120,12 +124,19 @@ export class SettingsService {
               id: String(c.id ?? '').trim(),
               label: String(c.label ?? '').trim(),
               theme: parseCardTheme(c.theme),
+              pointId: c.pointId != null && Number.isFinite(Number(c.pointId)) ? Number(c.pointId) : null,
             }))
             .filter((c) => c.id)
         : [];
     } catch {
       return [];
     }
+  }
+
+  /** Канали конкретної точки (+ канали без точки — «загальні», йдуть завжди). */
+  async getChannelsForPoint(pointId: number) {
+    const all = await this.getTelegramChannels();
+    return all.filter((c) => c.pointId == null || c.pointId === pointId);
   }
 
   /** Чи публікувати оновлені курси в канали автоматично при зміні. */

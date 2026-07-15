@@ -68,7 +68,8 @@ export class RatesService {
   async publishPoint(exchangePointId: number): Promise<{ sent: number; total: number }> {
     const point = await this.prisma.exchangePoint.findUnique({ where: { id: exchangePointId } });
     if (!point) throw new NotFoundException('Точку не знайдено');
-    const channels = await this.settings.getTelegramChannels();
+    // Лише канали цієї точки (+ канали без прив'язки — «загальні»).
+    const channels = await this.settings.getChannelsForPoint(exchangePointId);
     if (!channels.length) return { sent: 0, total: 0 };
     const rates = await this.getByPoint(exchangePointId);
     if (!rates.length) return { sent: 0, total: channels.length };

@@ -141,7 +141,9 @@ function TelegramSettings() {
   const [configured, setConfigured] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
   const [chatInput, setChatInput] = useState('');
-  const [channels, setChannels] = useState<{ id: string; label: string; theme?: string }[]>([]);
+  type Channel = { id: string; label: string; theme?: string; pointId?: number | null };
+  const [channels, setChannels] = useState<Channel[]>([]);
+  const [points, setPoints] = useState<{ id: number; name: string }[]>([]);
   const [autopost, setAutopost] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -157,11 +159,14 @@ function TelegramSettings() {
       setAutopost(!!data.rateAutopost);
     }).catch(() => {});
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    api.get('/exchange-points').then(({ data }) => setPoints(data)).catch(() => {});
+  }, []);
 
-  const setChannel = (i: number, field: 'id' | 'label' | 'theme', v: string) =>
+  const setChannel = (i: number, field: keyof Channel, v: string | number | null) =>
     setChannels((cs) => cs.map((c, idx) => (idx === i ? { ...c, [field]: v } : c)));
-  const addChannel = () => setChannels((cs) => [...cs, { id: '', label: '' }]);
+  const addChannel = () => setChannels((cs) => [...cs, { id: '', label: '', pointId: null }]);
   const removeChannel = (i: number) => setChannels((cs) => cs.filter((_, idx) => idx !== i));
 
   const save = async () => {
@@ -262,8 +267,17 @@ function TelegramSettings() {
             <input
               type="text" value={c.label} onChange={(e) => setChannel(i, 'label', e.target.value)}
               placeholder="назва (необов.)"
-              className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-28 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
+            {/* Точка каналу: пост іде сюди при зміні курсу саме цієї точки. */}
+            <select
+              value={c.pointId ?? ''} onChange={(e) => setChannel(i, 'pointId', e.target.value ? Number(e.target.value) : null)}
+              title="Точка каналу"
+              className="w-32 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+              <option value="">усі точки</option>
+              {points.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
             {/* Стиль картки саме для цього каналу; «— загальний» = глобальна тема. */}
             <select
               value={c.theme ?? ''} onChange={(e) => setChannel(i, 'theme', e.target.value)}
@@ -284,7 +298,8 @@ function TelegramSettings() {
         ))}
         <button onClick={addChannel} className="text-sm text-blue-600 hover:underline">+ Додати канал</button>
         <p className="text-xs text-gray-400">
-          Стиль на каналі перекриває загальний (зі сторінки «Картка курсів»). «— загальний» = використовувати загальний.
+          Точка каналу: пост іде сюди при зміні курсу саме цієї точки («усі точки» — при зміні будь-якої).
+          Стиль перекриває загальний (зі сторінки «Картка курсів»).
         </p>
 
         <label className="flex items-center justify-between pt-2">
