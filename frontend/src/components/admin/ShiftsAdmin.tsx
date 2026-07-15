@@ -747,15 +747,16 @@ export default function ShiftsAdmin() {
                 >
                   <span className="text-gray-400 text-sm">{open ? '▲' : '▼'}</span>
                   <div className="flex-1 min-w-0">
+                    {/* Перший рядок — головне, великим: дата · точка · каса · касир + статус */}
                     <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-800">#{s.number}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${st.cls}`}>{st.label}</span>
-                      <span className="text-xs text-gray-500">
-                        {s.cashDesk?.exchangePoint?.name} · {s.cashDesk?.name}
+                      <span className="font-semibold text-gray-800 text-base">
+                        {format(new Date(s.openedAt), 'dd.MM.yyyy')} · {s.cashDesk?.exchangePoint?.name} · {s.cashDesk?.name} · {s.openedBy?.name}
                       </span>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${st.cls}`}>{st.label}</span>
                     </div>
+                    {/* Другий рядок — деталі, дрібним */}
                     <div className="text-xs text-gray-400 mt-0.5">
-                      {s.openedBy?.name} · відкрито {format(new Date(s.openedAt), 'dd.MM.yyyy HH:mm')}
+                      #{s.number} · відкрито {format(new Date(s.openedAt), 'HH:mm')}
                       {s.closedAt && <> · закрито {format(new Date(s.closedAt), 'HH:mm')}</>}
                       {' · '}{s._count?.operations ?? 0} оп. · {s._count?.cashMovements ?? 0} рух · {s._count?.usdtOperations ?? 0} USDT · {s._count?.reconciliations ?? 0} звір.
                     </div>

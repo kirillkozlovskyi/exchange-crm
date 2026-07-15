@@ -29,8 +29,6 @@ export default function RateCardAdmin() {
   const [points, setPoints] = useState<any[]>([]);
   const [pointId, setPointId] = useState<number | null>(null);
   const [theme, setTheme] = useState('classic');
-  // Автопублікація картки в канали при зміні курсу (telegram_rate_autopost).
-  const [autopost, setAutopost] = useState(false);
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [preview, setPreview] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -61,16 +59,6 @@ export default function RateCardAdmin() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scope, pointId]);
 
-  // Стан автопублікації (окремий ключ у telegram-налаштуваннях).
-  useEffect(() => {
-    api.get('/settings/telegram').then(({ data }) => setAutopost(!!data.rateAutopost)).catch(() => {});
-  }, []);
-
-  const toggleAutopost = async () => {
-    const next = !autopost;
-    setAutopost(next);
-    await api.put('/settings/telegram', { rateAutopost: next }).catch(() => setAutopost(!next));
-  };
 
   // Прев'ю — PNG із сервера (та сама картинка, що піде в Telegram).
   const loadPreview = async (t = theme, p = pointId) => {
@@ -144,23 +132,9 @@ export default function RateCardAdmin() {
             </p>
           </div>
 
-          {/* Автопублікація при зміні курсу */}
-          <div className="flex items-start justify-between gap-4 border-t border-gray-100 pt-4 mt-1">
-            <div className="space-y-1">
-              <p className="text-sm font-medium text-gray-700">Автопублікація при зміні курсу</p>
-              <p className="text-xs text-gray-400">
-                Коли курс точки змінюється — картка автоматично летить у її канали.
-                Вимкнено — публікувати лише вручну кнопкою «Опублікувати».
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={toggleAutopost}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${autopost ? 'bg-blue-600' : 'bg-gray-300'}`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${autopost ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          </div>
+          <p className="text-xs text-gray-400 border-t border-gray-100 pt-4 mt-1">
+            Публікація в канали — вручну кнопкою «Опублікувати» (праворуч), окремо по кожній точці.
+          </p>
         </div>
 
         {/* Тексти картки */}

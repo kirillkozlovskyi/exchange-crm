@@ -52,10 +52,8 @@ export class RatesService {
           },
         }),
       ]);
-      // Автопост курсів у канали (якщо увімкнено) — не блокує збереження.
-      if (await this.settings.getRateAutopost()) {
-        this.publishPoint(dto.exchangePointId).catch(() => {});
-      }
+      // Публікація в канали — лише вручну кнопкою «Опублікувати» (publishPoint).
+      // Автопост при зміні курсу навмисно не робимо.
       return created;
     } catch (e: any) {
       if (e?.code === 'P2002')
