@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/axios';
+import { fmtNum } from '../../lib/format';
 import { format } from 'date-fns';
 
 type Edit = {
@@ -53,12 +54,12 @@ function EditHistoryModal({ opNumber, opId, onClose }: { opNumber: string; opId:
                 <div className="grid grid-cols-2 gap-2 text-sm">
                   <div className="bg-red-50 rounded p-2">
                     <div className="text-xs text-gray-400 mb-1">Було</div>
-                    <div>Кількість: <span className="font-semibold">{Number(e.prevAmount).toFixed(2)}</span></div>
+                    <div>Кількість: <span className="font-semibold">{fmtNum(e.prevAmount)}</span></div>
                     <div>Курс: <span className="font-semibold">{Number(e.prevRate).toFixed(2)}</span></div>
                   </div>
                   <div className="bg-green-50 rounded p-2">
                     <div className="text-xs text-gray-400 mb-1">Стало</div>
-                    <div>Кількість: <span className="font-semibold">{Number(e.newAmount).toFixed(2)}</span></div>
+                    <div>Кількість: <span className="font-semibold">{fmtNum(e.newAmount)}</span></div>
                     <div>Курс: <span className="font-semibold">{Number(e.newRate).toFixed(2)}</span></div>
                   </div>
                 </div>
@@ -268,9 +269,9 @@ export default function OperationsAdmin() {
                       </span>
                     </td>
                     <td className="py-2 pr-4 font-bold">{op.currency}</td>
-                    <td className="py-2 pr-4">{Number(op.amount).toFixed(2)}</td>
+                    <td className="py-2 pr-4">{fmtNum(op.amount)}</td>
                     <td className="py-2 pr-4">{Number(op.rate).toFixed(2)}</td>
-                    <td className="py-2 pr-4">{Number(op.totalUah).toFixed(2)}</td>
+                    <td className="py-2 pr-4">{fmtNum(op.totalUah)}</td>
                     <td className="py-2 pr-4">{op.cashier?.name ?? '—'}</td>
                     <td className="py-2 pr-4">{op.shift?.cashDesk?.exchangePoint?.name ?? '—'}</td>
                     <td className="py-2">

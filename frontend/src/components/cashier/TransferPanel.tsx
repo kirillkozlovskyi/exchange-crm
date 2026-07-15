@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import api from '../../api/axios';
+import { fmtNum } from '../../lib/format';
 
 const CURRENCIES = ['UAH', 'USD', 'EUR', 'PLN', 'GBP', 'CHF', 'CAD', 'CZK'];
 
@@ -75,7 +76,7 @@ export default function TransferPanel({
     if (!parsedAmount) return '';
     const have = balance[currency] ?? 0;
     if (have < parsedAmount) {
-      return `Недостатньо ${currency}: потрібно ${parsedAmount.toFixed(2)}, в касі ${have.toFixed(2)}`;
+      return `Недостатньо ${currency}: потрібно ${fmtNum(parsedAmount)}, в касі ${fmtNum(have)}`;
     }
     return '';
   })();
@@ -298,9 +299,9 @@ export default function TransferPanel({
                 <div key={t.id} className="border border-orange-200 bg-orange-50 rounded-lg p-3 flex items-center gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-medium">
-                      −{Number(t.amount).toFixed(2)} {t.currency}
+                      −{fmtNum(t.amount)} {t.currency}
                       {t.counterCurrency && (
-                        <span className="text-gray-500"> ↔ +{Number(t.counterAmount).toFixed(2)} {t.counterCurrency}</span>
+                        <span className="text-gray-500"> ↔ +{fmtNum(t.counterAmount)} {t.counterCurrency}</span>
                       )}
                     </div>
                     <div className="text-xs text-gray-500">
@@ -337,14 +338,14 @@ export default function TransferPanel({
             {pending.map((t) => (
               <div key={t.id} className="border border-yellow-200 bg-yellow-50 rounded-lg p-3">
                 <div className="text-sm font-medium">
-                  {Number(t.amount).toFixed(2)} {t.currency}
+                  {fmtNum(t.amount)} {t.currency}
                   {t.counterCurrency && (
-                    <span className="text-gray-500"> ↔ {Number(t.counterAmount).toFixed(2)} {t.counterCurrency}</span>
+                    <span className="text-gray-500"> ↔ {fmtNum(t.counterAmount)} {t.counterCurrency}</span>
                   )}
                 </div>
                 {t.counterCurrency && (
                   <div className="text-xs text-blue-700 mb-1">
-                    Своп: отримаєте {Number(t.amount).toFixed(2)} {t.currency}, віддасте {Number(t.counterAmount).toFixed(2)} {t.counterCurrency}
+                    Своп: отримаєте {fmtNum(t.amount)} {t.currency}, віддасте {Number(t.counterAmount).toFixed(2)} {t.counterCurrency}
                   </div>
                 )}
                 <div className="text-xs text-gray-500 mb-2">

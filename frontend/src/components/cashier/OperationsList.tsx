@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import api from '../../api/axios';
+import { fmtNum, fmtMoney, fmtInt } from '../../lib/format';
 import { format } from 'date-fns';
 import { useAuth } from '../../context/AuthContext';
 import OperationEditModal from './OperationEditModal';
@@ -115,7 +116,7 @@ export function printReceipt(op: Op, info: ReceiptInfo = {}) {
     ? 'ОБМІН ІНОЗЕМНОЇ ВАЛЮТИ'
     : op.type === 'SELL' ? 'ПРОДАЖ ІНОЗЕМНОЇ ВАЛЮТИ' : 'КУПІВЛЯ ІНОЗЕМНОЇ ВАЛЮТИ';
   const f = opFlows(op); // got = прийнято касою, gave = видано касою
-  const money = (n: number) => n.toFixed(2).replace('.', ',');
+  const money = (n: number) => fmtMoney(n);
   const rate = Number(op.rate).toFixed(6).replace('.', ',');
   const uahAmount = f.gaveCur === 'UAH' ? f.gaveAmt : f.gotCur === 'UAH' ? f.gotAmt : Number(op.totalUah);
   const fiscal = String(Math.floor(1000000000 + Math.random() * 9000000000)); // рандомні 10 цифр
@@ -224,9 +225,9 @@ function OpRow({
           </button>
         )}
       </td>
-      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{f.gaveAmt.toFixed(0)}</td>
+      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{fmtInt(f.gaveAmt)}</td>
       <td className="py-1.5 px-1"><CurCell cur={f.gaveCur} /></td>
-      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{f.gotAmt.toFixed(0)}</td>
+      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{fmtInt(f.gotAmt)}</td>
       <td className="py-1.5 px-1"><CurCell cur={f.gotCur} /></td>
       <td className={`py-1.5 px-1 text-right text-xs whitespace-nowrap font-medium ${isCustom ? 'text-orange-500' : 'text-gray-500'}`} title={ratePair}>
         {isCustom && '✱'}{opRate.toFixed(2)}
@@ -350,11 +351,11 @@ function StornoModal({ op, onConfirm, onClose }: {
 
         <div className="bg-gray-50 rounded px-4 py-3 text-sm text-gray-700 text-center">
           {isCross ? (
-            <>{Number(op.payAmount).toFixed(2)} <Flag currency={op.payCurrency!} /> → {Number(op.amount).toFixed(2)} <Flag currency={op.currency} /></>
+            <>{fmtNum(op.payAmount)} <Flag currency={op.payCurrency!} /> → {fmtNum(op.amount)} <Flag currency={op.currency} /></>
           ) : isClientBuy ? (
-            <>{Number(op.totalUah).toFixed(2)} <Flag currency="UAH" /> → {Number(op.amount).toFixed(2)} <Flag currency={op.currency} /></>
+            <>{fmtNum(op.totalUah)} <Flag currency="UAH" /> → {fmtNum(op.amount)} <Flag currency={op.currency} /></>
           ) : (
-            <>{Number(op.payAmount ?? op.amount).toFixed(2)} <Flag currency={op.payCurrency ?? op.currency} /> → {Number(op.totalUah).toFixed(2)} <Flag currency="UAH" /></>
+            <>{fmtNum(op.payAmount ?? op.amount)} <Flag currency={op.payCurrency ?? op.currency} /> → {fmtNum(op.totalUah)} <Flag currency="UAH" /></>
           )}
         </div>
 

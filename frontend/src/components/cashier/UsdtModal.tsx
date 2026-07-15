@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../api/axios';
+import { fmtNum } from '../../lib/format';
 import { suggestUsdtSettle, type UsdtSide } from '../../lib/usdt';
 
 type Rate = { currency: string; buy: number | string; sell: number | string };
@@ -114,9 +115,9 @@ export default function UsdtModal({
   const insufficientUsdt = side === 'SELL' && !!config && usdt > availableUsdt;
   const insufficientSettle = side === 'BUY' && settle > (balance[settleCurrency] ?? 0);
   const warning = insufficientUsdt
-    ? `Недостатньо USDT у ${isGlobal ? 'глобальному банку' : 'гаманці точки'}: є ${availableUsdt.toFixed(4)}, продаєте ${usdt.toFixed(4)}`
+    ? `Недостатньо USDT у ${isGlobal ? 'глобальному банку' : 'гаманці точки'}: є ${fmtNum(availableUsdt, 4)}, продаєте ${fmtNum(usdt, 4)}`
     : insufficientSettle
-    ? `Недостатньо ${settleCurrency} у касі: є ${(balance[settleCurrency] ?? 0).toFixed(2)}, видаєте ${settle.toFixed(2)}`
+    ? `Недостатньо ${settleCurrency} у касі: є ${fmtNum(balance[settleCurrency] ?? 0)}, видаєте ${fmtNum(settle)}`
     : '';
 
   const handleSave = async () => {
@@ -182,7 +183,7 @@ export default function UsdtModal({
           {config && (
             <p className="text-xs text-gray-500 mt-1">
               Джерело: <span className="font-semibold text-gray-700">{isGlobal ? 'глобальний банк' : 'гаманець точки'}</span>
-              {' · '}баланс: <span className="text-lg font-bold text-teal-700">{availableUsdt.toFixed(4)} USDT</span>
+              {' · '}баланс: <span className="text-lg font-bold text-teal-700">{fmtNum(availableUsdt, 4)} USDT</span>
             </p>
           )}
         </div>
@@ -231,7 +232,7 @@ export default function UsdtModal({
                 onChange={(e) => { setSettleCurrency(e.target.value); setTouchedSettle(false); }}
                 className="w-full border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
                 {currencies.map((c) => (
-                  <option key={c} value={c}>{c} (в касі {Number(balance[c] ?? 0).toFixed(0)})</option>
+                  <option key={c} value={c}>{c} (в касі {fmtNum(balance[c] ?? 0, 0)})</option>
                 ))}
               </select>
             </div>
@@ -249,14 +250,14 @@ export default function UsdtModal({
           </div>
           {touchedSettle && (
             <button onClick={() => setTouchedSettle(false)} className="text-xs text-gray-400 hover:text-gray-600">
-              ↺ авто-сума ({suggested.toFixed(2)} {settleCurrency})
+              ↺ авто-сума ({fmtNum(suggested)} {settleCurrency})
             </button>
           )}
 
           <div className="flex justify-between text-sm border-t pt-1.5">
             <span className="text-gray-500">Маржа (прибуток, з фактичної суми):</span>
             <span className={`font-semibold ${profitUah >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-              {profitUah >= 0 ? '+' : '−'}{Math.abs(profitUah).toFixed(2)} ₴
+              {profitUah >= 0 ? '+' : '−'}{fmtNum(Math.abs(profitUah))} ₴
             </span>
           </div>
 
@@ -282,8 +283,8 @@ export default function UsdtModal({
                     <div key={op.id} className={`flex items-center gap-2 text-xs border-b border-gray-50 last:border-0 py-1 ${op.cancelled ? 'opacity-40 line-through' : ''}`}>
                       <span className="text-gray-400 w-10">{new Date(op.createdAt).toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' })}</span>
                       <span className={`font-semibold ${isSell ? 'text-red-600' : 'text-teal-700'}`}>{isSell ? 'Продаж' : 'Купівля'}</span>
-                      <span className="font-medium">{Number(op.usdtAmount).toFixed(2)} ₮</span>
-                      <span className="text-gray-500">{Number(op.settleAmount).toFixed(2)} {op.settleCurrency}</span>
+                      <span className="font-medium">{fmtNum(op.usdtAmount)} ₮</span>
+                      <span className="text-gray-500">{fmtNum(op.settleAmount)} {op.settleCurrency}</span>
                       <span className="ml-auto">
                         {op.cancelled ? (
                           <span className="text-gray-400 no-underline">скасовано</span>

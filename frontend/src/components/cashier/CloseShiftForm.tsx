@@ -6,7 +6,7 @@ import { netTransfers, type TransferRow } from '../../lib/transfers';
 import { cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 import { usdtCashDelta, usdtProfit, type UsdtOpRow } from '../../lib/usdt';
 import { shiftCashBalance } from '../../lib/shift-balance';
-import { fmtMoney } from '../../lib/format';
+import { fmtMoney, fmtNum } from '../../lib/format';
 
 type Operation = {
   id: number;
@@ -509,7 +509,7 @@ export default function CloseShiftForm({
                         Math.abs(r.transfer) < 0.005 ? 'text-gray-300' :
                         r.transfer > 0 ? 'text-blue-600' : 'text-orange-600'
                       }`}>
-                        {Math.abs(r.transfer) < 0.005 ? '—' : (r.transfer > 0 ? '+' : '') + r.transfer.toFixed(2)}
+                        {Math.abs(r.transfer) < 0.005 ? '—' : (r.transfer > 0 ? '+' : '') + fmtNum(r.transfer)}
                       </td>
                     )}
                     {hasMovements && (
@@ -517,7 +517,7 @@ export default function CloseShiftForm({
                         Math.abs(r.movement) < 0.005 ? 'text-gray-300' :
                         r.movement > 0 ? 'text-green-600' : 'text-purple-600'
                       }`}>
-                        {Math.abs(r.movement) < 0.005 ? '—' : (r.movement > 0 ? '+' : '−') + Math.abs(r.movement).toFixed(2)}
+                        {Math.abs(r.movement) < 0.005 ? '—' : (r.movement > 0 ? '+' : '−') + fmtNum(Math.abs(r.movement))}
                       </td>
                     )}
                     <td className="py-2 text-right font-medium text-gray-700">{fmtMoney(r.close)}</td>
@@ -528,7 +528,7 @@ export default function CloseShiftForm({
                       Math.abs(r.profitUah) < 0.005 ? 'text-gray-300' :
                       r.profitUah > 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {Math.abs(r.profitUah) < 0.005 ? '—' : (r.profitUah > 0 ? '+' : '') + r.profitUah.toFixed(2)}
+                      {Math.abs(r.profitUah) < 0.005 ? '—' : (r.profitUah > 0 ? '+' : '') + fmtNum(r.profitUah)}
                     </td>
                   </tr>
                 ))}
@@ -561,7 +561,7 @@ export default function CloseShiftForm({
             </div>
             {Math.abs(cashDiff) >= 0.01 && (
               <div className="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-1.5 mt-2">
-                Розбіжність каси (нестача/надлишок): {cashDiff >= 0 ? '+' : ''}{cashDiff.toFixed(2)} ₴
+                Розбіжність каси (нестача/надлишок): {cashDiff >= 0 ? '+' : ''}{fmtNum(cashDiff)} ₴
               </div>
             )}
           </div>
@@ -595,13 +595,13 @@ export default function CloseShiftForm({
                     <tr key={r.cur} className="border-b last:border-0">
                       <td className="py-2 font-bold text-gray-800">{r.cur}</td>
                       <td className="py-2 text-right font-medium text-green-700">
-                        {r.boughtQty > 0 ? r.boughtQty.toFixed(2) : <span className="text-gray-300">—</span>}
+                        {r.boughtQty > 0 ? fmtNum(r.boughtQty) : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="py-2 text-right text-gray-500">
                         {r.boughtQty > 0 ? r.avgBuy.toFixed(4) : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="py-2 text-right font-medium text-red-600">
-                        {r.soldQty > 0 ? r.soldQty.toFixed(2) : <span className="text-gray-300">—</span>}
+                        {r.soldQty > 0 ? fmtNum(r.soldQty) : <span className="text-gray-300">—</span>}
                       </td>
                       <td className="py-2 text-right text-gray-500">
                         {r.soldQty > 0 ? r.avgSell.toFixed(4) : <span className="text-gray-300">—</span>}
@@ -645,7 +645,7 @@ export default function CloseShiftForm({
                           </span>
                         </td>
                         <td className="py-1.5 text-right font-medium">
-                          {Number(op.amount).toFixed(2)} <span className="text-gray-400 text-xs">{op.currency}</span>
+                          {fmtNum(op.amount)} <span className="text-gray-400 text-xs">{op.currency}</span>
                         </td>
                         <td className="py-1.5 text-right text-gray-500">
                           {Number(op.rate).toFixed(2)}
@@ -659,7 +659,7 @@ export default function CloseShiftForm({
                             <td className={`py-1.5 text-right font-medium ${
                               isCross ? 'text-gray-400' : inflow ? 'text-green-600' : 'text-red-600'
                             }`}>
-                              {isCross ? '' : inflow ? '+' : '−'}{Number(op.totalUah).toFixed(2)} ₴
+                              {isCross ? '' : inflow ? '+' : '−'}{fmtNum(op.totalUah)} ₴
                             </td>
                           );
                         })()}
@@ -718,7 +718,7 @@ export default function CloseShiftForm({
                               {[m.source, m.note].filter(Boolean).join(' · ') || '—'}
                             </td>
                             <td className={`py-1.5 text-right font-medium ${isIn ? 'text-green-600' : 'text-purple-600'}`}>
-                              {isIn ? '+' : '−'}{Number(m.amount).toFixed(2)} <span className="text-gray-400 text-xs">{m.currency}</span>
+                              {isIn ? '+' : '−'}{fmtNum(m.amount)} <span className="text-gray-400 text-xs">{m.currency}</span>
                             </td>
                           </tr>
                         );
@@ -765,13 +765,13 @@ export default function CloseShiftForm({
                               </span>
                             </td>
                             <td className={`py-1.5 text-right font-medium ${isSell ? 'text-red-600' : 'text-green-600'}`}>
-                              {isSell ? '−' : '+'}{Number(op.usdtAmount ?? 0).toFixed(2)}
+                              {isSell ? '−' : '+'}{fmtNum(op.usdtAmount ?? 0)}
                             </td>
                             <td className={`py-1.5 text-right ${isSell ? 'text-green-600' : 'text-red-600'}`}>
-                              {isSell ? '+' : '−'}{Number(op.settleAmount).toFixed(2)} <span className="text-gray-400 text-xs">{op.settleCurrency}</span>
+                              {isSell ? '+' : '−'}{fmtNum(op.settleAmount)} <span className="text-gray-400 text-xs">{op.settleCurrency}</span>
                             </td>
                             <td className="py-1.5 text-right font-medium text-green-600">
-                              +{Number(op.profitUah ?? 0).toFixed(2)}
+                              +{fmtNum(op.profitUah ?? 0)}
                             </td>
                           </tr>
                         );

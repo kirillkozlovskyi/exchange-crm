@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
+import { fmtNum } from '../../lib/format';
 
 /**
  * USDT — частина банку компанії: керування глобальним гаманцем (баланс із
@@ -51,7 +52,7 @@ function UsdtGlobalCard({ globalBalance, onSaved }: { globalBalance: number; onS
         <h3 className="font-semibold text-lg">₮ USDT — банк</h3>
         <div className="text-right">
           <div className="text-xs text-gray-400">Баланс USDT-банку</div>
-          <div className="font-bold text-teal-700 text-lg">{globalBalance.toFixed(4)} USDT</div>
+          <div className="font-bold text-teal-700 text-lg">{fmtNum(globalBalance, 4)} USDT</div>
         </div>
       </div>
 
@@ -79,9 +80,9 @@ function UsdtGlobalCard({ globalBalance, onSaved }: { globalBalance: number; onS
             <div className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Підтвердження коригування</div>
             <p className="text-sm text-gray-700">Встановити баланс USDT-банку.</p>
             <p className="text-sm text-gray-500 mt-1">
-              Баланс: <span className="font-medium">{globalBalance.toFixed(4)}</span> →{' '}
-              <span className={`font-semibold ${wouldGoNegative ? 'text-red-600' : 'text-teal-700'}`}>{valid ? newBalance.toFixed(4) : '—'}</span> USDT
-              {changed && <span className="text-gray-400"> ({delta > 0 ? '+' : '−'}{Math.abs(delta).toFixed(4)})</span>}
+              Баланс: <span className="font-medium">{fmtNum(globalBalance, 4)}</span> →{' '}
+              <span className={`font-semibold ${wouldGoNegative ? 'text-red-600' : 'text-teal-700'}`}>{valid ? fmtNum(newBalance, 4) : '—'}</span> USDT
+              {changed && <span className="text-gray-400"> ({delta > 0 ? '+' : '−'}{fmtNum(Math.abs(delta), 4)})</span>}
             </p>
             {wouldGoNegative && (
               <p className="text-xs text-red-600 bg-red-50 rounded px-2 py-1.5 mt-2">Баланс не може бути відʼємним.</p>

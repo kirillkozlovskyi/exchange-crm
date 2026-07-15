@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import api from '../../api/axios';
+import { fmtNum, fmtMoney } from '../../lib/format';
 import { printReceipt, type ReceiptInfo } from './OperationsList';
 import { offlineQueue, isNetworkError } from '../../lib/offline-queue';
 
@@ -705,7 +706,7 @@ export default function OperationForm({
         disabled={!qtyNum || !rcvAmtNum || !rcvCur || !!balanceWarning}
         className={`w-full font-bold py-1 rounded disabled:opacity-50 transition text-base text-white ${submitColor}`}>
         {qtyNum && rcvAmtNum && rcvCur
-          ? `${mode === 'BUY' ? 'Купівля' : 'Продаж'}: ${summary.fromAmt.toFixed(2)} ${summary.fromCur} → ${summary.toAmt.toFixed(2)} ${summary.toCur}`
+          ? `${mode === 'BUY' ? 'Купівля' : 'Продаж'}: ${fmtNum(summary.fromAmt)} ${summary.fromCur} → ${fmtNum(summary.toAmt)} ${summary.toCur}`
           : mode === 'BUY' ? 'Провести купівлю' : 'Провести продаж'
         }
       </button>
@@ -724,11 +725,11 @@ export default function OperationForm({
 
             <div className="bg-gray-50 rounded-xl p-4 text-center space-y-1">
               <div className="text-2xl font-bold text-gray-800">
-                {summary.fromAmt.toFixed(2)} <span className="text-gray-500 text-lg">{summary.fromCur}</span>
+                {fmtNum(summary.fromAmt)} <span className="text-gray-500 text-lg">{summary.fromCur}</span>
               </div>
               <div className="text-gray-400 text-lg">↓</div>
               <div className="text-2xl font-bold text-gray-800">
-                {summary.toAmt.toFixed(2)} <span className="text-gray-500 text-lg">{summary.toCur}</span>
+                {fmtNum(summary.toAmt)} <span className="text-gray-500 text-lg">{summary.toCur}</span>
               </div>
             </div>
 
@@ -746,7 +747,7 @@ export default function OperationForm({
                 <div className="flex justify-between">
                   <span className="text-gray-500">Решта клієнту</span>
                   <span className={`font-semibold ${changeAmt < 0 ? 'text-red-600' : 'text-green-700'}`}>
-                    {changeAmt < 0 ? '⚠ ' : ''}{Math.abs(changeAmt).toFixed(2)} {chgCur}
+                    {changeAmt < 0 ? '⚠ ' : ''}{fmtNum(Math.abs(changeAmt))} {chgCur}
                   </span>
                 </div>
               )}

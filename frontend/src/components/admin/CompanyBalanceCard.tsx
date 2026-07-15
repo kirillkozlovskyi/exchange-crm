@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
+import { fmtNum, fmtMoney, fmtInt } from '../../lib/format';
 
 type Company = {
   bank: Record<string, number>;
@@ -48,9 +49,9 @@ export default function CompanyBalanceCard({ refreshKey = 0 }: { refreshKey?: nu
             {currencies.map((c) => (
               <tr key={c} className="border-b last:border-0">
                 <td className="py-1.5 px-3 font-semibold text-gray-700">{c}</td>
-                <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{(company.bank[c] ?? 0).toFixed(2)}</td>
-                <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{(company.desks[c] ?? 0).toFixed(2)}</td>
-                <td className="py-1.5 px-3 text-right tabular-nums font-bold text-blue-800">{(company.total[c] ?? 0).toFixed(2)}</td>
+                <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{fmtMoney(company.bank[c] ?? 0)}</td>
+                <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{fmtMoney(company.desks[c] ?? 0)}</td>
+                <td className="py-1.5 px-3 text-right tabular-nums font-bold text-blue-800">{fmtMoney(company.total[c] ?? 0)}</td>
               </tr>
             ))}
             <tr className="border-t-2">

@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import api from '../../api/axios';
+import { fmtNum } from '../../lib/format';
 import { format } from 'date-fns';
 
 type Wallet = {
@@ -82,7 +83,7 @@ export default function UsdtAdmin() {
         <div className="mb-3 text-sm text-gray-600">
           Сумарна маржа:{' '}
           <span className={`font-semibold ${totalMargin >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-            {totalMargin >= 0 ? '+' : '−'}{Math.abs(totalMargin).toFixed(2)} ₴
+            {totalMargin >= 0 ? '+' : '−'}{fmtNum(Math.abs(totalMargin))} ₴
           </span>
         </div>
 
@@ -121,14 +122,14 @@ export default function UsdtAdmin() {
                         </span>
                       </td>
                       <td className={`py-1.5 px-2 text-right font-medium tabular-nums ${isSell ? 'text-red-600' : 'text-green-600'}`}>
-                        {isSell ? '−' : '+'}{Number(o.usdtAmount).toFixed(2)}
+                        {isSell ? '−' : '+'}{fmtNum(o.usdtAmount)}
                       </td>
                       <td className="py-1.5 px-2 text-right text-gray-500">{Number(o.pct).toFixed(4)}</td>
                       <td className="py-1.5 px-2 text-right text-gray-700 whitespace-nowrap">
-                        {Number(o.settleAmount).toFixed(2)} {o.settleCurrency}
+                        {fmtNum(o.settleAmount)} {o.settleCurrency}
                       </td>
                       <td className={`py-1.5 px-2 text-right font-medium ${Number(o.profitUah) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                        {Number(o.profitUah) >= 0 ? '+' : '−'}{Math.abs(Number(o.profitUah)).toFixed(2)}
+                        {Number(o.profitUah) >= 0 ? '+' : '−'}{fmtNum(Math.abs(Number(o.profitUah)))}
                       </td>
                       <td className="py-1.5 px-2 text-gray-500 whitespace-nowrap">{o.createdBy?.name || '—'}</td>
                     </tr>

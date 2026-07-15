@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { fmtNum } from '../../lib/format';
 import { format } from 'date-fns';
 
 type Recon = {
@@ -110,12 +111,12 @@ export default function ReconciliationsAdmin() {
                           {rows.map((row) => (
                             <tr key={row.cur} className={`border-b last:border-0 ${row.hasDiff ? 'bg-red-50' : ''}`}>
                               <td className="py-1.5 font-bold text-gray-800">{row.cur}</td>
-                              <td className="py-1.5 text-right text-gray-500">{row.expected.toFixed(2)}</td>
-                              <td className="py-1.5 text-right font-medium text-gray-700">{row.actual.toFixed(2)}</td>
+                              <td className="py-1.5 text-right text-gray-500">{fmtNum(row.expected)}</td>
+                              <td className="py-1.5 text-right font-medium text-gray-700">{fmtNum(row.actual)}</td>
                               <td className={`py-1.5 text-right font-semibold ${
                                 !row.hasDiff ? 'text-gray-300' : row.diff > 0 ? 'text-green-600' : 'text-red-600'
                               }`}>
-                                {row.hasDiff ? (row.diff > 0 ? '+' : '') + row.diff.toFixed(2) : '—'}
+                                {row.hasDiff ? (row.diff > 0 ? '+' : '') + fmtNum(row.diff) : '—'}
                               </td>
                             </tr>
                           ))}

@@ -1,5 +1,6 @@
 import { useEffect, useState, useMemo } from 'react';
 import api from '../../api/axios';
+import { fmtNum } from '../../lib/format';
 import { format } from 'date-fns';
 
 type Filter = 'all' | 'IN' | 'OUT';
@@ -180,7 +181,7 @@ export default function CashMovementsAdmin() {
           {totals.map(([c, v]) => (
             <span key={c} className="text-xs px-2.5 py-1 rounded-lg bg-gray-50 border border-gray-200">
               {c}: <span className={`font-semibold ${v >= 0 ? 'text-green-700' : 'text-purple-700'}`}>
-                {v >= 0 ? '+' : '−'}{Math.abs(v).toFixed(2)}
+                {v >= 0 ? '+' : '−'}{fmtNum(Math.abs(v))}
               </span>
             </span>
           ))}
@@ -236,7 +237,7 @@ export default function CashMovementsAdmin() {
                           <td className={`py-1.5 px-2 text-right font-semibold tabular-nums whitespace-nowrap ${
                             isIn ? 'text-green-700' : 'text-purple-700'
                           }`}>
-                            {isIn ? '+' : '−'}{Number(m.amount).toFixed(2)}
+                            {isIn ? '+' : '−'}{fmtNum(m.amount)}
                           </td>
                           <td className="py-1.5 px-2 text-gray-600">{m.currency}</td>
                           <td className="py-1.5 px-2 text-gray-500">{m.source || '—'}</td>

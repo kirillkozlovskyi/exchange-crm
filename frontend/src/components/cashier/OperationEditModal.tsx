@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import api from '../../api/axios';
+import { fmtNum } from '../../lib/format';
 
 type Op = {
   id: number;
@@ -30,7 +31,7 @@ export default function OperationEditModal({
 
   const amountNum = parseFloat(amount) || 0;
   const rateNum = parseFloat(rate) || 0;
-  const totalUah = amountNum > 0 && rateNum > 0 ? (amountNum * rateNum).toFixed(2) : '—';
+  const totalUah = amountNum > 0 && rateNum > 0 ? fmtNum(amountNum * rateNum) : '—';
 
   const isCross = op.type === 'EXCHANGE' && op.payCurrency;
 
