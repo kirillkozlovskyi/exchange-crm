@@ -36,6 +36,15 @@ export class OperationsController {
     return this.service.storno(id, user.sub, dto.note);
   }
 
+  // Прибуток за розрахунком касира (довідкове поле) — сума/валюта/опис.
+  @Patch(':id/cashier-profit')
+  setCashierProfit(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: { profit?: number | null; currency?: string | null; note?: string | null },
+  ) {
+    return this.service.setCashierProfit(id, dto);
+  }
+
   @Get(':id/edits')
   getEdits(@Param('id', ParseIntPipe) id: number) {
     return this.service.getEdits(id);

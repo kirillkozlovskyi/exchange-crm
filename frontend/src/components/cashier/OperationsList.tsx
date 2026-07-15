@@ -3,6 +3,7 @@ import api from '../../api/axios';
 import { format } from 'date-fns';
 import { useAuth } from '../../context/AuthContext';
 import OperationEditModal from './OperationEditModal';
+import CashierProfitModal from './CashierProfitModal';
 import Flag from '../Flag';
 import { WORLD_CURRENCIES } from '../../data/currencyMeta';
 
@@ -23,6 +24,9 @@ type Op = {
   payAmount?: string | number;
   cancelled?: boolean;
   cancelNote?: string;
+  cashierProfit?: string | number | null;
+  cashierProfitCurrency?: string | null;
+  cashierProfitNote?: string | null;
   _count?: { edits: number };
 };
 
@@ -178,10 +182,10 @@ export function printReceipt(op: Op, info: ReceiptInfo = {}) {
 }
 
 function OpRow({
-  op, seq, rates, onEdit, onStorno, onPrint, canEdit, stornoWindowMin, now,
+  op, seq, rates, onEdit, onStorno, onPrint, onProfit, canEdit, stornoWindowMin, now,
 }: {
   op: Op; seq: number; rates: Rate[]; onEdit: (op: Op) => void;
-  onStorno: (op: Op) => void; onPrint: (op: Op) => void; canEdit: boolean;
+  onStorno: (op: Op) => void; onPrint: (op: Op) => void; onProfit: (op: Op) => void; canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
   const isCross  = !!op.payCurrency && op.payCurrency !== 'UAH' && op.currency !== 'UAH';
@@ -234,6 +238,14 @@ function OpRow({
       <td className="w-10 py-1.5 px-0.5 text-center whitespace-nowrap">
         {!op.cancelled && (
           <span className="inline-flex gap-0.5 items-center">
+            {/* Прибуток за розрахунком касира (довідково) — підсвічуємо, якщо вже заповнено. */}
+            <button onClick={() => onProfit(op)}
+              className={`p-1 rounded transition text-sm leading-none font-bold ${
+                op.cashierProfit != null && op.cashierProfit !== ''
+                  ? 'text-green-600 hover:bg-green-50'
+                  : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+              }`}
+              title="Прибуток з операції (ваш розрахунок)">₴</button>
             {canEdit && (
               <button onClick={() => onEdit(op)}
                 className="p-1 rounded text-gray-600 hover:text-blue-600 hover:bg-blue-50 transition text-sm leading-none font-bold"
@@ -252,11 +264,12 @@ function OpRow({
 }
 
 function OpsBlock({
-  title, ops, colorClass, fullHeight, hideTitle, seqMap, rates, onEdit, onStorno, onPrint, canEdit, stornoWindowMin, now,
+  title, ops, colorClass, fullHeight, hideTitle, seqMap, rates, onEdit, onStorno, onPrint, onProfit, canEdit, stornoWindowMin, now,
 }: {
   title: string; ops: Op[]; colorClass: string; fullHeight?: boolean; hideTitle?: boolean;
   seqMap: Map<number, number>;
   rates: Rate[]; onEdit: (op: Op) => void; onStorno: (op: Op) => void; onPrint: (op: Op) => void;
+  onProfit: (op: Op) => void;
   canEdit: boolean;
   stornoWindowMin: number; now: number;
 }) {
@@ -293,7 +306,7 @@ function OpsBlock({
               {ops.map((op) => (
                 <OpRow
                   key={op.id} op={op} seq={seqMap.get(op.id) ?? 0} rates={rates}
-                  onEdit={onEdit} onStorno={onStorno} onPrint={onPrint}
+                  onEdit={onEdit} onStorno={onStorno} onPrint={onPrint} onProfit={onProfit}
                   canEdit={canEdit}
                   stornoWindowMin={stornoWindowMin}
                   now={now}
@@ -383,6 +396,7 @@ export default function OperationsList({
   const [ops, setOps] = useState<Op[]>([]);
   const [editingOp, setEditingOp] = useState<Op | null>(null);
   const [stornoOp, setStornoOp] = useState<Op | null>(null);
+  const [profitOp, setProfitOp] = useState<Op | null>(null);
   const [filterCurs, setFilterCurs] = useState<string[]>([]);
   const [stornoWindowMin, setStornoWindowMin] = useState<number>(5);
   const [now, setNow] = useState<number>(Date.now());
@@ -455,7 +469,7 @@ export default function OperationsList({
 
   const handlePrint = (op: Op) => printReceipt(op, receipt);
 
-  const blockProps = { seqMap, rates, onEdit: setEditingOp, onStorno: setStornoOp, onPrint: handlePrint, canEdit, stornoWindowMin, now };
+  const blockProps = { seqMap, rates, onEdit: setEditingOp, onStorno: setStornoOp, onPrint: handlePrint, onProfit: setProfitOp, canEdit, stornoWindowMin, now };
 
   return (
     <>
@@ -471,6 +485,13 @@ export default function OperationsList({
           op={stornoOp}
           onConfirm={handleStorno}
           onClose={() => setStornoOp(null)}
+        />
+      )}
+      {profitOp && (
+        <CashierProfitModal
+          op={profitOp}
+          onClose={() => setProfitOp(null)}
+          onSaved={handleSaved}
         />
       )}
 

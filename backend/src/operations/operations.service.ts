@@ -316,6 +316,28 @@ export class OperationsService {
     return res;
   }
 
+  /**
+   * Прибуток за розрахунком касира (довідкове, не впливає на облік): сума +
+   * валюта (дефолт UAH) + опис «як рахував». Порожні значення очищають поля.
+   */
+  async setCashierProfit(
+    id: number,
+    dto: { profit?: number | null; currency?: string | null; note?: string | null },
+  ) {
+    const op = await this.prisma.operation.findUnique({ where: { id } });
+    if (!op) throw new NotFoundException('Операцію не знайдено');
+    const profit =
+      dto.profit != null && Number.isFinite(Number(dto.profit)) ? Number(dto.profit) : null;
+    return this.prisma.operation.update({
+      where: { id },
+      data: {
+        cashierProfit: profit,
+        cashierProfitCurrency: profit != null ? (dto.currency?.trim() || 'UAH') : null,
+        cashierProfitNote: dto.note?.trim() || null,
+      },
+    });
+  }
+
   async storno(id: number, userId: number, note?: string) {
     const op = await this.prisma.operation.findUnique({
       where: { id },
