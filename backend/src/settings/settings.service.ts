@@ -216,10 +216,13 @@ export class SettingsService {
       await this.set('rate_card', JSON.stringify(merged));
       return merged;
     }
-    // Для точки зберігаємо лише її перекриття (те, що прийшло), а не весь merge —
-    // щоб зміна глобального бренду підхоплювалась усіма точками автоматично.
+    // Вміст точки — повний знімок (фронт надсилає всі поля). Merge з попереднім
+    // збереженим лишаємо для forward-сумісності, якщо додадуться нові поля.
+    let prev: Partial<RateCardConfig> = {};
     const prevRaw = await this.get(`rate_card_point_${pointId}`);
-    const prev = prevRaw ? (JSON.parse(prevRaw) as Partial<RateCardConfig>) : {};
+    if (prevRaw) {
+      try { prev = JSON.parse(prevRaw) as Partial<RateCardConfig>; } catch { prev = {}; }
+    }
     const merged = { ...prev, ...cfg };
     await this.set(`rate_card_point_${pointId}`, JSON.stringify(merged));
     return this.getRateCardConfig(pointId);

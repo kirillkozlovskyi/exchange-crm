@@ -70,6 +70,10 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       this.logger.log('Telegram-бот: токен не налаштовано — команди вимкнено.');
       return;
     }
+    // Пропускаємо накопичені за час простою апдейти: інакше при рестарті бот
+    // повторно виконав би старі команди зміни курсу. offset=-1 бере лише
+    // останній апдейт, і ми встановлюємо offset за ним.
+    await this.drainOldUpdates();
     this.running = true;
     void this.poll();
     this.logger.log('Telegram-бот: приймання команд увімкнено (long-polling).');
@@ -94,6 +98,18 @@ export class TelegramBotService implements OnApplicationBootstrap, OnModuleDestr
       await this.api('sendMessage', { chat_id: chatId, text, parse_mode: 'HTML' });
     } catch (e: any) {
       this.logger.error('reply error:', e?.response?.data?.description ?? e.message);
+    }
+  }
+
+  /** Відкидає старі апдейти на старті (щоб не повторювати команди простою). */
+  private async drainOldUpdates() {
+    try {
+      const { data } = await this.api('getUpdates', { offset: -1, timeout: 0 });
+      const last = (data.result ?? []).at(-1);
+      if (last) this.offset = last.update_id + 1;
+    } catch {
+      // Не змогли — не страшно: poll почне з offset=0, дублі команд малоймовірні
+      // (вони теж пройдуть авторизацію й лише перезапишуть курс тим самим значенням).
     }
   }
 

@@ -162,7 +162,7 @@ export default function RateCardAdmin() {
             <p className="text-xs text-gray-400">
               {scope === 'global'
                 ? 'Спільний вміст для всіх точок (бренд, слоган, послуги…).'
-                : `Редагуєте вміст точки «${points.find((p) => p.id === pointId)?.name ?? ''}». Заповнене тут замінює загальне (адреса, телефони, графік); порожнє поле — береться загальне.`}
+                : `Редагуєте вміст точки «${points.find((p) => p.id === pointId)?.name ?? ''}» — свій повний набір полів (адреса, телефони, графік…). Він використовується для цієї точки замість загального.`}
             </p>
             <div className="grid grid-cols-2 gap-3">
               {field('Бренд', cfg.brand, (v) => setCfg({ ...cfg, brand: v }))}
