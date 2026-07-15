@@ -153,6 +153,32 @@ export class SettingsService {
     await this.set('rate_card_theme', parseCardTheme(theme) ?? 'classic');
   }
 
+  /**
+   * Адміни бота: telegram user id → системний користувач (від чиєго імені
+   * оновлюється курс). Лише вони можуть міняти курс через бота.
+   */
+  async getBotAdmins(): Promise<{ tgId: number; userId: number; name: string }[]> {
+    const raw = await this.get('telegram_bot_admins');
+    if (!raw) return [];
+    try {
+      const arr = JSON.parse(raw);
+      return Array.isArray(arr)
+        ? arr
+            .map((a: any) => ({ tgId: Number(a.tgId), userId: Number(a.userId), name: String(a.name ?? '') }))
+            .filter((a) => Number.isFinite(a.tgId) && Number.isFinite(a.userId))
+        : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async setBotAdmins(admins: { tgId: number; userId: number; name?: string }[]): Promise<void> {
+    const clean = admins
+      .map((a) => ({ tgId: Number(a.tgId), userId: Number(a.userId), name: String(a.name ?? '').trim() }))
+      .filter((a) => Number.isFinite(a.tgId) && Number.isFinite(a.userId));
+    await this.set('telegram_bot_admins', JSON.stringify(clean));
+  }
+
   /** Постити курси КАРТИНКОЮ (макет каналу) замість тексту. */
   async getRatePostAsImage(): Promise<boolean> {
     return (await this.get('telegram_rate_image')) === 'true'; // default false

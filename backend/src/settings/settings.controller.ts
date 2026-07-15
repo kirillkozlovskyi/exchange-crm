@@ -136,6 +136,22 @@ export class SettingsController {
     };
   }
 
+  // Адміни Telegram-бота (можуть міняти курс командою): telegram id → користувач.
+  @Get('bot-admins')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  getBotAdmins() {
+    return this.settingsService.getBotAdmins();
+  }
+
+  @Put('bot-admins')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async setBotAdmins(@Body() body: { admins: { tgId: number; userId: number; name?: string }[] }) {
+    await this.settingsService.setBotAdmins(body.admins ?? []);
+    return this.settingsService.getBotAdmins();
+  }
+
   @Get('cash-bank-enabled')
   getCashBankEnabled() {
     return this.settingsService.getCashBankEnabled().then((enabled) => ({ enabled }));

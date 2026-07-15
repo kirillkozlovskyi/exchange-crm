@@ -387,6 +387,78 @@ export function NbuSettings() {
 
 // Сповіщення: Telegram-бот + поріг «великої операції» (він і є порогом
 // телеграм-сповіщення, тому живе поруч, а не серед правил операцій).
+// Адміни бота: хто (за Telegram ID) може міняти курс командою в чат-боті.
+function BotAdmins() {
+  type Admin = { tgId: number; userId: number; name: string };
+  const [admins, setAdmins] = useState<Admin[]>([]);
+  const [users, setUsers] = useState<{ id: number; name: string }[]>([]);
+  const [tgId, setTgId] = useState('');
+  const [userId, setUserId] = useState('');
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/bot-admins').then(({ data }) => setAdmins(data)).catch(() => {});
+    api.get('/users').then(({ data }) => setUsers(data.filter((u: any) => u.role === 'ADMIN'))).catch(() => {});
+  }, []);
+
+  const persist = async (next: Admin[]) => {
+    setAdmins(next);
+    await api.put('/settings/bot-admins', { admins: next }).catch(() => {});
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  const add = () => {
+    const tg = Number(tgId);
+    const uid = Number(userId);
+    if (!Number.isFinite(tg) || !Number.isFinite(uid) || !uid) return;
+    const name = users.find((u) => u.id === uid)?.name ?? '';
+    persist([...admins.filter((a) => a.tgId !== tg), { tgId: tg, userId: uid, name }]);
+    setTgId(''); setUserId('');
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow p-6 space-y-3">
+      <div>
+        <h3 className="font-semibold text-gray-800 text-base">🤖 Адміни бота (зміна курсу)</h3>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Хто може міняти курс командою в чат-боті. Дізнатись свій Telegram ID: напишіть боту <code className="bg-gray-100 px-1 rounded">/id</code>.
+          Курс міняється від імені обраного користувача.
+        </p>
+      </div>
+
+      {admins.length === 0 && <p className="text-xs text-gray-400">Ще нікого не додано.</p>}
+      {admins.map((a) => (
+        <div key={a.tgId} className="flex items-center gap-2 text-sm">
+          <span className="font-mono bg-gray-100 px-2 py-1 rounded">{a.tgId}</span>
+          <span className="text-gray-600">→ {a.name || `user #${a.userId}`}</span>
+          <button
+            onClick={() => persist(admins.filter((x) => x.tgId !== a.tgId))}
+            className="ml-auto text-gray-400 hover:text-red-600 px-1" title="Прибрати"
+          >✕</button>
+        </div>
+      ))}
+
+      <div className="flex items-center gap-2 flex-wrap pt-1">
+        <input
+          type="number" value={tgId} onChange={(e) => setTgId(e.target.value)}
+          placeholder="Telegram ID"
+          className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        />
+        <select
+          value={userId} onChange={(e) => setUserId(e.target.value)}
+          className="w-48 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+        >
+          <option value="">— користувач системи —</option>
+          {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
+        </select>
+        <button onClick={add} className="text-sm text-blue-600 hover:underline">+ Додати</button>
+        {saved && <span className="text-green-600 text-xs">✓ Збережено</span>}
+      </div>
+    </div>
+  );
+}
+
 export function NotificationsSettings() {
   const [largeOp, setLargeOp] = useState<number>(0);
   const [saved, setSaved] = useState(false);
@@ -411,6 +483,7 @@ export function NotificationsSettings() {
   return (
     <div className="space-y-6">
       <TelegramSettings />
+      <BotAdmins />
 
       <div className="bg-white rounded-xl shadow p-6 space-y-5">
         <h3 className="font-semibold text-gray-800 text-base">🔔 Поріг великої операції</h3>
