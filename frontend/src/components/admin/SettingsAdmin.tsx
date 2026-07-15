@@ -691,6 +691,92 @@ export default function OperationsSettings() {
           {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
         </div>
       </div>
+
+      <DangerZone />
+    </div>
+  );
+}
+
+// Небезпечна зона: обнулення всіх операційних даних (гроші/операції/зміни/
+// баланси). Лишає точки, каси, валюти, юзерів, активні курси. Пароль адміна.
+function DangerZone() {
+  const [counts, setCounts] = useState<any>(null);
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
+
+  const loadCounts = () => {
+    api.get('/maintenance/operational-counts').then(({ data }) => setCounts(data)).catch(() => {});
+  };
+  useEffect(() => { loadCounts(); }, []);
+
+  const reset = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const { data } = await api.post('/maintenance/reset-operational', { password });
+      setMsg({ ok: true, text: `Обнулено: ${data.deleted.operations} операцій, ${data.deleted.shifts} змін.` });
+      setOpen(false); setPassword('');
+      loadCounts();
+    } catch (e: any) {
+      setMsg({ ok: false, text: e.response?.data?.message ?? 'Помилка' });
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow p-6 border-2 border-red-200 space-y-3">
+      <div>
+        <h3 className="font-semibold text-red-700 text-base">⚠ Небезпечна зона</h3>
+        <p className="text-xs text-gray-500 mt-0.5">
+          Обнулення всіх операційних даних — старт із чистого аркуша.
+        </p>
+      </div>
+
+      {counts && (
+        <p className="text-xs text-gray-500">
+          Буде видалено: <b>{counts.operations}</b> операцій, <b>{counts.shifts}</b> змін,{' '}
+          <b>{counts.cashMovements}</b> рухів готівки, <b>{counts.transfers}</b> передач,{' '}
+          <b>{counts.usdtOperations}</b> USDT, <b>{counts.reconciliations}</b> звірок,{' '}
+          <b>{counts.expenses}</b> витрат. Баланс банку й гаманців — обнулиться.
+          <br />
+          Залишаться: точки, каси, валюти, користувачі, налаштування та активні курси.
+        </p>
+      )}
+
+      {!open ? (
+        <button
+          onClick={() => { setOpen(true); setMsg(null); }}
+          className="px-4 py-2 bg-white border border-red-300 text-red-700 text-sm font-medium rounded-lg hover:bg-red-50"
+        >
+          Обнулити операційні дані…
+        </button>
+      ) : (
+        <div className="space-y-2 border-t border-red-100 pt-3">
+          <p className="text-sm text-red-700 font-medium">
+            Дію не можна скасувати. Для підтвердження введіть свій пароль.
+          </p>
+          <div className="flex items-center gap-2 flex-wrap">
+            <input
+              type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+              placeholder="Пароль адміна" autoComplete="off"
+              className="w-52 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-400"
+            />
+            <button
+              onClick={reset} disabled={busy || !password}
+              className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-lg disabled:opacity-50"
+            >
+              {busy ? 'Виконання…' : 'Видалити назавжди'}
+            </button>
+            <button
+              onClick={() => { setOpen(false); setPassword(''); }}
+              className="px-4 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-100"
+            >
+              Скасувати
+            </button>
+          </div>
+        </div>
+      )}
+      {msg && <p className={`text-sm ${msg.ok ? 'text-green-600' : 'text-red-600'}`}>{msg.text}</p>}
     </div>
   );
 }

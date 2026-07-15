@@ -13,6 +13,7 @@ import { FinanceModule } from './finance/finance.module';
 import { TelegramModule } from './telegram/telegram.module';
 import { CurrenciesModule } from './currencies/currencies.module';
 import { SettingsModule } from './settings/settings.module';
+import { MaintenanceModule } from './maintenance/maintenance.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { ReconciliationsModule } from './reconciliations/reconciliations.module';
 import { CashMovementsModule } from './cash-movements/cash-movements.module';
@@ -45,6 +46,7 @@ import { SeedService } from './seed.service';
     CashBankModule,
     ExpensesModule,
     ProfitModule,
+    MaintenanceModule,
   ],
   providers: [SeedService],
 })
