@@ -1,5 +1,4 @@
 import { Injectable, ConflictException, NotFoundException } from '@nestjs/common';
-import { format } from 'date-fns';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { TelegramService } from '../telegram/telegram.service';
@@ -76,8 +75,17 @@ export class RatesService {
 
     // Картинка (макет каналу) або текст — за налаштуванням.
     if (await this.settings.getRatePostAsImage()) {
-      const png = await this.renderCard(exchangePointId);
-      if (png) return this.telegram.postPhotoToChannels(channels, png);
+      // Кожен канал отримує картку СВОЄЇ теми (або глобальної, якщо не задано).
+      const globalTheme = await this.settings.getRateCardTheme();
+      const items: { id: string; png: Buffer }[] = [];
+      const cache = new Map<CardTheme, Buffer | null>();
+      for (const ch of channels) {
+        const th = ch.theme ?? globalTheme;
+        if (!cache.has(th)) cache.set(th, await this.renderCard(exchangePointId, th));
+        const png = cache.get(th);
+        if (png) items.push({ id: ch.id, png });
+      }
+      if (items.length) return this.telegram.postPhotosToChannels(items);
     }
 
     const message = this.telegram.formatRates(
@@ -125,11 +133,17 @@ export class RatesService {
       });
     }
 
+    // Дата/час — за київським часом (сервер працює в UTC), незалежно від TZ хоста.
     const now = new Date();
+    const kyiv = (opts: Intl.DateTimeFormatOptions) =>
+      new Intl.DateTimeFormat('uk-UA', { timeZone: 'Europe/Kyiv', ...opts }).format(now);
+    const date = kyiv({ day: '2-digit', month: '2-digit', year: 'numeric' }).replace(/\//g, '.');
+    const time = kyiv({ hour: '2-digit', minute: '2-digit', hour12: false });
+
     return renderRateCardPng({
       rows,
-      date: format(now, 'dd.MM.yyyy'),
-      time: format(now, 'HH:mm'),
+      date,
+      time,
       config: cfg,
       theme: cardTheme,
     });

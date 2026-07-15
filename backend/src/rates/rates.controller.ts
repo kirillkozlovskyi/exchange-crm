@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Param, Query, Res, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { Response } from 'express';
 import { RatesService } from './rates.service';
+import { parseCardTheme } from '../telegram/rate-card';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
@@ -46,7 +47,7 @@ export class RatesController {
     @Query('theme') theme: string | undefined,
     @Res() res: Response,
   ) {
-    const t = theme === 'dark' || theme === 'minimal' ? theme : theme === 'classic' ? theme : undefined;
+    const t = parseCardTheme(theme);
     const png = await this.service.renderCard(pointId, t);
     if (!png) {
       res.status(404).json({ message: 'Немає активних курсів для цієї точки' });

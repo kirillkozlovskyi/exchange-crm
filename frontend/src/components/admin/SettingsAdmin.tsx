@@ -141,7 +141,7 @@ function TelegramSettings() {
   const [configured, setConfigured] = useState(false);
   const [tokenInput, setTokenInput] = useState('');
   const [chatInput, setChatInput] = useState('');
-  const [channels, setChannels] = useState<{ id: string; label: string }[]>([]);
+  const [channels, setChannels] = useState<{ id: string; label: string; theme?: string }[]>([]);
   const [autopost, setAutopost] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -159,7 +159,7 @@ function TelegramSettings() {
   };
   useEffect(() => { load(); }, []);
 
-  const setChannel = (i: number, field: 'id' | 'label', v: string) =>
+  const setChannel = (i: number, field: 'id' | 'label' | 'theme', v: string) =>
     setChannels((cs) => cs.map((c, idx) => (idx === i ? { ...c, [field]: v } : c)));
   const addChannel = () => setChannels((cs) => [...cs, { id: '', label: '' }]);
   const removeChannel = (i: number) => setChannels((cs) => cs.filter((_, idx) => idx !== i));
@@ -253,21 +253,39 @@ function TelegramSettings() {
 
         {channels.length === 0 && <p className="text-xs text-gray-400">Каналів ще немає.</p>}
         {channels.map((c, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={i} className="flex items-center gap-2 flex-wrap">
             <input
               type="text" value={c.id} onChange={(e) => setChannel(i, 'id', e.target.value)}
               placeholder="@channel або -100..."
-              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="flex-1 min-w-[160px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
             <input
               type="text" value={c.label} onChange={(e) => setChannel(i, 'label', e.target.value)}
               placeholder="назва (необов.)"
-              className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+              className="w-32 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
             />
+            {/* Стиль картки саме для цього каналу; «— загальний» = глобальна тема. */}
+            <select
+              value={c.theme ?? ''} onChange={(e) => setChannel(i, 'theme', e.target.value)}
+              title="Стиль картки цього каналу"
+              className="w-36 border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+            >
+              <option value="">— загальний стиль</option>
+              <option value="classic">Класика</option>
+              <option value="dark">Преміум</option>
+              <option value="minimal">Мінімалізм</option>
+              <option value="board">Табло</option>
+              <option value="editorial">Журнал</option>
+              <option value="grid">Плитки</option>
+              <option value="story">Сторіз 9:16</option>
+            </select>
             <button onClick={() => removeChannel(i)} className="text-gray-400 hover:text-red-600 px-1" title="Видалити">✕</button>
           </div>
         ))}
         <button onClick={addChannel} className="text-sm text-blue-600 hover:underline">+ Додати канал</button>
+        <p className="text-xs text-gray-400">
+          Стиль на каналі перекриває загальний (зі сторінки «Картка курсів»). «— загальний» = використовувати загальний.
+        </p>
 
         <label className="flex items-center justify-between pt-2">
           <span className="text-sm text-gray-700">

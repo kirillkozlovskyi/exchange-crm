@@ -84,6 +84,14 @@ export const CURRENCY_NAMES: Record<string, string> = {
  */
 export type CardTheme = 'classic' | 'dark' | 'minimal' | 'board' | 'editorial' | 'grid' | 'story';
 
+/** Усі валідні теми (рантайм) — одне джерело правди для API/валідації. */
+export const CARD_THEMES: CardTheme[] = ['classic', 'dark', 'minimal', 'board', 'editorial', 'grid', 'story'];
+
+/** Валідна тема або undefined (для парсингу query-параметра). */
+export function parseCardTheme(v: unknown): CardTheme | undefined {
+  return typeof v === 'string' && (CARD_THEMES as string[]).includes(v) ? (v as CardTheme) : undefined;
+}
+
 interface Palette {
   bg: string; bgGrad2: string; panel: string; panelSoft: string; rowAlt: string;
   brand: string; brandSub: string; accent: string; accentSoft: string;
@@ -168,6 +176,16 @@ const esc = (s: string) =>
 
 const n2 = (v: number) => Number(v).toFixed(2);
 
+/**
+ * Розмір шрифту, за якого рядок влізе в задану ширину: короткі тексти беруть
+ * maxSize, довгі — зменшуються рівно настільки, щоб не вилазити за панель.
+ * Montserrat напівжирний ≈ 0.56·size на символ (емпірично).
+ */
+function fitSize(text: string, maxWidth: number, maxSize: number, charRatio = 0.56): number {
+  const need = text.length * charRatio;
+  return Math.max(11, Math.min(maxSize, maxWidth / need));
+}
+
 // ── Прапори (кола) ──────────────────────────────────────────────────────────
 function flag(cur: string, cx: number, cy: number, r: number): string {
   const id = `clip_${cur}_${Math.round(cx)}_${Math.round(cy)}`;
@@ -247,8 +265,9 @@ function panel(x: number, y: number, w: number, h: number, r = 16, fill = C.pane
   return `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="${fill}"/>`;
 }
 
-function check(x: number, y: number): string {
-  return `<circle cx="${x}" cy="${y}" r="7" fill="${C.up}"/><path d="M${x - 3.2},${y} L${x - 1},${y + 2.6} L${x + 3.4},${y - 2.8}" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+function check(x: number, y: number, r = 7): string {
+  const s = r / 7;
+  return `<circle cx="${x}" cy="${y}" r="${r}" fill="${C.up}"/><path d="M${x - 3.2 * s},${y} L${x - 1 * s},${y + 2.6 * s} L${x + 3.4 * s},${y - 2.8 * s}" stroke="#fff" stroke-width="${1.8 * s}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
 }
 
 export interface RateCardData {
@@ -280,7 +299,9 @@ function layoutClassic(data: RateCardData): string {
   const tableTop = 372;
   const tableH = 60 + data.rows.length * rowH; // шапка + рядки
   const afterTable = tableTop + tableH + 24;
-  const H = afterTable + 660;
+  // Блок послуг/адреси + контакти + нижня плашка (без рядка трьох бейджів).
+  const svcBlockH = 110 + cfg.services.length * 44 + 24;
+  const H = afterTable + Math.max(svcBlockH, 316) + 30 + 160 + 62;
 
   const t: string[] = [];
   const txt = (
@@ -364,80 +385,61 @@ function layoutClassic(data: RateCardData): string {
     t.push(trendBadge(r.trend, W - 92, cy, 22));
   });
 
-  // ── Три бейджі переваг ────────────────────────────────────────────────────
-  const fy = afterTable;
-  const fw = (W - 56 - 24) / 3;
-  const fx = (i: number) => 28 + i * (fw + 12);
-  t.push(panel(fx(0), fy, fw, 108, 16), panel(fx(1), fy, fw, 108, 16), panel(fx(2), fy, fw, 108, 16));
-
-  // 1 — надійно/вигідно/професійно
-  ['НАДІЙНО', 'ВИГІДНО', 'ПРОФЕСІЙНО'].forEach((s, i) => {
-    t.push(check(fx(0) + 82, fy + 32 + i * 26));
-    txt(fx(0) + 96, fy + 37 + i * 26, s, { size: 14, w: 700, fill: C.text });
-  });
-  t.push(
-    `<path d="M${fx(0) + 44},${fy + 26} L${fx(0) + 64},${fy + 34} L${fx(0) + 64},${fy + 58} C${fx(0) + 64},${fy + 74} ${fx(0) + 54},${fy + 84} ${fx(0) + 44},${fy + 90} C${fx(0) + 34},${fy + 84} ${fx(0) + 24},${fy + 74} ${fx(0) + 24},${fy + 58} L${fx(0) + 24},${fy + 34} Z" fill="${C.accent}"/>`,
-  );
-
-  // 2 — прийом старих купюр
-  txt(fx(1) + fw / 2, fy + 40, 'ПРИЙОМ СТАРИХ,', { size: 14, w: 700, fill: C.text, anchor: 'middle' });
-  txt(fx(1) + fw / 2, fy + 62, 'ПОШКОДЖЕНИХ ТА', { size: 14, w: 700, fill: C.text, anchor: 'middle' });
-  txt(fx(1) + fw / 2, fy + 84, 'USD 1996–1999 РОКІВ', { size: 14, w: 700, fill: C.text, anchor: 'middle' });
-
-  // 3 — бронювання
-  txt(fx(2) + fw / 2, fy + 48, 'БРОНЮВАННЯ ВАЛЮТИ', { size: 14, w: 700, fill: C.text, anchor: 'middle' });
-  txt(fx(2) + fw / 2, fy + 72, 'ВІД 1000 USD/EUR', { size: 14, w: 700, fill: C.text, anchor: 'middle' });
-  txt(fx(2) + fw / 2, fy + 94, 'ДО 30 ХВИЛИН', { size: 14, w: 700, fill: C.text, anchor: 'middle' });
-
   // ── Послуги (ліворуч) + адреса/графік (праворуч) ──────────────────────────
-  const sy = fy + 124;
+  // Рядок трьох бейджів прибрано: він дублював послуги нижче. Звільнене місце
+  // віддано під більший текст.
+  const sy = afterTable;
   const leftW = 600;
   const rightX = 28 + leftW + 12;
   const rightW = W - 56 - leftW - 12;
-  const svcH = 60 + cfg.services.length * 30 + 46;
+  const svcH = 110 + cfg.services.length * 44 + 24;
 
   t.push(panel(28, sy, leftW, svcH, 16));
-  t.push(`<path d="M52,${sy + 32} l7,-13 7,13 Z" fill="${C.brand}"/>`);
-  txt(72, sy + 30, 'Курси на каналі є інформаційними. Остаточний курс', { size: 13, w: 500, fill: C.muted });
-  txt(72, sy + 50, 'узгоджується телефоном або у відділенні.', { size: 13, w: 500, fill: C.muted });
-  txt(48, sy + 82, 'Послуги:', { size: 16, w: 800, fill: C.accent });
+  t.push(`<path d="M54,${sy + 42} l9,-16 9,16 Z" fill="${C.brand}"/>`);
+  txt(84, sy + 39, 'Курси на каналі є інформаційними. Остаточний', { size: 17, w: 500, fill: C.muted });
+  txt(84, sy + 63, 'курс узгоджується телефоном або у відділенні.', { size: 17, w: 500, fill: C.muted });
+  txt(48, sy + 106, 'Послуги:', { size: 25, w: 800, fill: C.accent });
+  const svcTextW = leftW - 84 - 24; // від x=84 до правого поля панелі
   cfg.services.forEach((s, i) => {
-    const y = sy + 108 + i * 30;
-    t.push(check(58, y - 5));
-    txt(76, y, s, { size: 14, w: 500, fill: C.text });
+    const y = sy + 146 + i * 44;
+    t.push(check(60, y - 7, 10));
+    // Довгі пункти автоматично трохи менші — щоб не вилазили за панель.
+    txt(84, y, s, { size: fitSize(s, svcTextW, 23), w: 600, fill: C.text });
   });
 
   // Адреса
-  t.push(panel(rightX, sy, rightW, 132, 16));
-  t.push(`<path d="M${rightX + 28},${sy + 30} C${rightX + 40},${sy + 30} ${rightX + 46},${sy + 40} ${rightX + 40},${sy + 52} L${rightX + 30},${sy + 66} L${rightX + 20},${sy + 52} C${rightX + 14},${sy + 40} ${rightX + 20},${sy + 30} ${rightX + 28},${sy + 30} Z" fill="${C.accent}"/>`);
-  t.push(`<circle cx="${rightX + 30}" cy="${sy + 44}" r="5" fill="#fff"/>`);
-  txt(rightX + 56, sy + 46, cfg.address, { size: 17, w: 700, fill: C.text });
-  txt(rightX + 56, sy + 70, cfg.addressNote, { size: 12, w: 500, fill: C.muted });
+  t.push(panel(rightX, sy, rightW, 158, 16));
+  t.push(`<path d="M${rightX + 30},${sy + 36} C${rightX + 44},${sy + 36} ${rightX + 50},${sy + 48} ${rightX + 44},${sy + 62} L${rightX + 32},${sy + 78} L${rightX + 20},${sy + 62} C${rightX + 14},${sy + 48} ${rightX + 20},${sy + 36} ${rightX + 30},${sy + 36} Z" fill="${C.accent}"/>`);
+  t.push(`<circle cx="${rightX + 32}" cy="${sy + 52}" r="6.5" fill="#fff"/>`);
+  const addrW = rightW - 62 - 20;
+  txt(rightX + 62, sy + 56, cfg.address, { size: fitSize(cfg.address, addrW, 23, 0.6), w: 700, fill: C.text });
+  txt(rightX + 62, sy + 84, cfg.addressNote, { size: fitSize(cfg.addressNote, addrW, 16, 0.5), w: 500, fill: C.muted });
 
   // Графік
-  t.push(panel(rightX, sy + 144, rightW, 118, 16));
-  t.push(`<circle cx="${rightX + 30}" cy="${sy + 176}" r="13" fill="none" stroke="${C.accent}" stroke-width="2.5"/>`);
-  t.push(`<path d="M${rightX + 30},${sy + 168} L${rightX + 30},${sy + 176} L${rightX + 36},${sy + 180}" stroke="${C.accent}" stroke-width="2.5" fill="none" stroke-linecap="round"/>`);
-  txt(rightX + 54, sy + 182, 'ПРАЦЮЄМО БЕЗ ВИХІДНИХ', { size: 13, w: 800, fill: C.text });
-  txt(rightX + 30, sy + 216, cfg.hoursWeek, { size: 14, w: 600, fill: C.text });
-  txt(rightX + 30, sy + 242, cfg.hoursWeekend, { size: 14, w: 600, fill: C.text });
+  const schY = sy + 174;
+  t.push(panel(rightX, schY, rightW, 142, 16));
+  t.push(`<circle cx="${rightX + 33}" cy="${schY + 38}" r="15" fill="none" stroke="${C.accent}" stroke-width="2.5"/>`);
+  t.push(`<path d="M${rightX + 33},${schY + 28} L${rightX + 33},${schY + 38} L${rightX + 41},${schY + 42}" stroke="${C.accent}" stroke-width="2.5" fill="none" stroke-linecap="round"/>`);
+  txt(rightX + 60, schY + 44, 'ПРАЦЮЄМО БЕЗ ВИХІДНИХ', { size: 17, w: 800, fill: C.text });
+  txt(rightX + 32, schY + 88, cfg.hoursWeek, { size: 20, w: 600, fill: C.text });
+  txt(rightX + 32, schY + 118, cfg.hoursWeekend, { size: 20, w: 600, fill: C.text });
 
   // ── Контакти ──────────────────────────────────────────────────────────────
-  const cy2 = sy + svcH + 24;
+  const cy2 = sy + Math.max(svcH, 316) + 30;
   cfg.phones.forEach((p, i) => {
-    const y = cy2 + 34 + i * 46;
-    t.push(`<circle cx="52" cy="${y - 8}" r="17" fill="#1E9E4A"/>`);
-    t.push(`<path d="M45,${y - 15} q3,-3 6,0 l2,4 q1,2 -1,3 l-2,1 q1,4 5,7 l1,-2 q1,-2 3,-1 l4,2 q3,3 0,6 -6,3 -14,-5 -8,-8 -4,-15 Z" fill="#fff"/>`);
-    txt(80, y, p, { size: 26, w: 800, fill: C.accent });
+    const y = cy2 + 42 + i * 56;
+    t.push(`<circle cx="56" cy="${y - 10}" r="21" fill="#1E9E4A"/>`);
+    t.push(`<path d="M47,${y - 19} q3.8,-3.8 7.6,0 l2.6,5 q1.2,2.6 -1.2,3.8 l-2.6,1.2 q1.2,5 6.3,8.8 l1.2,-2.6 q1.2,-2.6 3.8,-1.2 l5,2.6 q3.8,3.8 0,7.6 -7.6,3.8 -17.6,-6.3 -5,-10 -5,-18.8 Z" fill="#fff"/>`);
+    txt(92, y, p, { size: 33, w: 800, fill: C.accent });
   });
-  t.push(`<circle cx="352" cy="${cy2 + 26}" r="15" fill="${C.accent}"/>`);
-  txt(376, cy2 + 33, cfg.bot, { size: 17, w: 600, fill: C.text });
-  t.push(`<circle cx="352" cy="${cy2 + 72}" r="15" fill="#29A9EB"/>`);
-  t.push(`<path d="M345,${cy2 + 72} l14,-6 -5,13 -3,-5 z" fill="#fff"/>`);
-  txt(376, cy2 + 79, cfg.channel, { size: 17, w: 600, fill: C.text });
+  t.push(`<circle cx="410" cy="${cy2 + 31}" r="18" fill="${C.accent}"/>`);
+  txt(440, cy2 + 40, cfg.bot, { size: 22, w: 600, fill: C.text });
+  t.push(`<circle cx="410" cy="${cy2 + 87}" r="18" fill="#29A9EB"/>`);
+  t.push(`<path d="M401,${cy2 + 87} l17,-7.5 -6.5,16 -3.7,-6.5 z" fill="#fff"/>`);
+  txt(440, cy2 + 96, cfg.channel, { size: 22, w: 600, fill: C.text });
 
-  txt(W - 40, cy2 + 40, cfg.brand, { size: 30, w: 900, fill: C.brand, anchor: 'end', ls: 2 });
-  txt(W - 40, cy2 + 66, cfg.brandSuffix, { size: 13, w: 600, fill: C.brand, anchor: 'end', ls: 6 });
+  txt(W - 40, cy2 + 48, cfg.brand, { size: 36, w: 900, fill: C.brand, anchor: 'end', ls: 2 });
+  txt(W - 40, cy2 + 78, cfg.brandSuffix, { size: 15, w: 600, fill: C.brand, anchor: 'end', ls: 6 });
 
   // ── Нижня плашка ──────────────────────────────────────────────────────────
   const by = H - 62;

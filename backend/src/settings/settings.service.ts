@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { RateCardConfig, DEFAULT_CARD_CONFIG, CardTheme } from '../telegram/rate-card';
+import { RateCardConfig, DEFAULT_CARD_CONFIG, CardTheme, parseCardTheme } from '../telegram/rate-card';
 
 @Injectable()
 export class SettingsService {
@@ -88,7 +88,7 @@ export class SettingsService {
   async setTelegram(dto: {
     token?: string;
     chatId?: string;
-    channels?: { id: string; label?: string }[];
+    channels?: { id: string; label?: string; theme?: string }[];
     rateAutopost?: boolean;
   }): Promise<void> {
     // Порожній рядок = очистити (повернутись до env-fallback, якщо він є).
@@ -96,7 +96,12 @@ export class SettingsService {
     if (dto.chatId !== undefined) await this.set('telegram_chat_id', dto.chatId.trim());
     if (dto.channels !== undefined) {
       const clean = dto.channels
-        .map((c) => ({ id: String(c.id ?? '').trim(), label: String(c.label ?? '').trim() }))
+        .map((c) => ({
+          id: String(c.id ?? '').trim(),
+          label: String(c.label ?? '').trim(),
+          // Тема картки цього каналу; порожньо = глобальна тема з налаштувань.
+          theme: parseCardTheme(c.theme),
+        }))
         .filter((c) => c.id);
       await this.set('telegram_channels', JSON.stringify(clean));
     }
@@ -104,13 +109,19 @@ export class SettingsService {
   }
 
   /** Список каналів для постів про курси (окремо від чату адмін-сповіщень). */
-  async getTelegramChannels(): Promise<{ id: string; label: string }[]> {
+  async getTelegramChannels(): Promise<{ id: string; label: string; theme?: CardTheme }[]> {
     const raw = await this.get('telegram_channels');
     if (!raw) return [];
     try {
       const arr = JSON.parse(raw);
       return Array.isArray(arr)
-        ? arr.map((c: any) => ({ id: String(c.id ?? '').trim(), label: String(c.label ?? '').trim() })).filter((c) => c.id)
+        ? arr
+            .map((c: any) => ({
+              id: String(c.id ?? '').trim(),
+              label: String(c.label ?? '').trim(),
+              theme: parseCardTheme(c.theme),
+            }))
+            .filter((c) => c.id)
         : [];
     } catch {
       return [];
@@ -122,14 +133,13 @@ export class SettingsService {
     return (await this.get('telegram_rate_autopost')) === 'true';
   }
 
-  /** Стиль картки курсів: classic | dark | minimal. */
+  /** Стиль картки курсів (classic за замовчуванням). */
   async getRateCardTheme(): Promise<CardTheme> {
-    const v = await this.get('rate_card_theme');
-    return v === 'dark' || v === 'minimal' ? v : 'classic';
+    return parseCardTheme(await this.get('rate_card_theme')) ?? 'classic';
   }
 
   async setRateCardTheme(theme: CardTheme): Promise<void> {
-    await this.set('rate_card_theme', theme);
+    await this.set('rate_card_theme', parseCardTheme(theme) ?? 'classic');
   }
 
   /** Постити курси КАРТИНКОЮ (макет каналу) замість тексту. */

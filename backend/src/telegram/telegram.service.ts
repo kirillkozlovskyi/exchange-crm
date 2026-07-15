@@ -88,7 +88,23 @@ export class TelegramService {
     }
   }
 
-  /** Публікація картинки курсів у канали. */
+  /**
+   * Публікація картинок курсів у канали — КОЖНОМУ своя (різні теми/стилі).
+   * items: { id: chat_id, png: готова картинка каналу }.
+   */
+  async postPhotosToChannels(
+    items: { id: string; png: Buffer }[], caption?: string,
+  ): Promise<{ sent: number; total: number }> {
+    const token = await this.getToken();
+    if (!token || !items.length) return { sent: 0, total: items.length };
+    let sent = 0;
+    for (const it of items) {
+      if (await this.sendPhotoTo(token, it.id, it.png, caption)) sent += 1;
+    }
+    return { sent, total: items.length };
+  }
+
+  /** Публікація ОДНІЄЇ картинки курсів у всі канали (однакова для всіх). */
   async postPhotoToChannels(
     channels: { id: string }[], png: Buffer, caption?: string,
   ): Promise<{ sent: number; total: number }> {
