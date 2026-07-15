@@ -101,6 +101,17 @@ export class RatesService {
     const rates = await this.getByPoint(exchangePointId);
     if (!rates.length) return null;
 
+    // Порядок валют у картці = як у «Списку валют» (currency_order); валюти поза
+    // списком ідуть у кінці, зберігаючи алфавітний порядок getByPoint.
+    const order = await this.settings.getCurrencyOrder();
+    if (order.length) {
+      const rank = (c: string) => {
+        const i = order.indexOf(c);
+        return i === -1 ? order.length : i;
+      };
+      rates.sort((a, b) => rank(a.currency) - rank(b.currency));
+    }
+
     const cfg = await this.settings.getRateCardConfig(exchangePointId);
     // Тема: явна (для перегляду) → тема першого каналу точки (реальна публікація)
     // → глобальна. Так прев'ю без вибору показує, як картка піде в канал.

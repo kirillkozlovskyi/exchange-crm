@@ -522,6 +522,7 @@ export default function OperationsSettings() {
   const [seeProfit, setSeeProfit] = useState<boolean>(true);
   const [bankEnabled, setBankEnabled] = useState<boolean>(true);
   const [buyback, setBuyback] = useState<boolean>(false);
+  const [canExpenses, setCanExpenses] = useState<boolean>(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
 
@@ -533,13 +534,15 @@ export default function OperationsSettings() {
       api.get('/settings/cashier-see-profit'),
       api.get('/settings/cash-bank-enabled'),
       api.get('/settings/buyback-margin'),
-    ]).then(([s, b, k, p, cb, bm]) => {
+      api.get('/settings/cashier-expenses'),
+    ]).then(([s, b, k, p, cb, bm, ce]) => {
       setMinutes(s.data.minutes);
       setBalanceEdit(b.data.enabled);
       setSeeBank(k.data.enabled);
       setSeeProfit(p.data.enabled);
       setBankEnabled(cb.data.enabled);
       setBuyback(bm.data.enabled);
+      setCanExpenses(ce.data.enabled);
     });
   }, []);
 
@@ -554,6 +557,7 @@ export default function OperationsSettings() {
         api.put('/settings/cashier-see-profit', { enabled: seeProfit }),
         api.put('/settings/cash-bank-enabled', { enabled: bankEnabled }),
         api.put('/settings/buyback-margin', { enabled: buyback }),
+        api.put('/settings/cashier-expenses', { enabled: canExpenses }),
       ]);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
@@ -634,6 +638,19 @@ export default function OperationsSettings() {
             </p>
           </div>
           <Toggle enabled={seeProfit} onChange={setSeeProfit} />
+        </div>
+
+        <div className="border-t border-gray-100" />
+
+        {/* Дозвіл касиру створювати витрати */}
+        <div className="flex items-start justify-between gap-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-gray-700">Касир може створювати витрати</p>
+            <p className="text-xs text-gray-400">
+              Дозволити касиру додавати витрати. Видаляти витрати може лише адмін.
+            </p>
+          </div>
+          <Toggle enabled={canExpenses} onChange={setCanExpenses} />
         </div>
 
         <div className="border-t border-gray-100" />

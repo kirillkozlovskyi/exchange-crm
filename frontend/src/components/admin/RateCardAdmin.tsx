@@ -15,9 +15,21 @@ type Cfg = {
   services: string[]; footer: string;
 };
 
+const PREVIEW_THEMES = [
+  { key: 'classic', label: 'Класика' },
+  { key: 'dark', label: 'Преміум' },
+  { key: 'minimal', label: 'Мінімалізм' },
+  { key: 'board', label: 'Табло' },
+  { key: 'editorial', label: 'Журнал' },
+  { key: 'grid', label: 'Плитки' },
+  { key: 'story', label: 'Сторіз 9:16' },
+];
+
 export default function RateCardAdmin() {
   const [points, setPoints] = useState<any[]>([]);
   const [pointId, setPointId] = useState<number | null>(null);
+  // Стиль лише для ПЕРЕГЛЯДУ прев'ю (публікація — per-channel на «Сповіщеннях»).
+  const [previewTheme, setPreviewTheme] = useState('classic');
   const [cfg, setCfg] = useState<Cfg | null>(null);
   const [preview, setPreview] = useState<string>('');
   const [loading, setLoading] = useState(false);
@@ -49,14 +61,13 @@ export default function RateCardAdmin() {
   }, [scope, pointId]);
 
 
-  // Прев'ю — PNG із сервера: вміст точки в її реальному стилі (тема першого
-  // каналу точки). Без вибору стилю — він задається на «Сповіщеннях».
-  const loadPreview = async (p = pointId) => {
+  // Прев'ю — PNG із сервера: вміст точки у вибраному стилі-перегляді.
+  const loadPreview = async (p = pointId, t = previewTheme) => {
     if (!p) return;
     setLoading(true);
     setError('');
     try {
-      const { data } = await api.get(`/rates/card/${p}`, { responseType: 'blob' });
+      const { data } = await api.get(`/rates/card/${p}?theme=${t}`, { responseType: 'blob' });
       setPreview((old) => {
         if (old) URL.revokeObjectURL(old);
         return URL.createObjectURL(data);
@@ -70,9 +81,9 @@ export default function RateCardAdmin() {
   };
 
   useEffect(() => {
-    if (pointId) loadPreview(pointId);
+    if (pointId) loadPreview(pointId, previewTheme);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pointId]);
+  }, [pointId, previewTheme]);
 
   const save = async () => {
     setSaved(false);
@@ -202,24 +213,26 @@ export default function RateCardAdmin() {
         )}
       </div>
 
-      {/* Праворуч: прев'ю (стиль тут — лише для перегляду) */}
+      {/* Праворуч: прев'ю. Стиль тут — лише для перегляду; точка — з блоку зліва. */}
       <div className="bg-white rounded-xl shadow p-4 space-y-3 xl:sticky xl:top-4">
         <div className="flex items-center justify-between gap-2">
           <h3 className="font-semibold text-gray-800 text-sm">Прев'ю</h3>
           <select
-            value={pointId ?? ''}
-            onChange={(e) => setPointId(Number(e.target.value))}
-            title="Точка для прев'ю"
+            value={previewTheme}
+            onChange={(e) => setPreviewTheme(e.target.value)}
+            title="Стиль для перегляду"
             className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
           >
-            {points.map((p) => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+            {PREVIEW_THEMES.map((t) => (
+              <option key={t.key} value={t.key}>{t.label}</option>
             ))}
           </select>
         </div>
 
         <p className="text-[11px] text-gray-400">
-          Прев'ю — у стилі каналу цієї точки. Стиль задається на «Сповіщеннях» для кожного каналу.
+          {scope === 'point'
+            ? `Точка «${points.find((p) => p.id === pointId)?.name ?? ''}» (обирається зліва). Стиль — лише для перегляду; публікація в стилі каналу («Сповіщення»).`
+            : 'Стиль — лише для перегляду. Публікація йде в стилі каналу («Сповіщення»).'}
         </p>
 
         <div className="rounded-lg overflow-hidden border border-gray-200 bg-gray-50 min-h-[300px] flex items-center justify-center">

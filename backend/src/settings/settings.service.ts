@@ -260,6 +260,15 @@ export class SettingsService {
     await this.set('cashier_can_see_profit', String(enabled));
   }
 
+  // Чи може касир створювати витрати. За замовчуванням — ні (лише адмін).
+  async getCashierCanExpenses(): Promise<boolean> {
+    return (await this.get('cashier_can_expenses')) === 'true'; // default false
+  }
+
+  async setCashierCanExpenses(enabled: boolean): Promise<void> {
+    await this.set('cashier_can_expenses', String(enabled));
+  }
+
   /**
    * Чи використовується глобальний банк готівки. Вимкнено → гроші живуть лише
    * по касах: у русі готівки немає джерела «Банк», сторінка «Банк» ховається.

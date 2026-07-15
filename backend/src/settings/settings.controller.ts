@@ -181,6 +181,18 @@ export class SettingsController {
     return this.settingsService.getCashierCanSeeProfit().then((enabled) => ({ enabled }));
   }
 
+  @Get('cashier-expenses')
+  getCashierExpenses() {
+    return this.settingsService.getCashierCanExpenses().then((enabled) => ({ enabled }));
+  }
+
+  @Put('cashier-expenses')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setCashierExpenses(@Body() body: { enabled: boolean }) {
+    return this.settingsService.setCashierCanExpenses(body.enabled).then(() => ({ enabled: body.enabled }));
+  }
+
   @Put('cashier-see-profit')
   @UseGuards(RolesGuard)
   @Roles('ADMIN')

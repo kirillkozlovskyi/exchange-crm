@@ -63,6 +63,9 @@ export default function CashierPage() {
   const [cashMoveDir, setCashMoveDir] = useState<CashDirection | null>(null);
   // Модалка USDT-операції
   const [showUsdt, setShowUsdt] = useState(false);
+  // Витрати касиру (адмінський дозвіл) + стан модалки.
+  const [canExpenses, setCanExpenses] = useState(false);
+  const [showExpense, setShowExpense] = useState(false);
   const [quickAmounts, setQuickAmounts] = useState<number[]>([10, 20, 50, 100, 500]);
   const [orgName, setOrgName] = useState('');
   // Чи показувати касиру прибуток (адмінське налаштування). Поки не завантажено —
@@ -134,6 +137,7 @@ export default function CashierPage() {
         api.get('/settings/quick-amounts').then(({ data }) => setQuickAmounts(data)).catch(() => {});
         api.get('/settings/org-name').then(({ data }) => setOrgName(data.name ?? '')).catch(() => {});
         api.get('/settings/cashier-see-profit').then(({ data }) => setCanSeeProfit(!!data.enabled)).catch(() => {});
+        api.get('/settings/cashier-expenses').then(({ data }) => setCanExpenses(!!data.enabled)).catch(() => {});
 
         // Спочатку перевіряємо — чи є у юзера вже відкрита зміна
         const myShiftRes = await api.get('/shifts/my').catch(() => null);
@@ -435,6 +439,12 @@ export default function CashierPage() {
           className="bg-teal-600 hover:bg-teal-700 text-white px-3 py-1 rounded text-sm font-medium disabled:opacity-40">
           ₮ USDT
         </button>
+        {canExpenses && (
+          <button onClick={() => setShowExpense(true)} disabled={!online} title={offTitle}
+            className="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1 rounded text-sm font-medium disabled:opacity-40">
+            Витрата
+          </button>
+        )}
         <button onClick={() => setTab('operations')} className={tabCls(tab === 'operations')}>
           Операції
         </button>
@@ -455,7 +465,7 @@ export default function CashierPage() {
     );
     return () => setActions(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [shift, closingShift, selectedDeskId, tab, pendingCount, selectedPointName, selectedDeskName, online]);
+  }, [shift, closingShift, selectedDeskId, tab, pendingCount, selectedPointName, selectedDeskName, online, canExpenses]);
 
   // ── Рендер ────────────────────────────────────────────────────────────────
 
@@ -840,6 +850,67 @@ export default function CashierPage() {
           onSaved={() => loadShift(selectedDeskId!)}
         />
       )}
+      {showExpense && (
+        <ExpenseModal
+          exchangePointId={selectedPointId ?? shift.cashDesk?.exchangePointId}
+          onClose={() => setShowExpense(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Модалка витрати (для касира, якщо дозволено адміном) ─────────────────────
+function ExpenseModal({ exchangePointId, onClose }: { exchangePointId: number; onClose: () => void }) {
+  const [amount, setAmount] = useState('');
+  const [category, setCategory] = useState('');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const save = async () => {
+    const amt = parseFloat(amount);
+    if (!(amt > 0)) { setError('Сума має бути більшою за 0'); return; }
+    if (!category.trim()) { setError('Вкажіть категорію'); return; }
+    setSaving(true); setError('');
+    try {
+      await api.post('/expenses', { amount: amt, category: category.trim(), note: note.trim() || undefined, exchangePointId });
+      onClose();
+    } catch (e: any) {
+      setError(e.response?.data?.message ?? 'Помилка'); setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl shadow-lg w-full max-w-sm p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+        <h3 className="font-semibold text-gray-800">Витрата</h3>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Сума, ₴</label>
+          <input type="number" step="1" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)}
+            autoFocus placeholder="0"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-amber-400" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Категорія</label>
+          <input type="text" value={category} onChange={(e) => setCategory(e.target.value)}
+            placeholder="напр. Оренда, Зарплата, Інше"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+        </div>
+        <div>
+          <label className="text-xs text-gray-500 block mb-1">Примітка (необов'язково)</label>
+          <input type="text" value={note} onChange={(e) => setNote(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
+        </div>
+        {error && <p className="text-red-500 text-sm">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 rounded-lg hover:bg-gray-100">Скасувати</button>
+          <button onClick={save} disabled={saving}
+            className="px-4 py-2 text-sm font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg disabled:opacity-50">
+            {saving ? 'Збереження...' : 'Додати витрату'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
