@@ -74,21 +74,19 @@ export class RatesService {
     const rates = await this.getByPoint(exchangePointId);
     if (!rates.length) return { sent: 0, total: channels.length };
 
-    // Картинка (макет каналу) або текст — за налаштуванням.
-    if (await this.settings.getRatePostAsImage()) {
-      // Кожен канал отримує картку СВОЄЇ теми (або глобальної, якщо не задано).
-      const globalTheme = await this.settings.getRateCardTheme();
-      const items: { id: string; png: Buffer }[] = [];
-      const cache = new Map<CardTheme, Buffer | null>();
-      for (const ch of channels) {
-        const th = ch.theme ?? globalTheme;
-        if (!cache.has(th)) cache.set(th, await this.renderCard(exchangePointId, th));
-        const png = cache.get(th);
-        if (png) items.push({ id: ch.id, png });
-      }
-      if (items.length) return this.telegram.postPhotosToChannels(items);
+    // Публікуємо КАРТИНКОЮ: кожен канал отримує картку своєї теми (або глобальної).
+    const globalTheme = await this.settings.getRateCardTheme();
+    const items: { id: string; png: Buffer }[] = [];
+    const cache = new Map<CardTheme, Buffer | null>();
+    for (const ch of channels) {
+      const th = ch.theme ?? globalTheme;
+      if (!cache.has(th)) cache.set(th, await this.renderCard(exchangePointId, th));
+      const png = cache.get(th);
+      if (png) items.push({ id: ch.id, png });
     }
+    if (items.length) return this.telegram.postPhotosToChannels(items);
 
+    // Fallback (рендер не вдався — напр. немає шрифтів): звичайний текст.
     const message = this.telegram.formatRates(
       point.name,
       rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),

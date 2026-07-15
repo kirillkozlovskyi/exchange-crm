@@ -144,7 +144,6 @@ function TelegramSettings() {
   type Channel = { id: string; label: string; theme?: string; pointId?: number | null };
   const [channels, setChannels] = useState<Channel[]>([]);
   const [points, setPoints] = useState<{ id: number; name: string }[]>([]);
-  const [autopost, setAutopost] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -156,7 +155,6 @@ function TelegramSettings() {
       setConfigured(data.configured);
       setChatInput(data.chatId);
       setChannels(data.channels ?? []);
-      setAutopost(!!data.rateAutopost);
     }).catch(() => {});
   };
   useEffect(() => {
@@ -172,15 +170,16 @@ function TelegramSettings() {
   const save = async () => {
     setBusy(true); setMsg(null);
     try {
+      // rateAutopost НЕ шлемо: ним керує сторінка «Картка курсів» (щоб збереження
+      // каналів тут не перезаписало його старим значенням).
       const body: any = {
         chatId: chatInput,
         channels: channels.filter((c) => c.id.trim()),
-        rateAutopost: autopost,
       };
       if (tokenInput.trim()) body.token = tokenInput.trim(); // порожнє поле = не міняти токен
       const { data } = await api.put('/settings/telegram', body);
       setTokenMasked(data.tokenMasked); setConfigured(data.configured); setTokenInput('');
-      setChannels(data.channels ?? []); setAutopost(!!data.rateAutopost);
+      setChannels(data.channels ?? []);
       setMsg({ ok: true, text: 'Збережено' });
     } catch (e: any) {
       setMsg({ ok: false, text: e.response?.data?.message ?? 'Помилка' });
@@ -302,13 +301,9 @@ function TelegramSettings() {
           Стиль перекриває загальний (зі сторінки «Картка курсів»).
         </p>
 
-        <label className="flex items-center justify-between pt-2">
-          <span className="text-sm text-gray-700">
-            Автопост при зміні курсу
-            <span className="block text-xs text-gray-400">Кожне збереження курсу точки публікує оновлену таблицю в усі канали.</span>
-          </span>
-          <Toggle enabled={autopost} onChange={setAutopost} />
-        </label>
+        <p className="text-xs text-gray-400 pt-1">
+          Автопублікація при зміні курсу вмикається на сторінці «Картка курсів».
+        </p>
       </div>
 
       <div className="flex items-center gap-2">
