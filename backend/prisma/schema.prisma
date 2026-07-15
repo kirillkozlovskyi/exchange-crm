@@ -147,6 +147,9 @@ model Shift {
   // будуються, він показується поруч із profit. Див. buyback-margin.util.ts.
   buybackMargin           Decimal? @db.Decimal(15, 2)
   buybackMarginByCurrency Json     @default("{}")
+  // Середня собівартість (грн/од.) по валютах на момент закриття — курс, проти
+  // якого рахувався прибуток. Зберігаємо для показу в звіті/картці зміни.
+  costBasis               Json     @default("{}")
   note            String?
 
   cashDesk        CashDesk    @relation(fields: [cashDeskId], references: [id])

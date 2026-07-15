@@ -207,6 +207,12 @@ export class ShiftsService {
         valuationRates: valuation,
         buybackMargin: buyback.totalMargin,
         buybackMarginByCurrency: buyback.byCurrency,
+        // Собівартість на закриття — середній курс, проти якого рахувався прибуток.
+        costBasis: Object.fromEntries(
+          Object.entries(wac.ending)
+            .filter(([, p]) => p.avgCost > 0)
+            .map(([cur, p]) => [cur, p.avgCost]),
+        ),
       },
     });
     // Переносимо ковзну собівартість і пул проданої гривні на наступну зміну цієї
@@ -286,7 +292,12 @@ export class ShiftsService {
       include: this.activeShiftInclude,
     });
     if (!shift) return shift;
-    return { ...shift, confirmedTransfers: await this.confirmedTransfersForShift(shift) };
+    return {
+      ...shift,
+      confirmedTransfers: await this.confirmedTransfersForShift(shift),
+      // Поточна собівартість каси — середній курс, проти якого рахується прибуток.
+      costBasisLive: await this.profit.getBasis(cashDeskId),
+    };
   }
 
   async getShiftById(id: number) {
@@ -301,7 +312,12 @@ export class ShiftsService {
       },
     });
     if (!shift) return shift;
-    return { ...shift, confirmedTransfers: await this.confirmedTransfersForShift(shift) };
+    return {
+      ...shift,
+      confirmedTransfers: await this.confirmedTransfersForShift(shift),
+      // Для відкритої — поточна собівартість каси; для закритої — збережена (shift.costBasis).
+      costBasisLive: shift.status === 'OPEN' ? await this.profit.getBasis(shift.cashDeskId) : undefined,
+    };
   }
 
   /**
@@ -487,7 +503,11 @@ export class ShiftsService {
       include: this.activeShiftInclude,
     });
     if (!shift) return shift;
-    return { ...shift, confirmedTransfers: await this.confirmedTransfersForShift(shift) };
+    return {
+      ...shift,
+      confirmedTransfers: await this.confirmedTransfersForShift(shift),
+      costBasisLive: await this.profit.getBasis(shift.cashDeskId),
+    };
   }
 
   async adjustBalance(shiftId: number, newCurrentBalance: Record<string, number>) {

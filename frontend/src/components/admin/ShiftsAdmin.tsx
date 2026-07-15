@@ -461,10 +461,14 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
                   <th className="text-right pb-1">Продано</th>
                   <th className="text-right pb-1">Сер. курс</th>
                   <th className="text-right pb-1">Продано, ₴</th>
+                  <th className="text-right pb-1" title="Середня собівартість — курс, проти якого рахується прибуток">Собівартість</th>
                 </tr>
               </thead>
               <tbody>
-                {tradeStats.map((r) => (
+                {tradeStats.map((r) => {
+                  // Закрита — збережена на момент закриття; відкрита — поточна каси.
+                  const cb = closed ? (d.costBasis || {}) : (d.costBasisLive || {});
+                  return (
                   <tr key={r.cur} className="border-b last:border-0">
                     <td className="py-1 font-bold text-gray-800">{r.cur}</td>
                     <td className="py-1 text-right text-green-700 font-medium">{r.boughtQty > 0 ? fmt(r.boughtQty) : '—'}</td>
@@ -473,8 +477,10 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
                     <td className="py-1 text-right text-red-700 font-medium">{r.soldQty > 0 ? fmt(r.soldQty) : '—'}</td>
                     <td className="py-1 text-right text-gray-500">{r.soldQty > 0 ? r.avgSell.toFixed(4) : '—'}</td>
                     <td className="py-1 text-right text-gray-600">{r.soldQty > 0 ? fmt(r.soldUah) : '—'}</td>
+                    <td className="py-1 text-right font-medium text-blue-700">{cb[r.cur] ? Number(cb[r.cur]).toFixed(4) : '—'}</td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>

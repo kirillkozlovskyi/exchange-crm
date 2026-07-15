@@ -65,6 +65,8 @@ export default function CloseShiftForm({
   onCancel: () => void;
 }) {
   const startBal = (shift.startBalance as Record<string, number>) || {};
+  // Поточна собівартість каси — курс, проти якого рахується прибуток (із сервера).
+  const costBasisLive = ((shift as any).costBasisLive as Record<string, number>) || {};
 
   // Нетто-передачі каси за зміну (отримано − відправлено) по валютах.
   // Це рух готівки між касами, а не прибуток — вилучаємо з фактичного результату.
@@ -492,6 +494,7 @@ export default function CloseShiftForm({
                   {hasTransfers && <th className="pb-2 text-right">Передачі</th>}
                   {hasMovements && <th className="pb-2 text-right">Підкр./Інкас.</th>}
                   <th className="pb-2 text-right">Закриття</th>
+                  <th className="pb-2 text-right" title="Середня собівартість — курс, проти якого рахується прибуток">Сер. курс</th>
                   <th className="pb-2 text-right">Прибуток&nbsp;₴</th>
                 </tr>
               </thead>
@@ -517,6 +520,9 @@ export default function CloseShiftForm({
                       </td>
                     )}
                     <td className="py-2 text-right font-medium text-gray-700">{r.close.toFixed(2)}</td>
+                    <td className="py-2 text-right text-gray-500">
+                      {costBasisLive[r.cur] ? Number(costBasisLive[r.cur]).toFixed(4) : '—'}
+                    </td>
                     <td className={`py-2 text-right font-semibold ${
                       Math.abs(r.profitUah) < 0.005 ? 'text-gray-300' :
                       r.profitUah > 0 ? 'text-green-600' : 'text-red-600'
