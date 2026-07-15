@@ -576,12 +576,14 @@ function layoutEditorial(data: RateCardData): string {
   const rowH = 104;
   const ratesTop = 250;
   const ratesH = data.rows.length * rowH;
-  const H = Math.max(ratesTop + ratesH + 120, 980);
+  // Висота — максимум із правої колонки (курси) і лівої (послуги/адреса/графік).
+  const leftBottom = 300 + cfg.services.length * 40 + 34 + 214 + 30;
+  const H = Math.max(ratesTop + ratesH + 120, leftBottom + 64, 980);
   const t: string[] = [];
 
   // Верхня лінійка з датою
-  t.push(T(L, 56, cfg.tagline, { size: 12, w: 700, fill: C.muted, ls: 5 }));
-  t.push(T(W - L, 56, `${data.date}  ·  ${data.time}`, { size: 12, w: 700, fill: C.muted, anchor: 'end', ls: 2 }));
+  t.push(T(L, 58, cfg.tagline, { size: 14, w: 700, fill: C.muted, ls: 5 }));
+  t.push(T(W - L, 58, `${data.date}  ·  ${data.time}`, { size: 14, w: 700, fill: C.muted, anchor: 'end', ls: 2 }));
   t.push(`<line x1="${L}" y1="76" x2="${W - L}" y2="76" stroke="${C.line}" stroke-width="1"/>`);
 
   // Бренд — велика типографіка
@@ -614,30 +616,31 @@ function layoutEditorial(data: RateCardData): string {
     t.push(`<line x1="${colX}" y1="${y + rowH}" x2="${W - L}" y2="${y + rowH}" stroke="${C.line}" stroke-width="1"/>`);
   });
 
-  // Ліва колонка: послуги
-  t.push(T(L, 258, 'ПОСЛУГИ', { size: 12, w: 800, fill: C.muted, ls: 4 }));
+  // Ліва колонка: послуги (крупніше; довгі рядки авто-підбирають розмір).
+  const leftTextW = colX - L - 40;
+  t.push(T(L, 262, 'ПОСЛУГИ', { size: 14, w: 800, fill: C.muted, ls: 4 }));
   cfg.services.forEach((sv, i) => {
-    const y = 292 + i * 34;
-    t.push(`<circle cx="${L + 4}" cy="${y - 5}" r="3" fill="${C.accent}"/>`);
-    t.push(T(L + 18, y, sv, { size: 13, w: 500, fill: C.text }));
+    const y = 300 + i * 40;
+    t.push(`<circle cx="${L + 5}" cy="${y - 6}" r="4" fill="${C.accent}"/>`);
+    t.push(T(L + 22, y, sv, { size: fitSize(sv, leftTextW, 18, 0.62), w: 500, fill: C.text }));
   });
 
   // Ліва колонка: адреса й графік
-  const ay = 292 + cfg.services.length * 34 + 30;
-  t.push(T(L, ay, 'АДРЕСА', { size: 12, w: 800, fill: C.muted, ls: 4 }));
-  t.push(T(L, ay + 30, cfg.address, { size: 17, w: 700, fill: C.text }));
-  t.push(T(L, ay + 52, cfg.addressNote, { size: 12, w: 500, fill: C.muted }));
-  t.push(T(L, ay + 96, 'ГРАФІК', { size: 12, w: 800, fill: C.muted, ls: 4 }));
-  t.push(T(L, ay + 126, cfg.hoursWeek, { size: 14, w: 600, fill: C.text }));
-  t.push(T(L, ay + 150, cfg.hoursWeekend, { size: 14, w: 600, fill: C.text }));
-  t.push(T(L, ay + 194, cfg.phones.join('   ·   '), { size: 17, w: 800, fill: C.accent }));
+  const ay = 300 + cfg.services.length * 40 + 34;
+  t.push(T(L, ay, 'АДРЕСА', { size: 14, w: 800, fill: C.muted, ls: 4 }));
+  t.push(T(L, ay + 34, cfg.address, { size: fitSize(cfg.address, leftTextW, 22, 0.6), w: 700, fill: C.text }));
+  t.push(T(L, ay + 58, cfg.addressNote, { size: 15, w: 500, fill: C.muted }));
+  t.push(T(L, ay + 106, 'ГРАФІК', { size: 14, w: 800, fill: C.muted, ls: 4 }));
+  t.push(T(L, ay + 140, cfg.hoursWeek, { size: 18, w: 600, fill: C.text }));
+  t.push(T(L, ay + 166, cfg.hoursWeekend, { size: 18, w: 600, fill: C.text }));
+  t.push(T(L, ay + 214, cfg.phones.join('   ·   '), { size: 22, w: 800, fill: C.accent }));
 
   // Підвал
-  const fy = H - 56;
-  t.push(`<rect x="0" y="${fy}" width="${W}" height="56" fill="${C.footerBg}"/>`);
-  t.push(T(L, fy + 35, cfg.channel, { size: 14, w: 700, fill: C.footerText, ls: 1 }));
-  t.push(T(W / 2, fy + 35, cfg.footer, { size: 13, w: 600, fill: C.footerText, anchor: 'middle', op: 0.85 }));
-  t.push(T(W - L, fy + 35, cfg.bot, { size: 13, w: 600, fill: C.footerText, anchor: 'end', op: 0.85 }));
+  const fy = H - 64;
+  t.push(`<rect x="0" y="${fy}" width="${W}" height="64" fill="${C.footerBg}"/>`);
+  t.push(T(L, fy + 40, cfg.channel, { size: 18, w: 700, fill: C.footerText, ls: 1 }));
+  t.push(T(W / 2, fy + 40, cfg.footer, { size: 17, w: 600, fill: C.footerText, anchor: 'middle', op: 0.9 }));
+  t.push(T(W - L, fy + 40, cfg.bot, { size: 18, w: 600, fill: C.footerText, anchor: 'end', op: 0.9 }));
 
   return wrap(W, H, t.join('\n  '));
 }

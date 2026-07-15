@@ -118,29 +118,8 @@ export default function RateCardAdmin() {
             </p>
           </div>
 
-          {/* Стиль */}
-          <div>
-            <label className="text-sm font-medium text-gray-700 block mb-2">Стиль</label>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-              {THEMES.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => setTheme(t.key)}
-                  className={`text-left border rounded-lg px-3 py-2 transition ${
-                    theme === t.key
-                      ? 'border-blue-600 bg-blue-50 ring-2 ring-blue-200'
-                      : 'border-gray-200 hover:bg-gray-50'
-                  }`}
-                >
-                  <div className="text-sm font-semibold text-gray-800">{t.label}</div>
-                  <div className="text-[11px] text-gray-500 leading-snug mt-0.5">{t.hint}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
           {/* Постити картинкою */}
-          <div className="flex items-start justify-between gap-4 border-t border-gray-100 pt-4">
+          <div className="flex items-start justify-between gap-4 border-t border-gray-100 pt-4 mt-1">
             <div className="space-y-1">
               <p className="text-sm font-medium text-gray-700">Постити картинкою</p>
               <p className="text-xs text-gray-400">
@@ -199,19 +178,36 @@ export default function RateCardAdmin() {
         )}
       </div>
 
-      {/* Праворуч: живе прев'ю */}
+      {/* Праворуч: стиль + живе прев'ю (в одному блоці) */}
       <div className="bg-white rounded-xl shadow p-4 space-y-3 xl:sticky xl:top-4">
         <div className="flex items-center justify-between gap-2">
-          <h3 className="font-semibold text-gray-800 text-sm">Прев'ю</h3>
+          <h3 className="font-semibold text-gray-800 text-sm">Стиль і прев'ю</h3>
           <select
             value={pointId ?? ''}
             onChange={(e) => setPointId(Number(e.target.value))}
+            title="Точка для прев'ю"
             className="border border-gray-300 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-400"
           >
             {points.map((p) => (
               <option key={p.id} value={p.id}>{p.name}</option>
             ))}
           </select>
+        </div>
+
+        {/* Вибір стилю — дропдаун */}
+        <div>
+          <select
+            value={theme}
+            onChange={(e) => setTheme(e.target.value)}
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-400"
+          >
+            {THEMES.map((t) => (
+              <option key={t.key} value={t.key}>{t.label}</option>
+            ))}
+          </select>
+          <p className="text-[11px] text-gray-400 mt-1">
+            {THEMES.find((t) => t.key === theme)?.hint}
+          </p>
         </div>
 
         <div className="rounded-lg overflow-hidden border border-gray-200 bg-gray-50 min-h-[300px] flex items-center justify-center">
