@@ -164,22 +164,39 @@ export class SettingsService {
 
   /**
    * Статичний вміст картки курсів (бренд, адреса, телефони, графік, послуги).
-   * Зберігаємо в налаштуваннях, щоб змінювати без правки коду.
+   * Глобальний (`rate_card`) + перекриття по точці (`rate_card_point_<id>`):
+   * адреси/телефони точок різні, а бренд/слоган зазвичай спільні.
+   * pointId → повертаємо вміст точки поверх глобального; без нього — глобальний.
    */
-  async getRateCardConfig(): Promise<RateCardConfig> {
-    const raw = await this.get('rate_card');
-    if (!raw) return DEFAULT_CARD_CONFIG;
+  private parseCardConfig(raw: string | null, base: RateCardConfig): RateCardConfig {
+    if (!raw) return base;
     try {
-      return { ...DEFAULT_CARD_CONFIG, ...(JSON.parse(raw) as Partial<RateCardConfig>) };
+      return { ...base, ...(JSON.parse(raw) as Partial<RateCardConfig>) };
     } catch {
-      return DEFAULT_CARD_CONFIG;
+      return base;
     }
   }
 
-  async setRateCardConfig(cfg: Partial<RateCardConfig>): Promise<RateCardConfig> {
-    const merged = { ...(await this.getRateCardConfig()), ...cfg };
-    await this.set('rate_card', JSON.stringify(merged));
-    return merged;
+  async getRateCardConfig(pointId?: number): Promise<RateCardConfig> {
+    const global = this.parseCardConfig(await this.get('rate_card'), DEFAULT_CARD_CONFIG);
+    if (pointId == null) return global;
+    // Вміст точки — поверх глобального (лише задані поля перекривають).
+    return this.parseCardConfig(await this.get(`rate_card_point_${pointId}`), global);
+  }
+
+  async setRateCardConfig(cfg: Partial<RateCardConfig>, pointId?: number): Promise<RateCardConfig> {
+    if (pointId == null) {
+      const merged = { ...(await this.getRateCardConfig()), ...cfg };
+      await this.set('rate_card', JSON.stringify(merged));
+      return merged;
+    }
+    // Для точки зберігаємо лише її перекриття (те, що прийшло), а не весь merge —
+    // щоб зміна глобального бренду підхоплювалась усіма точками автоматично.
+    const prevRaw = await this.get(`rate_card_point_${pointId}`);
+    const prev = prevRaw ? (JSON.parse(prevRaw) as Partial<RateCardConfig>) : {};
+    const merged = { ...prev, ...cfg };
+    await this.set(`rate_card_point_${pointId}`, JSON.stringify(merged));
+    return this.getRateCardConfig(pointId);
   }
 
   // Поріг «великої операції» в грн для Telegram-сповіщення (0 = вимкнено).

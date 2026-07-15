@@ -105,7 +105,7 @@ export class RatesService {
     const rates = await this.getByPoint(exchangePointId);
     if (!rates.length) return null;
 
-    const cfg = await this.settings.getRateCardConfig();
+    const cfg = await this.settings.getRateCardConfig(exchangePointId);
     const cardTheme = theme ?? (await this.settings.getRateCardTheme());
     const rows: RateCardRow[] = [];
 

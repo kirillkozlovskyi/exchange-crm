@@ -1,4 +1,4 @@
-import { Controller, Get, Put, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Put, Post, Body, Query, UseGuards } from '@nestjs/common';
 import { SettingsService } from './settings.service';
 import { TelegramService } from '../telegram/telegram.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -109,27 +109,30 @@ export class SettingsController {
     return this.settingsService.setCashierCanSeeBank(body.enabled).then(() => ({ enabled: body.enabled }));
   }
 
-  // Картка курсів для Telegram: стиль + постити картинкою замість тексту.
+  // Картка курсів для Telegram: стиль + постити картинкою + вміст (глобальний
+  // або по точці — ?pointId=N).
   @Get('rate-card')
-  async getRateCard() {
+  async getRateCard(@Query('pointId') pointId?: string) {
+    const pid = pointId ? Number(pointId) : undefined;
     return {
       theme: await this.settingsService.getRateCardTheme(),
       asImage: await this.settingsService.getRatePostAsImage(),
-      config: await this.settingsService.getRateCardConfig(),
+      config: await this.settingsService.getRateCardConfig(pid),
     };
   }
 
   @Put('rate-card')
   @UseGuards(RolesGuard)
   @Roles('ADMIN')
-  async setRateCard(@Body() body: { theme?: any; asImage?: boolean; config?: any }) {
+  async setRateCard(@Body() body: { theme?: any; asImage?: boolean; config?: any; pointId?: number }) {
+    const pid = body.pointId != null ? Number(body.pointId) : undefined;
     if (body.theme) await this.settingsService.setRateCardTheme(body.theme);
     if (body.asImage !== undefined) await this.settingsService.setRatePostAsImage(!!body.asImage);
-    if (body.config) await this.settingsService.setRateCardConfig(body.config);
+    if (body.config) await this.settingsService.setRateCardConfig(body.config, pid);
     return {
       theme: await this.settingsService.getRateCardTheme(),
       asImage: await this.settingsService.getRatePostAsImage(),
-      config: await this.settingsService.getRateCardConfig(),
+      config: await this.settingsService.getRateCardConfig(pid),
     };
   }
 

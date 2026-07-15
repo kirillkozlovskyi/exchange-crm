@@ -37,17 +37,29 @@ export default function RateCardAdmin() {
   const [error, setError] = useState('');
   const [publishing, setPublishing] = useState(false);
 
+  // Вміст глобальний чи по точці: перемикач нижче. Тема й asImage — глобальні.
+  const [scope, setScope] = useState<'global' | 'point'>('global');
+
   useEffect(() => {
     api.get('/exchange-points').then(({ data }) => {
       setPoints(data);
       if (data.length) setPointId(data[0].id);
     });
-    api.get('/settings/rate-card').then(({ data }) => {
+  }, []);
+
+  // Вміст картки: глобальний або точки (scope + pointId).
+  const loadConfig = (sc = scope, p = pointId) => {
+    const q = sc === 'point' && p ? `?pointId=${p}` : '';
+    api.get(`/settings/rate-card${q}`).then(({ data }) => {
       setTheme(data.theme);
       setAsImage(!!data.asImage);
       setCfg(data.config);
-    });
-  }, []);
+    }).catch(() => {});
+  };
+  useEffect(() => {
+    loadConfig();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scope, pointId]);
 
   // Прев'ю — PNG із сервера (та сама картинка, що піде в Telegram).
   const loadPreview = async (t = theme, p = pointId) => {
@@ -75,7 +87,10 @@ export default function RateCardAdmin() {
 
   const save = async () => {
     setSaved(false);
-    await api.put('/settings/rate-card', { theme, asImage, config: cfg });
+    // Вміст пишемо в глобальний або в точку (за scope); тему/asImage — глобально.
+    const body: any = { theme, asImage, config: cfg };
+    if (scope === 'point' && pointId) body.pointId = pointId;
+    await api.put('/settings/rate-card', body);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
     loadPreview();
@@ -139,7 +154,29 @@ export default function RateCardAdmin() {
         {/* Тексти картки */}
         {cfg && (
           <div className="bg-white rounded-xl shadow p-6 space-y-4">
-            <h3 className="font-semibold text-gray-800 text-base">Вміст картки</h3>
+            <div className="flex items-center justify-between gap-2 flex-wrap">
+              <h3 className="font-semibold text-gray-800 text-base">Вміст картки</h3>
+              {/* Глобальний вміст або перекриття по точці (адреси точок різні). */}
+              <div className="flex items-center gap-1 text-sm">
+                <button
+                  onClick={() => setScope('global')}
+                  className={`px-3 py-1 rounded-lg ${scope === 'global' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  Загальний
+                </button>
+                <button
+                  onClick={() => setScope('point')}
+                  className={`px-3 py-1 rounded-lg ${scope === 'point' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                >
+                  По точці
+                </button>
+              </div>
+            </div>
+            <p className="text-xs text-gray-400">
+              {scope === 'global'
+                ? 'Спільний вміст для всіх точок (бренд, слоган, послуги…).'
+                : `Перекриття для «${points.find((p) => p.id === pointId)?.name ?? ''}»: заповнене тут замінює загальне (адреса, телефони, графік).`}
+            </p>
             <div className="grid grid-cols-2 gap-3">
               {field('Бренд', cfg.brand, (v) => setCfg({ ...cfg, brand: v }))}
               {field('Підпис бренду', cfg.brandSuffix, (v) => setCfg({ ...cfg, brandSuffix: v }))}
