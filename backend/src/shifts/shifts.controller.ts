@@ -11,8 +11,11 @@ export class ShiftsController {
   constructor(private shiftsService: ShiftsService) {}
 
   @Post('open')
-  open(@Body() body: { cashDeskId: number; startBalance: object }, @CurrentUser() user: any) {
-    return this.shiftsService.openShift(body.cashDeskId, user.sub, body.startBalance);
+  open(
+    @Body() body: { cashDeskId: number; startBalance: object; costBasis?: Record<string, number> },
+    @CurrentUser() user: any,
+  ) {
+    return this.shiftsService.openShift(body.cashDeskId, user.sub, body.startBalance, body.costBasis);
   }
 
   @Patch(':id/close')
@@ -53,6 +56,17 @@ export class ShiftsController {
   @Get('last-balance/desk/:cashDeskId')
   getLastBalance(@Param('cashDeskId', ParseIntPipe) cashDeskId: number) {
     return this.shiftsService.getLastEndBalance(cashDeskId);
+  }
+
+  // Редагування сер. курсу (собівартості) відкритої зміни + перерахунок прибутку.
+  // Викликає касир із форми закриття (лише своя зміна) або адмін.
+  @Patch(':id/cost-basis')
+  updateCostBasis(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { costBasis: Record<string, number> },
+    @CurrentUser() user: any,
+  ) {
+    return this.shiftsService.updateCostBasis(id, body.costBasis ?? {}, { sub: user.sub, role: user.role });
   }
 
   // Коригування залишку зміни — лише адмін (жоден UI касира це не викликає).

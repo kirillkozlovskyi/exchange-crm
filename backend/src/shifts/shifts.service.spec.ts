@@ -223,6 +223,65 @@ describe('ShiftsService — закриття та коригування', () =>
     });
   });
 
+  describe('updateCostBasis()', () => {
+    // Собівартість каси зі станом: setBasis(upsert) пише, getBasis(findMany) читає —
+    // щоб перевірити РЕАЛЬНИЙ перерахунок прибутку, а не лише виклик моків.
+    function statefulBasis(init: Record<string, number> = {}) {
+      const m = new Map<string, number>(Object.entries(init));
+      return {
+        _map: m,
+        findMany: jest.fn(async () => [...m].map(([currency, avgCost]) => ({ currency, avgCost }))),
+        upsert: jest.fn(async ({ create }: any) => { m.set(create.currency, Number(create.avgCost)); return {}; }),
+      };
+    }
+
+    it('змінює сер. курс і перераховує прибуток продажу (собівартість — вхід прибутку)', async () => {
+      const shift = {
+        id: 1, status: 'OPEN', cashDeskId: 7, openedAt: new Date(), openedById: 5,
+        cashDesk: { exchangePointId: 1 },
+        startBalance: { USD: 100 },
+        // Продаж 100 USD по 42.00.
+        operations: [{ id: 10, type: 'SELL', currency: 'USD', amount: 100, totalUah: 4200, cancelled: false }],
+        cashMovements: [],
+      };
+      const basis = statefulBasis({ USD: 41 }); // собівартість була 41 → прибуток 100
+      const updated: Record<number, number> = {};
+      const prisma: any = {
+        shift: { findUnique: jest.fn().mockResolvedValue(shift) },
+        deskCostBasis: basis,
+        rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 42 }]) },
+        operation: { update: jest.fn(async ({ where, data }: any) => { updated[where.id] = data.profit; return {}; }) },
+        transfer: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+      const service = build(prisma);
+
+      // Знижуємо собівартість до 40 → прибуток продажу 100×(42−40)=200.
+      const res: any = await service.updateCostBasis(1, { USD: 40 }, { sub: 5, role: 'CASHIER' });
+
+      expect(basis._map.get('USD')).toBe(40);          // сер. курс перезаписано
+      expect(updated[10]).toBeCloseTo(200, 6);          // прибуток операції перераховано
+      expect(res.costBasis).toEqual({ USD: 40 });
+    });
+
+    it('не дає редагувати закриту зміну (собівартість уже перенесена далі)', async () => {
+      const prisma: any = {
+        shift: { findUnique: jest.fn().mockResolvedValue({ id: 1, status: 'CLOSED', cashDeskId: 7, openedById: 5 }) },
+      };
+      const service = build(prisma);
+      await expect(service.updateCostBasis(1, { USD: 40 })).rejects.toBeInstanceOf(BadRequestException);
+    });
+
+    it('касир не може редагувати чужу зміну', async () => {
+      const prisma: any = {
+        shift: { findUnique: jest.fn().mockResolvedValue({ id: 1, status: 'OPEN', cashDeskId: 7, openedById: 5 }) },
+      };
+      const service = build(prisma);
+      await expect(
+        service.updateCostBasis(1, { USD: 40 }, { sub: 99, role: 'CASHIER' }),
+      ).rejects.toBeInstanceOf(BadRequestException);
+    });
+  });
+
   describe('closeShift() — власність зміни', () => {
     function makePrisma(shift: any) {
       return {

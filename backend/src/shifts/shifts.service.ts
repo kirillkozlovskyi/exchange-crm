@@ -29,7 +29,14 @@ export class ShiftsService {
     return `${pointCode}-${date}-${String(seq).padStart(2, '0')}`;
   }
 
-  async openShift(cashDeskId: number, userId: number, startBalance: object) {
+  async openShift(
+    cashDeskId: number,
+    userId: number,
+    startBalance: object,
+    // Початкова собівартість (сер. курс) валют — застосовується лише там, де
+    // собівартості ще нема (перша зміна / після скидання). Опційне.
+    costBasis?: Record<string, number>,
+  ) {
     const existing = await this.prisma.shift.findFirst({
       where: { cashDeskId, status: 'OPEN' },
     });
@@ -53,6 +60,9 @@ export class ShiftsService {
         },
         include: { cashDesk: { include: { exchangePoint: true } }, openedBy: true },
       });
+      // Початкова собівартість валют (сер. курс) із форми відкриття. Поле
+      // дефолтиться поточною собівартістю, тож зазвичай no-op; правку застосовуємо.
+      if (costBasis) await this.profit.setBasis(cashDeskId, costBasis);
       // Сповіщення в Telegram (fire-and-forget; без токена — просто лог-скіп)
       void this.telegram?.notifyShiftOpened(
         created.number,
@@ -239,6 +249,7 @@ export class ShiftsService {
   }
 
   // Залишок із закриття останньої зміни цієї каси — для префілу при відкритті нової.
+  // costBasis — поточна перенесена собівартість каси (дефолт поля «сер. курс»).
   async getLastEndBalance(cashDeskId: number) {
     const last = await this.prisma.shift.findFirst({
       where: { cashDeskId, status: 'CLOSED' },
@@ -248,7 +259,33 @@ export class ShiftsService {
     return {
       endBalance: (last?.endBalance as Record<string, number>) ?? {},
       from: last ? { number: last.number, closedAt: last.closedAt } : null,
+      costBasis: await this.profit.getBasis(cashDeskId),
     };
+  }
+
+  /**
+   * Оновити середню собівартість (сер. курс) валют ВІДКРИТОЇ зміни й одразу
+   * перерахувати прибуток операцій. Використовується редагованим полем «сер.
+   * курс» у формі закриття. Для закритих змін заборонено (собівартість там
+   * переносилась на наступні зміни — правка заднім числом потребувала б каскаду).
+   */
+  async updateCostBasis(
+    shiftId: number,
+    costBasis: Record<string, number>,
+    actor?: { sub: number; role: string },
+  ) {
+    const shift = await this.prisma.shift.findUnique({
+      where: { id: shiftId },
+      select: { id: true, status: true, cashDeskId: true, openedById: true },
+    });
+    if (!shift) throw new NotFoundException('Зміну не знайдено');
+    if (shift.status === 'CLOSED')
+      throw new BadRequestException('Собівартість закритої зміни редагувати не можна');
+    if (actor && actor.role !== 'ADMIN' && shift.openedById !== actor.sub)
+      throw new BadRequestException('Редагувати можна лише власну зміну');
+    await this.profit.setBasis(shift.cashDeskId, costBasis);
+    await this.profit.recomputeShiftOps(shiftId);
+    return { ok: true, costBasis: await this.profit.getBasis(shift.cashDeskId) };
   }
 
   /**

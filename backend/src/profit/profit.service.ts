@@ -331,6 +331,26 @@ export class ProfitService {
    * як остання відома ціна, а нуль зробив би наступний продаж «чистим
    * прибутком» на всю суму (див. openingCost).
    */
+  /**
+   * Задати середню собівартість каси (сер. курс), яку касир редагує у формі
+   * відкриття/закриття зміни. Застосовує введені додатні значення (upsert) —
+   * поле в UI дефолтиться поточною перенесеною собівартістю, тож касир зазвичай
+   * лишає його як є (no-op), а свідома правка перезаписує. UAH/USDT ігноруються.
+   * Порожні/недодатні валюти не чіпаємо (лишається перенесене / fallback на buy).
+   */
+  async setBasis(cashDeskId: number, costBasis: Record<string, number>) {
+    const ops = Object.entries(costBasis)
+      .filter(([cur, v]) => cur !== 'UAH' && cur !== 'USDT' && Number(v) > 0)
+      .map(([currency, v]) =>
+        this.prisma.deskCostBasis.upsert({
+          where: { cashDeskId_currency: { cashDeskId, currency } },
+          create: { cashDeskId, currency, avgCost: Number(v) },
+          update: { avgCost: Number(v) },
+        }),
+      );
+    if (ops.length) await this.prisma.$transaction(ops);
+  }
+
   async saveBasis(cashDeskId: number, ending: PositionMap) {
     const ops = Object.entries(ending)
       .filter(([cur, p]) => cur !== 'UAH' && cur !== 'USDT' && p.avgCost > 0)

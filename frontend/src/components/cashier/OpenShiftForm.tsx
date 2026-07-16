@@ -9,13 +9,16 @@ export default function OpenShiftForm({
 }: {
   rates: any[];
   cashDeskId?: number | null;
-  onOpen: (balance: Record<string, number>) => Promise<void>;
+  onOpen: (balance: Record<string, number>, costBasis?: Record<string, number>) => Promise<void>;
 }) {
   // UAH always first, then point-specific currencies from rates
   const baseCurrencies = ['UAH', ...rates.map((r) => r.currency)];
   const [balances, setBalances] = useState<Record<string, string>>(
     Object.fromEntries(baseCurrencies.map((c) => [c, '0']))
   );
+  // Початкова собівартість (сер. курс) валют — застосується лише там, де
+  // собівартості ще нема (перша зміна / після скидання). Порожнє — не чіпаємо.
+  const [costBasis, setCostBasis] = useState<Record<string, string>>({});
   const [prevInfo, setPrevInfo] = useState<{ number: string; closedAt: string } | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -25,6 +28,15 @@ export default function OpenShiftForm({
     if (!cashDeskId) return;
     api.get(`/shifts/last-balance/desk/${cashDeskId}`)
       .then(({ data }) => {
+        // Дефолт сер. курсу — поточна перенесена собівартість каси (редагується).
+        const cb: Record<string, number> = data.costBasis || {};
+        if (Object.keys(cb).length > 0) {
+          setCostBasis((prev) => {
+            const merged = { ...prev };
+            for (const [k, v] of Object.entries(cb)) merged[k] = String(Number(v));
+            return merged;
+          });
+        }
         const eb: Record<string, number> = data.endBalance || {};
         if (Object.keys(eb).length === 0) return;
         setBalances((prev) => {
@@ -50,7 +62,13 @@ export default function OpenShiftForm({
       const startBalance = Object.fromEntries(
         Object.entries(balances).map(([k, v]) => [k, parseFloat(v) || 0])
       );
-      await onOpen(startBalance);
+      // Лише заповнені додатні значення собівартості (крім UAH).
+      const basis: Record<string, number> = {};
+      for (const [k, v] of Object.entries(costBasis)) {
+        const n = parseFloat(v);
+        if (k !== 'UAH' && n > 0) basis[k] = n;
+      }
+      await onOpen(startBalance, Object.keys(basis).length ? basis : undefined);
     } catch (e: any) {
       setError(e.response?.data?.message || 'Помилка відкриття зміни');
     } finally {
@@ -75,6 +93,11 @@ export default function OpenShiftForm({
           <p className="text-sm text-gray-500 mb-4">Введіть залишки готівки на початок зміни:</p>
         )}
         <div className="space-y-3">
+          <div className="flex items-center gap-3 text-xs text-gray-400">
+            <span className="w-12" />
+            <span className="flex-1 text-right">Залишок</span>
+            <span className="w-28 text-right">Сер. курс</span>
+          </div>
           {currencies.map((cur) => (
             <div key={cur} className="flex items-center gap-3">
               <span className="w-12 font-semibold text-gray-700">{cur}</span>
@@ -86,9 +109,27 @@ export default function OpenShiftForm({
                 onChange={(e) => setBalances((b) => ({ ...b, [cur]: e.target.value }))}
                 className="flex-1 border border-gray-300 rounded px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {cur === 'UAH' ? (
+                <span className="w-28" />
+              ) : (
+                <input
+                  type="number"
+                  min="0"
+                  step="0.0001"
+                  placeholder="—"
+                  value={costBasis[cur] ?? ''}
+                  onChange={(e) => setCostBasis((b) => ({ ...b, [cur]: e.target.value }))}
+                  className="w-28 border border-gray-300 rounded px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              )}
             </div>
           ))}
         </div>
+        <p className="text-xs text-gray-400 mt-3">
+          <b>Сер. курс</b> — собівартість валюти, від якої рахується прибуток. За
+          замовчуванням підставлено поточну (перенесену з попередніх змін); змінюйте
+          лише за потреби — напр. коли каса стартує «з чистого аркуша» після скидання.
+        </p>
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
         <button
           onClick={handleSubmit}

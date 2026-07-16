@@ -63,6 +63,7 @@ export default function CloseShiftForm({
   showProfit = true,
   onClose,
   onCancel,
+  onRecalcBasis,
 }: {
   shift: Shift;
   rates?: Rate[];
@@ -75,10 +76,24 @@ export default function CloseShiftForm({
   showProfit?: boolean;
   onClose: (endBalance: Record<string, number>) => Promise<void>;
   onCancel: () => void;
+  // Застосувати відредагований сер. курс (собівартість) і перерахувати прибуток
+  // зміни на сервері. Без цього колбека поле сер. курсу лишається лише показом.
+  onRecalcBasis?: (basis: Record<string, number>) => Promise<void>;
 }) {
   const startBal = (shift.startBalance as Record<string, number>) || {};
   // Поточна собівартість каси — курс, проти якого рахується прибуток (із сервера).
   const costBasisLive = ((shift as any).costBasisLive as Record<string, number>) || {};
+
+  // Редагування сер. курсу (собівартості) прямо у формі. Поле дефолтиться поточним
+  // costBasisLive; змінене значення застосовується кнопкою (перерахунок на сервері).
+  const [basisEdit, setBasisEdit] = useState<Record<string, string>>({});
+  const [recalcing, setRecalcing] = useState(false);
+  const basisValue = (cur: string) =>
+    basisEdit[cur] ?? (costBasisLive[cur] != null ? String(costBasisLive[cur]) : '');
+  const basisDirty = Object.keys(basisEdit).some((cur) => {
+    const v = parseFloat(basisEdit[cur]);
+    return v > 0 && Math.abs(v - (costBasisLive[cur] ?? 0)) >= 0.00005;
+  });
 
   // Нетто-передачі каси за зміну (отримано − відправлено) по валютах.
   // Це рух готівки між касами, а не прибуток — вилучаємо з фактичного результату.
@@ -446,6 +461,22 @@ export default function CloseShiftForm({
     }
   };
 
+  // Застосувати відредагований сер. курс: зібрати додатні значення по валютах
+  // і відправити на перерахунок. Після успіху скидаємо локальні правки — форма
+  // перемалюється з новими costBasisLive та op.profit (сервер перерахував).
+  const applyBasis = async () => {
+    if (!onRecalcBasis) return;
+    const basis: Record<string, number> = {};
+    for (const cur of currencies) {
+      if (cur === 'UAH' || cur === 'USDT') continue;
+      const v = parseFloat(basisValue(cur));
+      if (v > 0) basis[cur] = v;
+    }
+    setRecalcing(true);
+    try { await onRecalcBasis(basis); setBasisEdit({}); }
+    finally { setRecalcing(false); }
+  };
+
   const hasDiscrepancy = currencies.some((c) => {
     const actual = Math.round(parseFloat(endBal[c]) || 0);
     const expected = Math.round(calcBalance[c] ?? 0);
@@ -594,8 +625,20 @@ export default function CloseShiftForm({
                       </td>
                     )}
                     <td className="py-2 text-right font-medium text-gray-700">{fmtMoney(r.close)}</td>
-                    <td className="py-2 text-right text-gray-500">
-                      {costBasisLive[r.cur] ? Number(costBasisLive[r.cur]).toFixed(4) : '—'}
+                    <td className="py-2 text-right">
+                      {r.cur === 'USDT' || !onRecalcBasis ? (
+                        <span className="text-gray-500">
+                          {costBasisLive[r.cur] ? Number(costBasisLive[r.cur]).toFixed(4) : '—'}
+                        </span>
+                      ) : (
+                        <input
+                          type="number"
+                          step="0.0001"
+                          value={basisValue(r.cur)}
+                          onChange={(e) => setBasisEdit((b) => ({ ...b, [r.cur]: e.target.value }))}
+                          className="w-24 border border-gray-200 rounded px-2 py-1 text-right text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                      )}
                     </td>
                     <td className={`py-2 text-right font-semibold ${
                       Math.abs(r.profitUah) < 0.005 ? 'text-gray-300' :
@@ -617,6 +660,21 @@ export default function CloseShiftForm({
                 </tr>
               </tfoot>
             </table>
+
+            {onRecalcBasis && (
+              <div className="mt-3 flex items-center gap-3">
+                <button
+                  onClick={applyBasis}
+                  disabled={!basisDirty || recalcing}
+                  className="text-sm px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg disabled:opacity-40 transition"
+                >
+                  {recalcing ? 'Перерахунок…' : 'Застосувати сер. курс і перерахувати'}
+                </button>
+                {basisDirty && !recalcing && (
+                  <span className="text-xs text-amber-600">Сер. курс змінено — застосуйте, щоб оновити прибуток</span>
+                )}
+              </div>
+            )}
 
             {/* Фактичний результат (за введеним залишком, передачі вилучено) */}
             <div className="flex items-center justify-between mt-4 pt-3 border-t">

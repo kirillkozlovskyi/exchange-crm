@@ -265,8 +265,11 @@ export default function CashierPage() {
     return () => clearInterval(interval);
   }, [selectedPointId, loadRates]);
 
-  const handleOpenShift = async (startBalance: Record<string, number>) => {
-    await api.post('/shifts/open', { cashDeskId: selectedDeskId, startBalance });
+  const handleOpenShift = async (
+    startBalance: Record<string, number>,
+    costBasis?: Record<string, number>,
+  ) => {
+    await api.post('/shifts/open', { cashDeskId: selectedDeskId, startBalance, costBasis });
     await loadShift(selectedDeskId!);
   };
 
@@ -617,6 +620,10 @@ export default function CashierPage() {
           showProfit={canSeeProfit}
           onClose={handleCloseShift}
           onCancel={() => setClosingShift(false)}
+          onRecalcBasis={async (basis) => {
+            await api.patch(`/shifts/${shift.id}/cost-basis`, { costBasis: basis });
+            await loadShift(selectedDeskId ?? shift.cashDeskId);
+          }}
         />
       </div>
     );
