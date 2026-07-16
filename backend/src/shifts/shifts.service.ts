@@ -12,6 +12,31 @@ import { TelegramService } from '../telegram/telegram.service';
 import { NotificationsService } from '../notifications/notifications.service';
 import { ProfitService } from '../profit/profit.service';
 
+// Дати у скачуваному звіті — київський час із явним зсувом (напр.
+// "2026-07-16T12:33:44+03:00"), щоб збігалися з тим, що бачать касири в UI.
+const REPORT_TZ = 'Europe/Kyiv';
+function toKyivIso(d: Date): string {
+  const local = new Intl.DateTimeFormat('sv-SE', {
+    timeZone: REPORT_TZ,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  }).format(d); // "2026-07-16 12:33:44"
+  const offset = new Intl.DateTimeFormat('en-US', { timeZone: REPORT_TZ, timeZoneName: 'longOffset' })
+    .formatToParts(d)
+    .find((p) => p.type === 'timeZoneName')?.value ?? 'GMT+00:00'; // "GMT+03:00"
+  return local.replace(' ', 'T') + offset.replace('GMT', '');
+}
+// Рекурсивно замінює Date на київський час; заходить лише в масиви та прості
+// об'єкти (Decimal тощо не чіпає).
+function reportDatesToKyiv(value: unknown): unknown {
+  if (value instanceof Date) return toKyivIso(value);
+  if (Array.isArray(value)) return value.map(reportDatesToKyiv);
+  if (value && typeof value === 'object' && Object.getPrototypeOf(value) === Object.prototype) {
+    return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, reportDatesToKyiv(v)]));
+  }
+  return value;
+}
+
 @Injectable()
 export class ShiftsService {
   constructor(
@@ -483,7 +508,7 @@ export class ShiftsService {
     ]);
 
     const { operations, cashMovements, usdtOperations, reconciliations, ...shiftMeta } = shift;
-    return {
+    return reportDatesToKyiv({
       reportVersion: 1,
       generatedAt: new Date(),
       shift: shiftMeta,
@@ -514,7 +539,7 @@ export class ShiftsService {
         soldPool, // пул проданої гривні, що чекає відкупу (поточний стан каси)
       },
       activeRates,
-    };
+    });
   }
 
   // Список змін (для адмінки) — фільтр по точці/касі, найновіші перші.
