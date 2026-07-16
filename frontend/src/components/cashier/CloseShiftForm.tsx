@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
 import { sellRates, valueOf } from '../../lib/profit';
@@ -42,6 +42,17 @@ type MovementRow = CashMovementRow & {
   createdAt?: string;
 };
 
+// Передача з полями для показу в блоці «Рух готівки» (math у netTransfers
+// використовує лише currency/amount/fromDeskId/toDeskId/counter*).
+type DeskRef = { name?: string | null; exchangePoint?: { name?: string | null } | null };
+type TransferDisplayRow = TransferRow & {
+  id?: number;
+  number?: string;
+  confirmedAt?: string | null;
+  fromDesk?: DeskRef | null;
+  toDesk?: DeskRef | null;
+};
+
 export default function CloseShiftForm({
   shift,
   rates = [],
@@ -56,7 +67,7 @@ export default function CloseShiftForm({
   shift: Shift;
   rates?: Rate[];
   deskId?: number;
-  transfers?: TransferRow[];
+  transfers?: TransferDisplayRow[];
   cashMovements?: MovementRow[];
   usdtOperations?: (UsdtOpRow & { id?: number; number?: string; usdtAmount?: number | string; createdAt?: string })[];
   // Адмінське налаштування «Касир бачить прибуток каси»: ховає блок прибутку
@@ -131,6 +142,18 @@ export default function CloseShiftForm({
     Object.fromEntries(currencies.map((c) => [c, String(Math.round(calcBalance[c] ?? 0))]))
   );
 
+  // Передачі підвантажуються асинхронно вже після першого рендера — і calcBalance
+  // («Очікувано») перераховується, а endBal («Фактично») лишався б зафіксованим на
+  // старті БЕЗ передач, даючи фантомну розбіжність. Тож доки касир не почав вводити
+  // вручну, тримаємо «Фактично» рівним «Очікувано». Після першого ж редагування
+  // (touched) авто-синхронізацію вимикаємо — введене касиром недоторкане.
+  const touched = useRef(false);
+  useEffect(() => {
+    if (touched.current) return;
+    setEndBal(Object.fromEntries(currencies.map((c) => [c, String(Math.round(calcBalance[c] ?? 0))])));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [calcBalance, currencies]);
+
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
@@ -169,6 +192,56 @@ export default function CloseShiftForm({
   // Чи були передачі/рух готівки взагалі (для умовного показу колонки/рядка)
   const hasTransfers = Object.values(net).some((v) => Math.abs(v) >= 0.005);
   const hasMovements = Object.values(moveNet).some((v) => Math.abs(v) >= 0.005);
+
+  // Єдиний список руху готівки для блоку «Рух готівки»: підкріплення/інкасації
+  // ТА передачі між касами (їх касир теж має бачити як рух — гроші фізично
+  // прийшли/пішли, хоч у прибуток і не входять). Своп дає два рядки (обидва плеча).
+  const movementRows = useMemo(() => {
+    type Row = { key: string; time?: string; label: string; badge: string; source: string; amount: number; currency: string; incoming: boolean };
+    const rows: Row[] = [];
+    for (const m of cashMovements) {
+      const isIn = m.direction === 'IN';
+      rows.push({
+        key: `m${m.id ?? rows.length}`,
+        time: m.createdAt,
+        label: isIn ? 'Підкріплення' : 'Інкасація',
+        badge: isIn ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700',
+        source: [m.source, m.note].filter(Boolean).join(' · ') || '—',
+        amount: Number(m.amount), currency: m.currency, incoming: isIn,
+      });
+    }
+    const desk = deskId ?? -1;
+    for (const t of transfers) {
+      const isOut = t.fromDeskId === desk;
+      const isIn = t.toDeskId === desk;
+      if (!isOut && !isIn) continue;
+      const other = isOut ? t.toDesk : t.fromDesk;
+      const party = other?.exchangePoint?.name ?? other?.name ?? 'інша каса';
+      const time = t.confirmedAt ?? undefined;
+      const num = t.number ? ` · ${t.number}` : '';
+      // Основне плече: currency йде від fromDesk до toDesk.
+      rows.push({
+        key: `t${t.id ?? rows.length}-a`,
+        time,
+        label: t.counterCurrency ? 'Своп' : isIn ? 'Передача (отримано)' : 'Передача (відпр.)',
+        badge: isIn ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700',
+        source: (isIn ? `від «${party}»` : `до «${party}»`) + num,
+        amount: Number(t.amount), currency: t.currency, incoming: isIn,
+      });
+      // Зустрічне плече свопу — протилежний напрям (fromDesk отримує counter).
+      if (t.counterCurrency && t.counterAmount != null) {
+        rows.push({
+          key: `t${t.id ?? rows.length}-b`,
+          time,
+          label: 'Своп',
+          badge: isIn ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700',
+          source: (isIn ? `до «${party}»` : `від «${party}»`) + num,
+          amount: Number(t.counterAmount), currency: t.counterCurrency, incoming: !isIn,
+        });
+      }
+    }
+    return rows.sort((a, b) => (a.time ?? '').localeCompare(b.time ?? ''));
+  }, [cashMovements, transfers, deskId]);
 
   // ── Звіт купівля/продаж по кожній валюті ──────────────────────────────────
   // Скільки каса КУПИЛА і ПРОДАЛА кожної валюти за зміну (кількість, грн,
@@ -450,7 +523,7 @@ export default function CloseShiftForm({
                         type="number"
                         step="1"
                         value={endBal[cur]}
-                        onChange={(e) => setEndBal((b) => ({ ...b, [cur]: e.target.value }))}
+                        onChange={(e) => { touched.current = true; setEndBal((b) => ({ ...b, [cur]: e.target.value })); }}
                         className={`w-32 border rounded-lg px-3 py-1.5 text-right font-medium focus:outline-none focus:ring-2 ${
                           hasDiff ? 'border-red-300 focus:ring-red-400 bg-red-50' : 'focus:ring-blue-400'
                         }`}
@@ -672,20 +745,21 @@ export default function CloseShiftForm({
           </div>
         </div>
 
-        {/* ── Частина 3: Рух готівки ── */}
+        {/* ── Частина 3: Рух готівки (підкріплення/інкасації + передачі) ── */}
         <div className="space-y-2.5">
-          {cashMovements.length === 0 ? (
+          {movementRows.length === 0 ? (
             <div className="bg-white rounded-xl shadow p-4">
               <h3 className="font-semibold text-gray-800 mb-1">Рух готівки</h3>
-              <p className="text-gray-400 text-sm text-center py-4">Підкріплень та інкасацій не було</p>
+              <p className="text-gray-400 text-sm text-center py-4">Підкріплень, інкасацій та передач не було</p>
             </div>
           ) : (
             <div className="bg-white rounded-xl shadow p-4">
               <h3 className="font-semibold text-gray-800 mb-1">
-                Рух готівки <span className="text-gray-400 font-normal">· {cashMovements.length}</span>
+                Рух готівки <span className="text-gray-400 font-normal">· {movementRows.length}</span>
               </h3>
               <p className="text-xs text-gray-400 mb-3">
-                Підкріплення (готівка прийшла) та інкасації (готівка пішла). Не входять у прибуток зміни.
+                Підкріплення/інкасації та передачі між касами. Змінюють залишок каси, але
+                в прибуток зміни не входять.
               </p>
               <div className="overflow-auto max-h-[20rem]">
                 <table className="w-full text-sm">
@@ -698,31 +772,22 @@ export default function CloseShiftForm({
                     </tr>
                   </thead>
                   <tbody>
-                    {[...cashMovements]
-                      .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''))
-                      .map((m, i) => {
-                        const isIn = m.direction === 'IN';
-                        return (
-                          <tr key={m.id ?? i} className="border-b last:border-0">
-                            <td className="py-1.5 text-gray-400 text-xs">
-                              {m.createdAt ? format(new Date(m.createdAt), 'HH:mm') : '—'}
-                            </td>
-                            <td className="py-1.5">
-                              <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${
-                                isIn ? 'bg-green-100 text-green-700' : 'bg-purple-100 text-purple-700'
-                              }`}>
-                                {isIn ? 'Підкріплення' : 'Інкасація'}
-                              </span>
-                            </td>
-                            <td className="py-1.5 text-gray-500 text-xs">
-                              {[m.source, m.note].filter(Boolean).join(' · ') || '—'}
-                            </td>
-                            <td className={`py-1.5 text-right font-medium ${isIn ? 'text-green-600' : 'text-purple-600'}`}>
-                              {isIn ? '+' : '−'}{fmtNum(m.amount)} <span className="text-gray-400 text-xs">{m.currency}</span>
-                            </td>
-                          </tr>
-                        );
-                      })}
+                    {movementRows.map((r) => (
+                      <tr key={r.key} className="border-b last:border-0">
+                        <td className="py-1.5 text-gray-400 text-xs">
+                          {r.time ? format(new Date(r.time), 'HH:mm') : '—'}
+                        </td>
+                        <td className="py-1.5">
+                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${r.badge}`}>
+                            {r.label}
+                          </span>
+                        </td>
+                        <td className="py-1.5 text-gray-500 text-xs">{r.source}</td>
+                        <td className={`py-1.5 text-right font-medium ${r.incoming ? 'text-green-600' : 'text-red-600'}`}>
+                          {r.incoming ? '+' : '−'}{fmtNum(r.amount)} <span className="text-gray-400 text-xs">{r.currency}</span>
+                        </td>
+                      </tr>
+                    ))}
                   </tbody>
                 </table>
               </div>

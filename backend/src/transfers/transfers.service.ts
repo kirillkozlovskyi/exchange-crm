@@ -260,7 +260,8 @@ export class TransfersService {
   }
 
   // Підтверджені передачі каси (відправлені + отримані) від вказаного моменту.
-  // Використовується при закритті зміни, щоб вилучити їх із прибутку.
+  // Використовується при закритті зміни: вилучити їх із прибутку і показати як
+  // рух готівки. Назви точок/кас потрібні, щоб касир бачив кому/від кого передача.
   async getConfirmedForDesk(deskId: number, since?: Date) {
     return this.prisma.transfer.findMany({
       where: {
@@ -269,6 +270,12 @@ export class TransfersService {
         ...(since ? { confirmedAt: { gte: since } } : {}),
       },
       orderBy: { confirmedAt: 'desc' },
+      include: {
+        fromDesk: { include: { exchangePoint: { select: { name: true } } } },
+        toDesk: { include: { exchangePoint: { select: { name: true } } } },
+        sentBy: { select: { name: true } },
+        confirmedBy: { select: { name: true } },
+      },
     });
   }
 
