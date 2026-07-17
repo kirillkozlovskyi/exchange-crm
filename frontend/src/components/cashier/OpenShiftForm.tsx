@@ -62,13 +62,11 @@ export default function OpenShiftForm({
       const startBalance = Object.fromEntries(
         Object.entries(balances).map(([k, v]) => [k, parseFloat(v) || 0])
       );
-      // Лише заповнені додатні значення собівартості. UAH — сер. курс ₴ за $;
-      // USD — числовник (бази не має); USDT — окремий гаманець.
+      // Єдине редаговане поле собівартості — сер. курс гривні (₴ за $).
+      // Кроси валют рахуються автоматично від нього (buy(cur) ÷ сер. курс).
       const basis: Record<string, number> = {};
-      for (const [k, v] of Object.entries(costBasis)) {
-        const n = parseFloat(v);
-        if (k !== 'USD' && k !== 'USDT' && n > 0) basis[k] = n;
-      }
+      const uah = parseFloat(costBasis.UAH ?? '');
+      if (uah > 0) basis.UAH = uah;
       await onOpen(startBalance, Object.keys(basis).length ? basis : undefined);
     } catch (e: any) {
       setError(e.response?.data?.message || 'Помилка відкриття зміни');
@@ -110,28 +108,28 @@ export default function OpenShiftForm({
                 onChange={(e) => setBalances((b) => ({ ...b, [cur]: e.target.value }))}
                 className="flex-1 border border-gray-300 rounded px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              {cur === 'USD' || cur === 'USDT' ? (
-                <span className="w-28" />
-              ) : (
+              {cur === 'UAH' ? (
                 <input
                   type="number"
                   min="0"
-                  step={cur === 'UAH' ? '0.01' : '0.0001'}
+                  step="0.01"
                   placeholder="—"
-                  value={costBasis[cur] ?? ''}
-                  onChange={(e) => setCostBasis((b) => ({ ...b, [cur]: e.target.value }))}
+                  value={costBasis.UAH ?? ''}
+                  onChange={(e) => setCostBasis((b) => ({ ...b, UAH: e.target.value }))}
                   className="w-28 border border-gray-300 rounded px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+              ) : (
+                <span className="w-28" />
               )}
             </div>
           ))}
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          <b>Сер. курс</b> — собівартість, від якої рахується прибуток (каса міряється
-          в доларах): для <b>UAH</b> — середній курс проданого долара (₴ за 1 $, напр.
-          44.95); для інших валют — вартість у доларах за 1 од. (напр. EUR 1.1420 =
-          51.30/44.90). USD — мірило, бази не має. За замовчуванням підставлено поточну
-          (перенесену); змінюйте лише за потреби — напр. після скидання.
+          <b>Сер. курс</b> — середній курс проданого долара (₴ за 1 $, напр. 44.95):
+          каса міряється в доларах, і прибуток рахується від цього курсу. Вартість
+          валют у доларах рахується автоматично (курс купівлі ÷ сер. курс, напр. EUR
+          51.30/44.90 = 1.1420). За замовчуванням підставлено поточний (перенесений);
+          змінюйте лише за потреби — напр. після скидання.
         </p>
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
         <button

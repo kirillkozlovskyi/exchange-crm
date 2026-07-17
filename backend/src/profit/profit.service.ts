@@ -236,6 +236,9 @@ export class ProfitService {
       ...params.operations.map((o) => o.currency),
       ...params.operations.map((o) => (o.payCurrency ?? '') as string),
     ]);
+    // Знаменник кросів — сер. курс гривні (правило власника: злотий 11.80 при
+    // гривні по 44.90 → 11.80/44.90); без нього — поточний курс продажу USD.
+    const uahPerUsd = basis.UAH > 0 ? basis.UAH : sOpen;
     for (const cur of currencies) {
       // USD — числовник (позиції не має). USDT — не готівкова позиція каси:
       // живе в окремому гаманці, торгується лише через вікно USDT.
@@ -244,12 +247,12 @@ export class ProfitService {
       let avgCost: number;
       if (cur === 'UAH') {
         // Сер. курс гривні: перенесений (₴/$) або поточний курс продажу USD.
-        avgCost = basis.UAH > 0 ? uahBasisToCost(basis.UAH) : sOpen > 0 ? 1 / sOpen : 0;
+        avgCost = uahPerUsd > 0 ? uahBasisToCost(uahPerUsd) : 0;
       } else {
-        // $-крос: перенесений або поточний buy(cur)/S — собівартості немає,
+        // $-крос: перенесений або buy(cur)/сер.курс — собівартості немає,
         // бо купівлі не було; нуль дав би фантомний прибуток на весь продаж.
         avgCost =
-          basis[cur] > 0 ? basis[cur] : buyRates[cur] > 0 && sOpen > 0 ? buyRates[cur] / sOpen : 0;
+          basis[cur] > 0 ? basis[cur] : buyRates[cur] > 0 && uahPerUsd > 0 ? buyRates[cur] / uahPerUsd : 0;
       }
       opening[cur] = { qty, avgCost };
     }

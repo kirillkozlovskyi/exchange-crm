@@ -508,19 +508,15 @@ export default function CloseShiftForm({
     }
   };
 
-  // Застосувати відредагований сер. курс: зібрати додатні значення по валютах
-  // і відправити на перерахунок. UAH — сер. курс гривні (₴/$, головне поле
-  // моделі); USD — числовник (бази не має); USDT — окремий гаманець. Після
-  // успіху скидаємо локальні правки — форма перемалюється з новими
+  // Застосувати відредагований сер. курс гривні (₴/$) — єдине редаговане поле
+  // собівартості: кроси валют двигун веде автоматично (rate ÷ сер. курс).
+  // Після успіху скидаємо локальні правки — форма перемалюється з новими
   // costBasisLive та op.profit(Usd) (сервер перерахував).
   const applyBasis = async () => {
     if (!onRecalcBasis) return;
     const basis: Record<string, number> = {};
-    for (const cur of currencies) {
-      if (cur === 'USD' || cur === 'USDT') continue;
-      const v = parseFloat(basisValue(cur));
-      if (v > 0) basis[cur] = v;
-    }
+    const uah = parseFloat(basisValue('UAH'));
+    if (uah > 0) basis.UAH = uah;
     setRecalcing(true);
     try { await onRecalcBasis(basis); setBasisEdit({}); }
     finally { setRecalcing(false); }
@@ -677,20 +673,22 @@ export default function CloseShiftForm({
                     )}
                     <td className="py-2 text-right font-medium text-gray-700">{fmtMoney(r.close)}</td>
                     <td className="py-2 text-right">
-                      {r.cur === 'USD' || r.cur === 'USDT' || !onRecalcBasis ? (
+                      {r.cur === 'UAH' && onRecalcBasis ? (
+                        <input
+                          type="number"
+                          step="0.01"
+                          value={basisValue('UAH')}
+                          onChange={(e) => setBasisEdit((b) => ({ ...b, UAH: e.target.value }))}
+                          className="w-24 border border-gray-200 rounded px-2 py-1 text-right text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                        />
+                      ) : (
                         <span className="text-gray-500">
                           {r.cur === 'USD' || r.cur === 'USDT'
                             ? '—'
-                            : costBasisLive[r.cur] ? Number(costBasisLive[r.cur]).toFixed(4) : '—'}
+                            : costBasisLive[r.cur]
+                              ? Number(costBasisLive[r.cur]).toFixed(r.cur === 'UAH' ? 2 : 4)
+                              : '—'}
                         </span>
-                      ) : (
-                        <input
-                          type="number"
-                          step={r.cur === 'UAH' ? '0.01' : '0.0001'}
-                          value={basisValue(r.cur)}
-                          onChange={(e) => setBasisEdit((b) => ({ ...b, [r.cur]: e.target.value }))}
-                          className="w-24 border border-gray-200 rounded px-2 py-1 text-right text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                        />
                       )}
                     </td>
                     <td className={`py-2 text-right font-semibold ${
