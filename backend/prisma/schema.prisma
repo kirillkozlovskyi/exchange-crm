@@ -151,6 +151,11 @@ model Shift {
   usdSellAtClose   Decimal?   @db.Decimal(10, 4)
   // «Каса в доларах» на закритті: { byCurrency: {USD, UAH, ...}, total, usdSellRate }.
   tillUsd          Json       @default("{}")
+  // Кастомний прибуток зміни, введений адміном вручну (довідковий — показується
+  // поруч із системним, у розрахунки/фінанси не входить).
+  adminProfitUsd   Decimal?   @db.Decimal(15, 2)
+  adminProfitUah   Decimal?   @db.Decimal(15, 2)
+  adminProfitNote  String?
   // ЗАСТАРІЛЕ (стара модель «маржа з відкупу»): більше не пишеться, колонки
   // лишаються для історії; дроп — окремою міграцією пізніше.
   buybackMargin           Decimal? @db.Decimal(15, 2)

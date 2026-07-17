@@ -346,7 +346,9 @@ export default function CloseShiftForm({
 
   // ── Друк звіту по зміні (А4) ─────────────────────────────────────────────
   const printReport = () => {
-    const n = (v: number, d = 2) => v.toFixed(d);
+    // Формат 1,000,000.00 (як скрізь у застосунку).
+    const n = (v: number, d = 2) =>
+      Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
     const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
     const tradeRows = tradeStats.map((r) => `
       <tr>
@@ -529,8 +531,8 @@ export default function CloseShiftForm({
   });
 
   const cashDiff = surplusShort;
-  // Формат $: два знаки, зі знаком.
-  const usd = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)} $`;
+  // Формат $: два знаки, розділені розряди, зі знаком.
+  const usd = (v: number) => `${v >= 0 ? '+' : ''}${fmtMoney(v)} $`;
 
   return (
     <div className="w-full space-y-2.5 pb-24">
@@ -697,7 +699,7 @@ export default function CloseShiftForm({
                     }`}>
                       {Math.abs(r.profitUsd) < 0.005 && Math.abs(r.profitUah) < 0.005 ? '—' : (
                         <>
-                          {(r.profitUsd > 0 ? '+' : '') + r.profitUsd.toFixed(2)} $
+                          {(r.profitUsd > 0 ? '+' : '') + fmtMoney(r.profitUsd)} $
                           <div className="text-xs font-normal text-gray-400">
                             {(r.profitUah > 0 ? '+' : '') + fmtNum(r.profitUah)} ₴
                           </div>
@@ -757,7 +759,7 @@ export default function CloseShiftForm({
             {Math.abs(cashDiff) >= 0.01 && (
               <div className="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-1.5 mt-2">
                 Розбіжність каси (нестача/надлишок): {cashDiff >= 0 ? '+' : ''}{fmtNum(cashDiff)} ₴
-                {usdSell > 0 && ` (${(cashDiff / usdSell).toFixed(2)} $)`}
+                {usdSell > 0 && ` (${fmtMoney(cashDiff / usdSell)} $)`}
               </div>
             )}
           </div>
@@ -786,7 +788,7 @@ export default function CloseShiftForm({
                           </span>
                         )}
                       </td>
-                      <td className="py-1.5 text-right font-medium text-gray-700">{v.toFixed(2)} $</td>
+                      <td className="py-1.5 text-right font-medium text-gray-700">{fmtMoney(v)} $</td>
                     </tr>
                   ))}
               </tbody>
@@ -794,7 +796,7 @@ export default function CloseShiftForm({
                 <tr className="border-t-2 border-gray-200">
                   <td colSpan={2} className="pt-2.5 font-semibold text-gray-700">Разом у доларах</td>
                   <td className="pt-2.5 text-right text-lg font-bold text-blue-700">
-                    {till.total.toFixed(2)} $
+                    {fmtMoney(till.total)} $
                   </td>
                 </tr>
               </tfoot>

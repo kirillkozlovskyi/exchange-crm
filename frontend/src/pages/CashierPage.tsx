@@ -780,7 +780,7 @@ export default function CashierPage() {
                       className={`text-right text-xl font-bold ${liveProfit.totalUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}
                       title={`Торговий: ${liveProfit.trading.toFixed(2)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${liveProfit.usdt.toFixed(2)} ₴` : ''}`}
                     >
-                      {liveProfit.totalUsd >= 0 ? '+' : ''}{liveProfit.totalUsd.toFixed(2)} $
+                      {liveProfit.totalUsd >= 0 ? '+' : ''}{fmtMoney(liveProfit.totalUsd)} $
                       <div className="text-xs font-medium text-gray-400">
                         {liveProfit.total >= 0 ? '+' : ''}{fmtMoney(liveProfit.total)} ₴
                       </div>

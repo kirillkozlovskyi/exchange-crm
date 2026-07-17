@@ -7,6 +7,7 @@ import { netTransfers } from '../../lib/transfers';
 import { usdtCashDelta } from '../../lib/usdt';
 import { printReceipt } from '../cashier/OperationsList';
 import { usdtProfit, usdtProfitUsd } from '../../lib/usdt';
+import { fmtMoney } from '../../lib/format';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   OPEN: { label: 'Відкрита', cls: 'bg-green-100 text-green-700' },
@@ -14,7 +15,7 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 };
 
 const num = (v: any) => Number(v ?? 0);
-const fmt = (v: any) => num(v).toLocaleString('uk-UA', { maximumFractionDigits: 2 });
+const fmt = (v: any) => num(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
 
 function Section({ title, count, actions, children }: { title: string; count?: number; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -40,9 +41,35 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   // Вид звіту зміни: коротка друкована (зведення), повна друкована (зі списками
   // документів), JSON (ті самі дані для розробника/аналізу).
   const [reportKind, setReportKind] = useState<'short' | 'full' | 'json'>('short');
+  // Кастомний прибуток адміна: редагування + збереження (довідкове число).
+  const [apEdit, setApEdit] = useState(false);
+  const [apUsd, setApUsd] = useState('');
+  const [apUah, setApUah] = useState('');
+  const [apNote, setApNote] = useState('');
+  const [apSaving, setApSaving] = useState(false);
   useEffect(() => {
     api.get(`/shifts/${shiftId}`).then(({ data }) => setD(data)).catch(() => setD(null));
   }, [shiftId]);
+
+  const startAdminEdit = () => {
+    setApUsd(d?.adminProfitUsd != null ? String(Number(d.adminProfitUsd)) : '');
+    setApUah(d?.adminProfitUah != null ? String(Number(d.adminProfitUah)) : '');
+    setApNote(d?.adminProfitNote ?? '');
+    setApEdit(true);
+  };
+  const saveAdminProfit = async () => {
+    setApSaving(true);
+    try {
+      const parse = (s: string) => (s.trim() === '' ? null : parseFloat(s));
+      const { data } = await api.patch(`/shifts/${shiftId}/admin-profit`, {
+        profitUsd: parse(apUsd), profitUah: parse(apUah), note: apNote.trim() || null,
+      });
+      setD((prev: any) => ({ ...prev, ...data }));
+      setApEdit(false);
+    } finally {
+      setApSaving(false);
+    }
+  };
 
   useEffect(() => {
     api.get('/settings/org-name').then(({ data }) => setOrgName(data.name ?? '')).catch(() => {});
@@ -115,7 +142,9 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   //        передачі, звірки) — той самий склад даних, що й у JSON-звіті.
   const printShiftReport = (mode: 'short' | 'full' = 'full') => {
     const full = mode === 'full';
-    const n2 = (v: any, dd = 2) => Number(v ?? 0).toFixed(dd);
+    // Формат 1,000,000.00 (як скрізь у застосунку).
+    const n2 = (v: any, dd = 2) =>
+      Number(v ?? 0).toLocaleString('en-US', { minimumFractionDigits: dd, maximumFractionDigits: dd });
     const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
     const tm = (s: string) => format(new Date(s), 'HH:mm');
 
@@ -439,14 +468,55 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
           <div className="text-sm text-gray-600 mt-2 pt-2 border-t space-y-1">
             <div>
               Прибуток зміни: <span className={`font-bold ${num(d.profitUsd) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {num(d.profitUsd) >= 0 ? '+' : ''}{num(d.profitUsd).toFixed(2)} $
+                {num(d.profitUsd) >= 0 ? '+' : ''}{fmtMoney(d.profitUsd)} $
               </span>
               <span className="text-gray-400"> ({num(d.profit) >= 0 ? '+' : ''}{fmt(d.profit)} ₴)</span>
             </div>
             {d.tillUsd?.total != null && (
               <div title="Каса в доларах: USD/USDT як є, гривня ÷ сер. курс, валюти × $-собівартість.">
-                🧮 Каса в доларах: <span className="font-bold text-blue-700">{num(d.tillUsd.total).toFixed(2)} $</span>
+                🧮 Каса в доларах: <span className="font-bold text-blue-700">{fmtMoney(d.tillUsd.total)} $</span>
                 {d.tillUsd.usdSellRate ? <span className="text-gray-400"> (курс {num(d.tillUsd.usdSellRate).toFixed(2)})</span> : null}
+              </div>
+            )}
+            {/* Кастомний прибуток адміна — довідкове число «як порахував власник». */}
+            {!apEdit ? (
+              <div className="flex items-center gap-2">
+                <span>Прибуток (адмін):</span>
+                {d.adminProfitUsd != null || d.adminProfitUah != null ? (
+                  <span className="font-bold text-purple-700">
+                    {d.adminProfitUsd != null && `${fmtMoney(d.adminProfitUsd)} $`}
+                    {d.adminProfitUsd != null && d.adminProfitUah != null && ' · '}
+                    {d.adminProfitUah != null && `${fmtMoney(d.adminProfitUah)} ₴`}
+                  </span>
+                ) : (
+                  <span className="text-gray-400">не задано</span>
+                )}
+                {d.adminProfitNote && <span className="text-xs text-gray-400">({d.adminProfitNote})</span>}
+                <button onClick={startAdminEdit} className="text-xs text-blue-600 hover:underline">
+                  {d.adminProfitUsd != null || d.adminProfitUah != null ? 'змінити' : 'ввести'}
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <span>Прибуток (адмін):</span>
+                <input type="number" step="0.01" placeholder="$" value={apUsd}
+                  onChange={(e) => setApUsd(e.target.value)}
+                  className="w-24 border border-gray-300 rounded px-2 py-1 text-right text-sm" />
+                <span className="text-gray-400">$</span>
+                <input type="number" step="0.01" placeholder="₴" value={apUah}
+                  onChange={(e) => setApUah(e.target.value)}
+                  className="w-28 border border-gray-300 rounded px-2 py-1 text-right text-sm" />
+                <span className="text-gray-400">₴</span>
+                <input type="text" placeholder="примітка" value={apNote}
+                  onChange={(e) => setApNote(e.target.value)}
+                  className="w-40 border border-gray-300 rounded px-2 py-1 text-sm" />
+                <button onClick={saveAdminProfit} disabled={apSaving}
+                  className="text-xs px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50">
+                  {apSaving ? '…' : 'Зберегти'}
+                </button>
+                <button onClick={() => setApEdit(false)} className="text-xs text-gray-400 hover:text-gray-600">
+                  скасувати
+                </button>
               </div>
             )}
           </div>
@@ -775,7 +845,7 @@ export default function ShiftsAdmin() {
                   </div>
                   {s.status === 'CLOSED' && (
                     <span className={`text-sm font-bold flex-shrink-0 text-right ${num(s.profitUsd) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {num(s.profitUsd) >= 0 ? '+' : ''}{num(s.profitUsd).toFixed(2)} $
+                      {num(s.profitUsd) >= 0 ? '+' : ''}{fmtMoney(s.profitUsd)} $
                       <div className="text-xs font-medium text-gray-400">
                         {num(s.profit) >= 0 ? '+' : ''}{fmt(s.profit)} ₴
                       </div>

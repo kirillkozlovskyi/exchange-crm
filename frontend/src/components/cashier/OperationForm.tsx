@@ -238,7 +238,7 @@ export default function OperationForm({
     if (!payoutAmt || !payoutCur) return '';
     const have = balance[payoutCur] ?? 0;
     return have < payoutAmt
-      ? `В касі ${have.toFixed(2)} ${payoutCur} · не вистачає ${(payoutAmt - have).toFixed(2)}`
+      ? `В касі ${fmtMoney(have)} ${payoutCur} · не вистачає ${fmtMoney(payoutAmt - have)}`
       : '';
   }, [payoutAmt, payoutCur, balance]);
 
@@ -777,10 +777,10 @@ export default function OperationForm({
               <div className="font-semibold text-green-700">✓ Операція #{lastOp.number}</div>
               <div className="text-gray-600 text-xs mt-0.5">
                 {lastOp.payCurrency
-                  ? `${Number(lastOp.payAmount ?? 0).toFixed(2)} ${lastOp.payCurrency} → ${Number(lastOp.amount).toFixed(2)} ${lastOp.currency}`
+                  ? `${fmtMoney(lastOp.payAmount ?? 0)} ${lastOp.payCurrency} → ${fmtMoney(lastOp.amount)} ${lastOp.currency}`
                   : lastOp.type === 'BUY'
-                    ? `${Number(lastOp.amount).toFixed(2)} ${lastOp.currency} → ${Number(lastOp.totalUah).toFixed(2)} UAH`
-                    : `${Number(lastOp.totalUah).toFixed(2)} UAH → ${Number(lastOp.amount).toFixed(2)} ${lastOp.currency}`
+                    ? `${fmtMoney(lastOp.amount)} ${lastOp.currency} → ${fmtMoney(lastOp.totalUah)} UAH`
+                    : `${fmtMoney(lastOp.totalUah)} UAH → ${fmtMoney(lastOp.amount)} ${lastOp.currency}`
                 }
               </div>
             </div>

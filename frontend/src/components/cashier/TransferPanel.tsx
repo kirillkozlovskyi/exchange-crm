@@ -345,7 +345,7 @@ export default function TransferPanel({
                 </div>
                 {t.counterCurrency && (
                   <div className="text-xs text-blue-700 mb-1">
-                    Своп: отримаєте {fmtNum(t.amount)} {t.currency}, віддасте {Number(t.counterAmount).toFixed(2)} {t.counterCurrency}
+                    Своп: отримаєте {fmtNum(t.amount)} {t.currency}, віддасте {fmtNum(t.counterAmount)} {t.counterCurrency}
                   </div>
                 )}
                 <div className="text-xs text-gray-500 mb-2">

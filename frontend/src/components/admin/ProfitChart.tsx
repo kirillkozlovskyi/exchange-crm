@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../../api/axios';
 import { format } from 'date-fns';
+import { fmtMoney, fmtNum } from '../../lib/format';
 
 type Point = { date: string; profit: number; profitUsd: number; operations: number };
 
@@ -64,9 +65,9 @@ export default function ProfitChart({ days = 14 }: { days?: number }) {
         <div className="text-right">
           <div className="text-xs text-gray-400">за {days} дн.</div>
           <div className={`font-bold ${totalUsd >= 0 ? 'text-green-700' : 'text-red-600'}`}>
-            {totalUsd >= 0 ? '+' : '−'}{Math.abs(totalUsd).toFixed(0)} $
+            {totalUsd >= 0 ? '+' : '−'}{fmtNum(Math.abs(totalUsd), 0)} $
             <span className="text-xs font-medium text-gray-400 ml-1.5">
-              {totalUah >= 0 ? '+' : '−'}{Math.abs(totalUah).toFixed(0)} ₴
+              {totalUah >= 0 ? '+' : '−'}{fmtNum(Math.abs(totalUah), 0)} ₴
             </span>
           </div>
         </div>
@@ -120,10 +121,10 @@ export default function ProfitChart({ days = 14 }: { days?: number }) {
             >
               <div className="text-gray-300">{format(new Date(hovered.date), 'dd.MM.yyyy')}</div>
               <div className="font-semibold">
-                {hovered.v >= 0 ? '+' : '−'}{Math.abs(hovered.v).toFixed(2)} $
+                {hovered.v >= 0 ? '+' : '−'}{fmtMoney(Math.abs(hovered.v))} $
               </div>
               <div className="text-gray-400">
-                {hovered.profit >= 0 ? '+' : '−'}{Math.abs(hovered.profit).toFixed(2)} ₴ · {hovered.operations} опер.
+                {hovered.profit >= 0 ? '+' : '−'}{fmtMoney(Math.abs(hovered.profit))} ₴ · {hovered.operations} опер.
               </div>
             </div>
           )}

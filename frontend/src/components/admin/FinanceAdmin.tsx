@@ -78,7 +78,7 @@ export default function FinanceAdmin() {
           {/* Total */}
           <div className="bg-blue-700 text-white rounded-xl shadow p-5">
             <div className="text-sm opacity-80">{periodLabel[period]} — мережа</div>
-            <div className="text-3xl font-bold mt-1">{Number(data.totalProfitUsd ?? 0).toFixed(2)} $</div>
+            <div className="text-3xl font-bold mt-1">{fmtMoney(data.totalProfitUsd ?? 0)} $</div>
             <div className="text-sm opacity-70 mt-1">валовий прибуток у доларах</div>
             <div className="flex gap-4 mt-3 pt-3 border-t border-white/20 text-sm">
               <div>
@@ -104,7 +104,7 @@ export default function FinanceAdmin() {
                 <div className="text-right">
                   <div>
                     <span className={`font-bold ${Number(pt.totalProfitUsd ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {Number(pt.totalProfitUsd ?? 0).toFixed(2)} $
+                      {fmtMoney(pt.totalProfitUsd ?? 0)} $
                     </span>
                     <span className="text-xs text-gray-400 ml-2">
                       чистий {fmtMoney(pt.netProfit ?? pt.totalProfit)} ₴ · {pt.operationsCount} оп.
@@ -125,7 +125,7 @@ export default function FinanceAdmin() {
                       <div key={di} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                         <div className="text-xs text-gray-500">{dk.deskName} · {dk.operationsCount} оп.</div>
                         <div className={`text-sm font-bold ${(dk.profitUsd ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {(dk.profitUsd ?? 0) >= 0 ? '+' : ''}{Number(dk.profitUsd ?? 0).toFixed(2)} $
+                          {(dk.profitUsd ?? 0) >= 0 ? '+' : ''}{fmtMoney(dk.profitUsd ?? 0)} $
                           <span className="text-xs font-medium text-gray-400 ml-1.5">
                             {dk.profit >= 0 ? '+' : ''}{fmtMoney(dk.profit)} ₴
                           </span>
@@ -144,7 +144,7 @@ export default function FinanceAdmin() {
                       <div key={ci} className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
                         <div className="text-xs text-gray-600">{ch.cashierName} · {ch.operationsCount} оп.</div>
                         <div className={`text-sm font-bold ${(ch.profitUsd ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {(ch.profitUsd ?? 0) >= 0 ? '+' : ''}{Number(ch.profitUsd ?? 0).toFixed(2)} $
+                          {(ch.profitUsd ?? 0) >= 0 ? '+' : ''}{fmtMoney(ch.profitUsd ?? 0)} $
                           <span className="text-xs font-medium text-gray-400 ml-1.5">
                             {ch.profit >= 0 ? '+' : ''}{fmtMoney(ch.profit)} ₴
                           </span>
@@ -169,7 +169,7 @@ export default function FinanceAdmin() {
                       <tr key={cur} className="border-b last:border-0">
                         <td className="py-1.5 font-bold">{cur}</td>
                         <td className="py-1.5 text-right">{fmtMoney(d.volume)}</td>
-                        <td className="py-1.5 text-right text-green-600 font-medium">{Number(d.profitUsd ?? 0).toFixed(2)} $</td>
+                        <td className="py-1.5 text-right text-green-600 font-medium">{fmtMoney(d.profitUsd ?? 0)} $</td>
                         <td className="py-1.5 text-right text-gray-500">{fmtMoney(d.profit)} ₴</td>
                       </tr>
                     ))}

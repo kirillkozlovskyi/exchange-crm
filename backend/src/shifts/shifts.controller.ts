@@ -69,6 +69,18 @@ export class ShiftsController {
     return this.shiftsService.updateCostBasis(id, body.costBasis ?? {}, { sub: user.sub, role: user.role });
   }
 
+  // Кастомний прибуток зміни від адміна (довідковий, поруч із системним).
+  // null/порожнє — очистити.
+  @Patch(':id/admin-profit')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  updateAdminProfit(
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: { profitUsd?: number | null; profitUah?: number | null; note?: string | null },
+  ) {
+    return this.shiftsService.updateAdminProfit(id, body);
+  }
+
   // Коригування залишку зміни — лише адмін (жоден UI касира це не викликає).
   @Patch(':id/adjust-balance')
   @UseGuards(RolesGuard)

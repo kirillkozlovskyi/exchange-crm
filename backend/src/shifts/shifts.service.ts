@@ -348,6 +348,30 @@ export class ShiftsService {
   }
 
   /**
+   * Кастомний прибуток зміни від адміна — довідкове число «як порахував
+   * власник», показується поруч із системним; у фінанси не входить.
+   * null/undefined у полі — очистити.
+   */
+  async updateAdminProfit(
+    shiftId: number,
+    body: { profitUsd?: number | null; profitUah?: number | null; note?: string | null },
+  ) {
+    const shift = await this.prisma.shift.findUnique({ where: { id: shiftId }, select: { id: true } });
+    if (!shift) throw new NotFoundException('Зміну не знайдено');
+    const num = (v: number | null | undefined) =>
+      v == null || Number.isNaN(Number(v)) ? null : Number(v);
+    return this.prisma.shift.update({
+      where: { id: shiftId },
+      data: {
+        adminProfitUsd: num(body.profitUsd),
+        adminProfitUah: num(body.profitUah),
+        adminProfitNote: body.note?.trim() ? body.note.trim() : null,
+      },
+      select: { id: true, adminProfitUsd: true, adminProfitUah: true, adminProfitNote: true },
+    });
+  }
+
+  /**
    * Підтверджені передачі/свопи каси за час життя зміни (Б1/Б2).
    * Для ЗАКРИТОЇ зміни обовʼязково обмежуємо моментом закриття: інакше передачі,
    * підтверджені вже на наступній зміні тієї ж каси, «протікали» б у звіт
