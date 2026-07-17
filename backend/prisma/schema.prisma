@@ -134,21 +134,30 @@ model Shift {
   // Розрахункові залишки
   calcBalance     Json        @default("{}")
 
+  // Прибуток зміни: profitUsd — нативний ($-числовник, модель «каса в доларах»),
+  // profit — гривневий знімок (сума по-операційних profit; ₴ на момент операцій).
   profit          Decimal     @default(0) @db.Decimal(15, 2)
+  profitUsd       Decimal     @default(0) @db.Decimal(15, 2)
   // Звіт закриття — зберігається при closeShift, щоб історичні звіти
   // відтворювались точно (не залежали від подальших змін курсів):
   // фактичний прибуток (з нестачею/надлишком), розбивка по валютах,
-  // серединні курси оцінки на момент закриття.
+  // курси оцінки на момент закриття.
   factualProfit    Decimal?   @db.Decimal(15, 2)
+  factualProfitUsd Decimal?   @db.Decimal(15, 2)
   profitByCurrency Json       @default("{}")
+  profitByCurrencyUsd Json    @default("{}")
   valuationRates   Json       @default("{}")
-  // Додатковий показник (модель замовника): «маржа з відкупу» — заробіток
-  // кільця «продав валюту → відкупив на виручену гривню». Фінанси на ньому НЕ
-  // будуються, він показується поруч із profit. Див. buyback-margin.util.ts.
+  // Курс продажу USD точки на момент закриття — знімок для конвертацій $↔₴.
+  usdSellAtClose   Decimal?   @db.Decimal(10, 4)
+  // «Каса в доларах» на закритті: { byCurrency: {USD, UAH, ...}, total, usdSellRate }.
+  tillUsd          Json       @default("{}")
+  // ЗАСТАРІЛЕ (стара модель «маржа з відкупу»): більше не пишеться, колонки
+  // лишаються для історії; дроп — окремою міграцією пізніше.
   buybackMargin           Decimal? @db.Decimal(15, 2)
   buybackMarginByCurrency Json     @default("{}")
-  // Середня собівартість (грн/од.) по валютах на момент закриття — курс, проти
-  // якого рахувався прибуток. Зберігаємо для показу в звіті/картці зміни.
+  // Собівартість по валютах на момент закриття — проти якої рахувався прибуток.
+  // Формат: UAH — сер. курс ₴ за $ (напр. 44.95); інші валюти — $-крос за
+  // одиницю (напр. EUR 1.1420). USD (числовник) відсутній.
   costBasis               Json     @default("{}")
   note            String?
 
@@ -220,7 +229,10 @@ model Operation {
   amount          Decimal       @db.Decimal(15, 2)
   rate            Decimal       @db.Decimal(10, 4)
   totalUah        Decimal       @db.Decimal(15, 2)
+  // Реалізований прибуток операції: profitUsd — нативний ($-числовник),
+  // profit — гривневий знімок (profitUsd × курс продажу USD на момент операції).
   profit          Decimal       @db.Decimal(15, 2)
+  profitUsd       Decimal       @default(0) @db.Decimal(15, 2)
   // Прибуток, який касир порахував САМ (необовʼязково). Не використовується в
   // розрахунках — потрібен, щоб порівняти логіку касирів із моделями системи.
   cashierProfit   Decimal?      @db.Decimal(15, 2)
@@ -333,27 +345,15 @@ model Setting {
 }
 
 // Перехідна собівартість позиції каси по валюті (модель прибутку WAC, Варіант 1).
-// Зберігає лише середню собівартість (грн/од.), що переноситься між змінами;
-// кількість щоразу беремо з фактичного залишку (startBalance) на відкритті зміни.
-// Оновлюється при закритті зміни. Порожньо → старт за поточним курсом купівлі.
+// Зберігає лише середню собівартість, що переноситься між змінами; кількість
+// щоразу беремо з фактичного залишку (startBalance) на відкритті зміни.
+// Формат ($-числовник): UAH — сер. курс ₴ за $ (напр. 44.95); інші валюти —
+// $-крос за одиницю (напр. EUR 1.1420). USD (числовник) не зберігається.
+// Оновлюється при закритті зміни. Порожньо → старт від поточних курсів точки.
 model DeskCostBasis {
   cashDeskId Int
   currency   String
   avgCost    Decimal  @db.Decimal(18, 6)
-  updatedAt  DateTime @updatedAt
-
-  @@id([cashDeskId, currency])
-}
-
-// Пул «проданої гривні, що чекає відкупу» — для показника «маржа з відкупу»
-// (модель замовника: заробіток виникає, коли на виручену гривню відкуповують
-// валюту). Переноситься між змінами каси, оновлюється при закритті зміни.
-// units — скільки одиниць валюти продано і ще не відкуплено; uah — виручка за них.
-model DeskSoldPool {
-  cashDeskId Int
-  currency   String
-  units      Decimal  @db.Decimal(18, 4)
-  uah        Decimal  @db.Decimal(18, 2)
   updatedAt  DateTime @updatedAt
 
   @@id([cashDeskId, currency])
@@ -406,6 +406,7 @@ model UsdtOperation {
   settleAmount   Decimal  @db.Decimal(15, 2)  // фізична сума, що рухає касу
   settleRate     Decimal  @db.Decimal(15, 6)  // курс USD→settleCurrency (1 для USD)
   profitUah      Decimal  @db.Decimal(15, 2)  // чиста маржа % у гривні
+  profitUsd      Decimal  @default(0) @db.Decimal(15, 2) // маржа у $ (нативна, з факту проти 1:1)
   note           String?
   cancelled      Boolean  @default(false)     // сторно (як у валютних операціях)
   cancelNote     String?

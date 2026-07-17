@@ -7,6 +7,8 @@ type Company = {
   desks: Record<string, number>;
   total: Record<string, number>;
   usdt: { global: number; points: number; total: number };
+  // «Компанія в доларах»: каси за їх собівартістю, банк — за ринковою базою.
+  usdTotal?: { desks: number; bank: number; usdt: number; total: number; usdSellRate: number };
 };
 
 /**
@@ -60,11 +62,22 @@ export default function CompanyBalanceCard({ refreshKey = 0 }: { refreshKey?: nu
               <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{company.usdt.points.toFixed(4)}</td>
               <td className="py-1.5 px-3 text-right tabular-nums font-bold text-teal-700">{company.usdt.total.toFixed(4)}</td>
             </tr>
+            {company.usdTotal && (
+              <tr className="border-t-2 bg-blue-50/50">
+                <td className="py-2 px-3 font-bold text-blue-900">Разом у $</td>
+                <td className="py-2 px-3 text-right tabular-nums text-gray-600">{fmtMoney(company.usdTotal.bank)}</td>
+                <td className="py-2 px-3 text-right tabular-nums text-gray-600">{fmtMoney(company.usdTotal.desks)}</td>
+                <td className="py-2 px-3 text-right tabular-nums font-bold text-blue-900 text-base">
+                  {fmtMoney(company.usdTotal.total)} $
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
       <p className="text-xs text-gray-400 mt-2">
         Каси = поточна готівка відкритих змін + останній залишок закритих. USDT — глобальний гаманець + гаманці точок.
+        {company.usdTotal ? ' «Разом у $»: каси за їх собівартістю (сер. курс/кроси), банк — за поточними курсами, USDT 1:1.' : ''}
       </p>
     </div>
   );

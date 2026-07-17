@@ -15,7 +15,10 @@ export interface UsdtOp {
   side: string; // 'BUY' | 'SELL'
   settleCurrency: string;
   settleAmount: unknown; // Decimal | number | string
+  settleRate?: unknown;  // курс USD→settleCurrency (1 для USD)
+  usdtAmount?: unknown;
   profitUah?: unknown;
+  profitUsd?: unknown;
   cancelled?: boolean; // сторно — не впливає ні на готівку, ні на прибуток
 }
 
@@ -34,4 +37,22 @@ export function usdtCashDelta(ops: UsdtOp[]): Record<string, number> {
 /** Сумарний прибуток USDT-операцій (чиста маржа %) у гривні. */
 export function usdtProfit(ops: UsdtOp[]): number {
   return ops.reduce((sum, op) => sum + (op.cancelled ? 0 : Number(op.profitUah ?? 0)), 0);
+}
+
+/**
+ * Сумарна маржа USDT у $ (нативна для $-числовника). Для історичних операцій
+ * без profitUsd відновлюємо точно з фактичних полів: маржа проти бази 1:1 =
+ * ±(settleAmount/settleRate − usdtAmount).
+ */
+export function usdtProfitUsd(ops: UsdtOp[]): number {
+  return ops.reduce((sum, op) => {
+    if (op.cancelled) return sum;
+    const stored = Number(op.profitUsd ?? 0);
+    if (stored !== 0) return sum + stored;
+    const rate = Number(op.settleRate ?? 0);
+    const usdt = Number(op.usdtAmount ?? 0);
+    if (!(rate > 0) || !(usdt > 0)) return sum + stored;
+    const settleUsd = Number(op.settleAmount) / rate;
+    return sum + (op.side === 'SELL' ? settleUsd - usdt : usdt - settleUsd);
+  }, 0);
 }

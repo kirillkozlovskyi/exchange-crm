@@ -283,20 +283,6 @@ export class SettingsService {
     await this.set('cash_bank_enabled', String(enabled));
   }
 
-  /**
-   * Чи показувати «маржу з відкупу» — додатковий показник поруч із прибутком
-   * (модель замовника: заробіток кільця «продав валюту → відкупив на гривню»).
-   * За замовчуванням вимкнено — щоб не плутати два числа без потреби.
-   */
-  async getBuybackMarginEnabled(): Promise<boolean> {
-    const v = await this.get('buyback_margin_enabled');
-    return v === 'true'; // default false
-  }
-
-  async setBuybackMarginEnabled(enabled: boolean): Promise<void> {
-    await this.set('buyback_margin_enabled', String(enabled));
-  }
-
   async getCurrencyOrder(): Promise<string[]> {
     const v = await this.get('currency_order');
     if (!v) return [];

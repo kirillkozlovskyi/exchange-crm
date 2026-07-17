@@ -1,29 +1,31 @@
 import { ShiftsService } from './shifts.service';
 import { ProfitService } from '../profit/profit.service';
-import { valueOf } from '../common/profit.util';
+import { tillUsdValue } from '../common/wac-profit.util';
 
 /**
- * ПОВНА симуляція тижня роботи обмінника — усі типи документів разом:
+ * ПОВНА симуляція тижня роботи обмінника ($-числовник) — усі типи документів:
  *   купівля, продаж, крос-обмін, сторно, підкріплення, інкасація, передача між
  *   касами, своп, USDT-операція, нестача касира.
  *
- * Головна перевірка — ІНВАРІАНТ ГРОШЕЙ:
- *   Σ прибутків змін == наскільки каса реально стала багатшою
- *   (гривня + валюта за собівартістю), якщо вилучити все, що не є торгівлею
- *   (підкріплення/інкасації, передачі) і нестачі касира.
+ * Головна перевірка — ІНВАРІАНТ ГРОШЕЙ У ДОЛАРАХ:
+ *   Σ прибутків змін (у $) == наскільки каса реально стала багатшою в доларах
+ *   (за принципом власника: гривня ÷ сер. курс, валюта × $-крос), якщо вилучити
+ *   все, що не є торгівлею (підкріплення/інкасації, передачі) і нестачі касира.
  * Якщо модель прибутку десь «вигадує» чи «губить» гроші — цей тест впаде.
  */
 
+const S = 44.6; // курс продажу USD — незмінний увесь тиждень
 const RATES = [
-  { currency: 'USD', buy: 44.0, sell: 44.6 },
+  { currency: 'USD', buy: 44.0, sell: S },
   { currency: 'EUR', buy: 51.0, sell: 51.8 },
 ];
+const EUR_X = 51.0 / S; // $-крос євро (fallback від buy/S) ≈ 1.1435
 
 function makeWorld() {
   const basis = new Map<string, number>();
-  const soldPool = new Map<string, { units: number; uah: number }>();
   let shift: any = null;
   let transfers: any[] = [];
+  const rateRows = RATES.map((r) => ({ ...r, createdAt: new Date(0) }));
 
   const prisma: any = {
     shift: {
@@ -33,7 +35,13 @@ function makeWorld() {
         return Promise.resolve({ ...shift });
       }),
     },
-    rate: { findMany: jest.fn(() => Promise.resolve(RATES.map((r) => ({ ...r })))) },
+    // where-свідомий мок: getUsdTimeline фільтрує по currency='USD'.
+    rate: {
+      findMany: jest.fn((args: any) => {
+        const cur = args?.where?.currency;
+        return Promise.resolve((cur ? rateRows.filter((r) => r.currency === cur) : rateRows).map((r) => ({ ...r })));
+      }),
+    },
     transfer: {
       findMany: jest.fn(({ where }: any) =>
         Promise.resolve(where?.status === 'PENDING' ? [] : transfers),
@@ -46,17 +54,10 @@ function makeWorld() {
         return Promise.resolve({});
       }),
     },
-    deskSoldPool: {
-      findMany: jest.fn(() => Promise.resolve([...soldPool].map(([currency, p]) => ({ currency, ...p })))),
-      upsert: jest.fn(({ create }: any) => {
-        soldPool.set(create.currency, { units: Number(create.units), uah: Number(create.uah) });
-        return Promise.resolve({});
-      }),
-    },
     operation: {
       update: jest.fn(({ where, data }: any) => {
         const op = shift.operations.find((o: any) => o.id === where.id);
-        if (op) op.profit = data.profit;
+        if (op) { op.profit = data.profit; op.profitUsd = data.profitUsd; }
         return Promise.resolve(op);
       }),
     },
@@ -91,8 +92,8 @@ function makeWorld() {
     move: (direction: 'IN' | 'OUT', currency: string, amount: number) => ({
       id: ++seq, direction, currency, amount, createdAt: stamp(),
     }),
-    usdt: (side: 'BUY' | 'SELL', usdtAmount: number, settleCurrency: string, settleAmount: number, profitUah: number) => ({
-      id: ++seq, side, usdtAmount, settleCurrency, settleAmount, profitUah, cancelled: false, createdAt: stamp(),
+    usdt: (side: 'BUY' | 'SELL', usdtAmount: number, settleCurrency: string, settleAmount: number, profitUah: number, profitUsd: number) => ({
+      id: ++seq, side, usdtAmount, settleCurrency, settleAmount, profitUah, profitUsd, cancelled: false, createdAt: stamp(),
     }),
     openShift: (startBalance: Record<string, number>, docs: {
       operations?: any[]; cashMovements?: any[]; usdtOperations?: any[];
@@ -112,49 +113,51 @@ function makeWorld() {
   };
 }
 
-describe('ПОВНА симуляція тижня обмінника (усі типи операцій)', () => {
+describe('ПОВНА симуляція тижня обмінника (усі типи операцій, $-числовник)', () => {
   const w = makeWorld();
 
   // Стан для наскрізної перевірки грошей
-  let profitSum = 0;      // Σ торгового прибутку змін
-  let shortageSum = 0;    // Σ нестач/надлишків касира (не торгівля)
-  let usdtSum = 0;        // Σ маржі USDT (входить у profit, рахуємо окремо для звірки)
+  let profitUsdSum = 0;   // Σ торгового прибутку змін ($)
+  let shortageUsd = 0;    // Σ нестач/надлишків касира у $ (не торгівля)
 
   const startBal = { UAH: 500_000, USD: 5_000, EUR: 2_000 };
 
-  it('ПН: купівля + продаж + сторно — прибуток лише з реально проданого', async () => {
+  it('ПН: відкуп реалізує проти бази гривні, продаж USD і сторно — нулі', async () => {
     const ops = [
-      w.buy('USD', 2000, 44.0),      // купили 2000 @44.00
-      w.sell('USD', 3000, 44.6),     // продали 3000 @44.60
+      w.buy('USD', 2000, 44.0),       // відкуп 2000 @44.00 проти бази 44.60 (fallback S)
+      w.sell('USD', 3000, 44.6),      // продаж — 0, формує базу
       w.sell('USD', 500, 44.6, true), // СТОРНО — не рахується
     ];
     w.openShift(startBal, { operations: ops });
     const res: any = await w.close();
 
-    // Старт 5000 USD @44 (собівартості ще немає → курс купівлі 44) + 2000 @44 → сер. 44.
-    // Продаж 3000 × (44.60 − 44.00) = 1800.
-    expect(Number(res.profit)).toBeCloseTo(1800, 2);
-    // Сторнована операція має profit = 0.
+    // Відкуп: 2000 − 88000/44.6 ≈ 26.91 $ (у ₴ ×44.6 = рівно 1200).
+    expect(Number(res.profitUsd)).toBeCloseTo(2000 - 88_000 / S, 3);
+    expect(Number(res.profit)).toBeCloseTo(1200, 1);
+    // Сторнована операція має profit = 0; продаж теж 0.
+    expect(Number((ops[1] as any).profit)).toBeCloseTo(0, 6);
     expect(Number((ops[2] as any).profit)).toBe(0);
     expect(res.calcBalance.USD).toBeCloseTo(4000, 2); // 5000 + 2000 − 3000
-    profitSum += Number(res.profit);
+    // Сер. курс гривні лишився 44.6 (усі рухи за цим курсом); USD без бази.
+    expect(w.basisOf('UAH')).toBeCloseTo(S, 6);
+    expect(w.basisOf('USD')).toBeUndefined();
+    profitUsdSum += Number(res.profitUsd);
   });
 
-  it('ВТ: підкріплення валютою + продаж підкріпленого — валюта має собівартість, а не «нізвідки»', async () => {
+  it('ВТ: підкріплення USD і продаж 5000 — прибутку НЕМАЄ (продаж лише формує базу)', async () => {
     const prev = w.current().endBalance ?? w.current().calcBalance;
-    const moves = [w.move('IN', 'USD', 3000)];         // підкріпили 3000 USD
-    const ops = [w.sell('USD', 5000, 44.6)];           // продали 5000 (частина — підкріплені)
+    const moves = [w.move('IN', 'USD', 3000)];  // підкріпили 3000 USD (числовник — без флоу)
+    const ops = [w.sell('USD', 5000, 44.6)];    // продали 5000 → 0 (стара WAC дала б 3000 ₴)
     w.openShift(prev, { operations: ops, cashMovements: moves });
     const res: any = await w.close();
 
-    // Позиція: 4000 @44 (перенесено) + 3000 @44 (підкріплення за курсом купівлі) = 7000 @44.
-    // Продаж 5000 × 0.60 = 3000. (Раніше це давало 0 — валюта «без собівартості».)
-    expect(Number(res.profit)).toBeCloseTo(3000, 2);
+    expect(Number(res.profit)).toBeCloseTo(0, 2);
     expect(res.calcBalance.USD).toBeCloseTo(2000, 2); // 4000 + 3000 − 5000
-    profitSum += Number(res.profit);
+    expect(w.basisOf('UAH')).toBeCloseTo(S, 6);       // виручка за 44.6 не змінила базу
+    profitUsdSum += Number(res.profitUsd);
   });
 
-  it('СР: крос EUR→USD + інкасація — крос реалізує віддану валюту, інкасація прибутку не дає', async () => {
+  it('СР: крос EUR→USD — віддати числовник не прибуток; євро успадковує крос; інкасація — не торгівля', async () => {
     const prev = w.current().calcBalance;
     // Клієнт дає 1000 EUR (по buy 51 → 51 000 грн), отримує 1143.5 USD (по sell 44.6).
     const ops = [w.cross('USD', 1143.5, 'EUR', 1000, 51_000)];
@@ -162,45 +165,44 @@ describe('ПОВНА симуляція тижня обмінника (усі т
     w.openShift(prev, { operations: ops, cashMovements: moves });
     const res: any = await w.close();
 
-    // Крос: каса ВІДДАЄ USD і ПРИЙМАЄ EUR (клієнт дає євро, отримує долари).
-    // USD-плече: 1143.5 за ціною 51000/1143.5 проти собівартості 44 → ≈686.
-    // EUR-плече: придбали 1000 за 51 000 → собівартість 51.00, прибутку немає.
-    const crossPrice = 51_000 / 1143.5;
-    expect(Number(res.profit)).toBeCloseTo(1143.5 * (crossPrice - 44.0), 1);
-    expect(res.calcBalance.USD).toBeCloseTo(2000 - 1143.5, 1); // каса віддала долари
-    expect(res.calcBalance.EUR).toBeCloseTo(3000, 2);          // 2000 + 1000 отримано
-    profitSum += Number(res.profit);
+    // Каса віддала USD (числовник — без реалізації) і придбала EUR за прямим
+    // кросом 1143.5/1000 ≈ 1.1435 $/€ — прибуток стане при ПРОДАЖУ євро.
+    expect(Number(res.profit)).toBeCloseTo(0, 1);
+    expect(res.calcBalance.USD).toBeCloseTo(2000 - 1143.5, 1);
+    expect(res.calcBalance.EUR).toBeCloseTo(3000, 2);
+    expect(w.basisOf('EUR')).toBeCloseTo(1.1435, 3);
+    expect(res.netCashMovements).toEqual({ UAH: -100_000 });
+    profitUsdSum += Number(res.profitUsd);
   });
 
-  it('ЧТ: передача 1000 USD іншій касі + USDT-операція — жодне не є спредом', async () => {
+  it('ЧТ: передача, відкуп, продаж євро проти кросу, USDT-маржа', async () => {
     const prev = w.current().calcBalance;
     // Відправили 1000 USD на касу 9 (підтверджено).
     w.setTransfers([
       { currency: 'USD', amount: 1000, fromDeskId: 7, toDeskId: 9, counterCurrency: null, counterAmount: null, confirmedAt: w.stamp() },
     ]);
     const ops = [
-      w.buy('USD', 2000, 44.0),   // докупили долари (інакше передача завела б касу в мінус)
-      w.sell('EUR', 500, 51.8),
+      w.buy('USD', 2000, 44.0),  // відкуп → прибуток проти бази 44.6
+      w.sell('EUR', 500, 51.8),  // проти кросу ≈ 51/44.6
     ];
-    // USDT: продали 300 USDT за 13 500 UAH, маржа 150 грн.
-    const usdtOps = [w.usdt('SELL', 300, 'UAH', 13_500, 150)];
+    // USDT: продали 300 USDT за 13 500 UAH; маржа 150 ₴ ≈ 3.36 $.
+    const usdtOps = [w.usdt('SELL', 300, 'UAH', 13_500, 150, 150 / S)];
     w.openShift(prev, { operations: ops, usdtOperations: usdtOps });
     const res: any = await w.close();
 
-    // EUR-позиція: 2000 @51 (старт) + 1000 @51 (крос) → сер. 51.
-    // Продаж 500 × (51.80 − 51.00) = 400. Купівля USD прибутку не дає.
-    // + USDT-маржа 150 → 550.
-    expect(Number(res.profit)).toBeCloseTo(400 + 150, 1);
+    // Відкуп: 2000 − 88000/44.6 ≈ 26.91 $ (1200 ₴); EUR: 500 × (51.8/44.6 − ~1.1435) ≈ 8.97 $ (~400 ₴).
+    const buyback = 2000 - 88_000 / S;
+    expect(Number(res.profit)).toBeCloseTo(1200 + 400 + 150, 0);
+    expect(Number(res.profitUsd)).toBeCloseTo(buyback + 400 / S + 150 / S, 1);
     expect(res.profitByCurrency.USDT).toBeCloseTo(150, 2);
+    expect(res.profitByCurrencyUsd.USDT).toBeCloseTo(150 / S, 4);
     // Передача зменшила залишок, але не прибуток.
     expect(res.netTransfers).toEqual({ USD: -1000 });
     expect(res.calcBalance.USD).toBeCloseTo(856.5 + 2000 - 1000, 1);
-    profitSum += Number(res.profit);
-    usdtSum += 150;
-    w.setTransfers([]);
+    profitUsdSum += Number(res.profitUsd);
   });
 
-  it('ПТ: своп із іншою касою (USD ↔ EUR) — рух валюти без прибутку', async () => {
+  it('ПТ: своп USD↔EUR — рух валюти без прибутку; продаж USD — 0', async () => {
     const prev = w.current().calcBalance;
     // Отримали 2000 USD, віддали 1500 EUR (зустрічне плече свопу).
     w.setTransfers([
@@ -210,14 +212,14 @@ describe('ПОВНА симуляція тижня обмінника (усі т
     w.openShift(prev, { operations: ops, usdtOperations: [] });
     const res: any = await w.close();
 
-    // Своп не дає прибутку; продаж 1000 USD проти собівартості 44 → +600.
-    expect(Number(res.profit)).toBeCloseTo(600, 1);
+    // Своп не дає прибутку; продаж USD — 0 (стара WAC дала б +600 ₴).
+    expect(Number(res.profit)).toBeCloseTo(0, 1);
     expect(res.netTransfers).toEqual({ USD: 2000, EUR: -1500 });
-    profitSum += Number(res.profit);
+    profitUsdSum += Number(res.profitUsd);
     w.setTransfers([]);
   });
 
-  it('СБ: нестача касира — торговий прибуток чистий, нестача окремо (за курсом продажу)', async () => {
+  it('СБ: купівля+продаж євро в одній зміні; нестача касира — окремо від торгового', async () => {
     const prev = w.current().calcBalance;
     const ops = [w.buy('EUR', 1000, 51.0), w.sell('EUR', 800, 51.8)];
     w.openShift(prev, { operations: ops });
@@ -232,16 +234,17 @@ describe('ПОВНА симуляція тижня обмінника (усі т
       USD: expectedUsd - 100, // нестача 100 USD
     });
 
-    // Торговий: EUR 800 × (51.80 − 51.00) = 640 (собівартість 51 і в старту, і в купівлі).
-    expect(Number(res.profit)).toBeCloseTo(640, 1);
-    // Фактичний = торговий − 100 × 44.60 (курс ПРОДАЖУ) = 640 − 4460.
-    expect(Number(res.factualProfit)).toBeCloseTo(640 - 100 * 44.6, 1);
-    profitSum += Number(res.profit);
-    shortageSum += Number(res.factualProfit) - Number(res.profit);
+    // Торговий: EUR 800 × (51.8 − 51)/44.6 ≈ 14.35 $ (≈640 ₴) — крос і в старту, і в купівлі ≈ 51/44.6.
+    expect(Number(res.profit)).toBeCloseTo(640, 0);
+    // Фактичний = торговий − 100 × 44.60 (курс ПРОДАЖУ).
+    expect(Number(res.factualProfit)).toBeCloseTo(Number(res.profit) - 100 * S, 1);
+    expect(Number(res.factualProfitUsd)).toBeCloseTo(Number(res.profitUsd) - 100, 2);
+    profitUsdSum += Number(res.profitUsd);
+    shortageUsd += -100;
     expect(shift.status).toBe('CLOSED');
   });
 
-  it('НД: розпродаж — прибуток проти перенесеної собівартості', async () => {
+  it('НД: розпродаж — USD дає 0 (числовник), євро реалізує проти кросу', async () => {
     const prev = w.current().endBalance;
     const usd = Number(prev.USD ?? 0);
     const eur = Number(prev.EUR ?? 0);
@@ -249,42 +252,33 @@ describe('ПОВНА симуляція тижня обмінника (усі т
     w.openShift(prev, { operations: ops });
     const res: any = await w.close();
 
-    // Уся решта продана проти собівартості 44 (USD) і 51 (EUR).
-    expect(Number(res.profit)).toBeCloseTo(usd * (44.6 - 44.0) + eur * (51.8 - 51.0), 1);
+    // Лише євро: eur × (51.8 − 51)/44.6 у $; USD-продаж — 0.
+    expect(Number(res.profitUsd)).toBeCloseTo((eur * (51.8 - 51.0)) / S, 0);
     expect(res.calcBalance.USD).toBeCloseTo(0, 6);
     expect(res.calcBalance.EUR).toBeCloseTo(0, 6);
-    profitSum += Number(res.profit);
+    profitUsdSum += Number(res.profitUsd);
   });
 
-  it('ІНВАРІАНТ: Σ прибутків == реальне збагачення каси (гроші не вигадані й не загублені)', () => {
+  it('ІНВАРІАНТ: Σ прибутків ($) == реальне збагачення каси в доларах', () => {
     const end = w.current().calcBalance as Record<string, number>;
 
-    // Скільки грошей реально прийшло/пішло НЕ через торгівлю:
-    //  • підкріплення 3000 USD (Вт) — зайшло в касу ззовні;
-    //  • інкасація 100 000 UAH (Ср) — пішла з каси;
-    //  • передача −1000 USD (Чт), своп +2000 USD / −1500 EUR (Пт);
-    //  • USDT: у касу зайшло 13 500 UAH готівки, з них 150 — маржа (торгівля),
-    //    решта 13 350 — обмін на USDT з гаманця (не торгівля);
+    // Оцінка каси за принципом власника: гривня ÷ 44.6, євро × крос, USD як є.
+    const val = (b: Record<string, number>) =>
+      tillUsdValue(b, { UAH: S, EUR: EUR_X }).total;
+
+    // Скільки грошей реально прийшло/пішло НЕ через торгівлю (у $):
+    //  • підкріплення 3000 USD (Вт); інкасація 100 000 UAH (Ср);
+    //  • передача −1000 USD (Чт); своп +2000 USD / −1500 EUR (Пт);
+    //  • USDT: у касу зайшло 13 500 UAH готівки, з них ~3.36 $ — маржа (торгівля),
+    //    решта — обмін на USDT з гаманця (не торгівля);
     //  • нестача касира 100 USD (Сб).
-    const cost = { UAH: 1, USD: 44.0, EUR: 51.0 }; // собівартість позицій
-    const nonTrade = {
-      // інкасація 100 000 грн + готівка від USDT (13 500) без торгової маржі (150)
-      UAH: -100_000 + (13_500 - 150),
-      // підкріплення 3000 − передача 1000 + своп 2000 − нестача 100
-      USD: 3000 - 1000 + 2000 - 100,
-      EUR: -1500, // своп: віддали євро
-    };
+    const nonTrade =
+      3000 - 100_000 / S - 1000 + 2000 - 1500 * EUR_X + (13_500 / S - 150 / S) - 100;
 
-    const startValue = valueOf(startBal, cost);
-    const endValue = valueOf(end, cost);
-    const nonTradeValue = valueOf(nonTrade, cost);
+    const enrichment = val(end) - val(startBal) - nonTrade;
 
-    // Збагачення від ТОРГІВЛІ = приріст вартості каси − усе неторгове.
-    const enrichment = endValue - startValue - nonTradeValue;
-
-    // Воно має дорівнювати сумі торгових прибутків змін (нестача врахована в nonTrade).
-    expect(enrichment).toBeCloseTo(profitSum, 0);
-    expect(usdtSum).toBeCloseTo(150, 2);
-    expect(shortageSum).toBeCloseTo(-100 * 44.6, 1);
+    // Збагачення від ТОРГІВЛІ має дорівнювати сумі прибутків змін у $.
+    expect(enrichment).toBeCloseTo(profitUsdSum, 0);
+    expect(shortageUsd).toBeCloseTo(-100, 6);
   });
 });

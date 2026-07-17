@@ -6,7 +6,7 @@ import { applyCashMovements } from '../../lib/cash-movements';
 import { netTransfers } from '../../lib/transfers';
 import { usdtCashDelta } from '../../lib/usdt';
 import { printReceipt } from '../cashier/OperationsList';
-import { usdtProfit } from '../../lib/usdt';
+import { usdtProfit, usdtProfitUsd } from '../../lib/usdt';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   OPEN: { label: 'Відкрита', cls: 'bg-green-100 text-green-700' },
@@ -40,16 +40,12 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   // Вид звіту зміни: коротка друкована (зведення), повна друкована (зі списками
   // документів), JSON (ті самі дані для розробника/аналізу).
   const [reportKind, setReportKind] = useState<'short' | 'full' | 'json'>('short');
-  // «Маржа з відкупу» — додатковий показник, показуємо лише якщо ввімкнено в налаштуваннях.
-  const [showBuyback, setShowBuyback] = useState(false);
-
   useEffect(() => {
     api.get(`/shifts/${shiftId}`).then(({ data }) => setD(data)).catch(() => setD(null));
   }, [shiftId]);
 
   useEffect(() => {
     api.get('/settings/org-name').then(({ data }) => setOrgName(data.name ?? '')).catch(() => {});
-    api.get('/settings/buyback-margin').then(({ data }) => setShowBuyback(!!data.enabled)).catch(() => {});
   }, []);
 
   if (!d) return <div className="text-sm text-gray-400 py-3 px-1">Завантаження деталей...</div>;
@@ -123,17 +119,24 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
     const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
     const tm = (s: string) => format(new Date(s), 'HH:mm');
 
-    // Прибуток по валютах = сума op.profit (реалізований WAC), USDT — окремо.
+    // Прибуток по валютах ($-числовник: op.profitUsd нативний, op.profit — ₴-знімок).
     const realizedByCur: Record<string, number> = {};
+    const realizedByCurUsd: Record<string, number> = {};
     let realizedTotal = 0;
+    let realizedTotalUsd = 0;
     for (const op of ops) {
       if (op.cancelled) continue;
       const p = num(op.profit);
+      const pu = num(op.profitUsd);
       realizedByCur[op.currency] = (realizedByCur[op.currency] ?? 0) + p;
+      realizedByCurUsd[op.currency] = (realizedByCurUsd[op.currency] ?? 0) + pu;
       realizedTotal += p;
+      realizedTotalUsd += pu;
     }
     const usdtMargin = usdtProfit(usdtOps as any);
+    const usdtMarginUsd = usdtProfitUsd(usdtOps as any);
     const tradingProfit = realizedTotal + usdtMargin;
+    const tradingProfitUsd = realizedTotalUsd + usdtMarginUsd;
 
     const tradeRows = tradeStats.map((r) => `
       <tr><td class="b">${r.cur}</td>
@@ -145,10 +148,12 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
         <td class="num">${r.soldQty > 0 ? n2(r.soldUah) : '—'}</td>
       </tr>`).join('');
 
-    const profitCurs = Object.keys(realizedByCur).filter((c) => Math.abs(realizedByCur[c]) >= 0.005).sort();
+    const profitCurs = Object.keys(realizedByCur)
+      .filter((c) => Math.abs(realizedByCur[c]) >= 0.005 || Math.abs(realizedByCurUsd[c] ?? 0) >= 0.005)
+      .sort();
     const profitRows = profitCurs.map((c) => `
-      <tr><td class="b">${c}</td><td class="num">${(realizedByCur[c] > 0 ? '+' : '') + n2(realizedByCur[c])}</td></tr>`).join('')
-      + (Math.abs(usdtMargin) >= 0.005 ? `<tr><td class="b">USDT</td><td class="num">${(usdtMargin > 0 ? '+' : '') + n2(usdtMargin)}</td></tr>` : '');
+      <tr><td class="b">${c}</td><td class="num">${((realizedByCurUsd[c] ?? 0) > 0 ? '+' : '') + n2(realizedByCurUsd[c] ?? 0)}</td><td class="num">${(realizedByCur[c] > 0 ? '+' : '') + n2(realizedByCur[c])}</td></tr>`).join('')
+      + (Math.abs(usdtMargin) >= 0.005 ? `<tr><td class="b">USDT</td><td class="num">${(usdtMarginUsd > 0 ? '+' : '') + n2(usdtMarginUsd)}</td><td class="num">${(usdtMargin > 0 ? '+' : '') + n2(usdtMargin)}</td></tr>` : '');
 
     const balanceRows = currencies.map((c) => {
       const o = Math.round(num(start[c])); const e = Math.round(num(expected[c]));
@@ -277,8 +282,8 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
       <div class="section">
         <h2>Прибуток за зміну (по валютах)</h2>
         <table>
-          <thead><tr><th>Валюта</th><th>Прибуток, ₴</th></tr></thead>
-          <tbody>${profitRows || '<tr><td colspan="2" style="text-align:center;color:#888">—</td></tr>'}</tbody>
+          <thead><tr><th>Валюта</th><th>Прибуток, $</th><th>Прибуток, ₴</th></tr></thead>
+          <tbody>${profitRows || '<tr><td colspan="3" style="text-align:center;color:#888">—</td></tr>'}</tbody>
         </table>
       </div>
 
@@ -291,9 +296,10 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
       </div>
 
       <div class="totals">
-        <div><span>Торговий прибуток (спред + USDT)</span><span>${tradingProfit >= 0 ? '+' : ''}${n2(tradingProfit)} ₴</span></div>
-        ${Math.abs(usdtMargin) >= 0.005 ? `<div><span>у т.ч. маржа USDT</span><span>${usdtMargin >= 0 ? '+' : ''}${n2(usdtMargin)} ₴</span></div>` : ''}
-        ${closed ? `<div class="line"><span>Прибуток зміни (збережено)</span><span>${num(d.profit) >= 0 ? '+' : ''}${n2(d.profit)} ₴</span></div>` : ''}
+        <div><span>Торговий прибуток</span><span>${tradingProfitUsd >= 0 ? '+' : ''}${n2(tradingProfitUsd)} $ (${tradingProfit >= 0 ? '+' : ''}${n2(tradingProfit)} ₴)</span></div>
+        ${Math.abs(usdtMargin) >= 0.005 ? `<div><span>у т.ч. маржа USDT</span><span>${usdtMarginUsd >= 0 ? '+' : ''}${n2(usdtMarginUsd)} $ (${usdtMargin >= 0 ? '+' : ''}${n2(usdtMargin)} ₴)</span></div>` : ''}
+        ${closed ? `<div class="line"><span>Прибуток зміни (збережено)</span><span>${num(d.profitUsd) >= 0 ? '+' : ''}${n2(d.profitUsd)} $ (${num(d.profit) >= 0 ? '+' : ''}${n2(d.profit)} ₴)</span></div>` : ''}
+        ${closed && d.tillUsd?.total != null ? `<div><span>Каса в доларах</span><span>${n2(d.tillUsd.total)} $</span></div>` : ''}
       </div>
 
       ${full ? `
@@ -432,15 +438,15 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
         {closed && (
           <div className="text-sm text-gray-600 mt-2 pt-2 border-t space-y-1">
             <div>
-              Прибуток зміни: <span className={`font-bold ${num(d.profit) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {num(d.profit) >= 0 ? '+' : ''}{fmt(d.profit)} ₴
+              Прибуток зміни: <span className={`font-bold ${num(d.profitUsd) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {num(d.profitUsd) >= 0 ? '+' : ''}{num(d.profitUsd).toFixed(2)} $
               </span>
+              <span className="text-gray-400"> ({num(d.profit) >= 0 ? '+' : ''}{fmt(d.profit)} ₴)</span>
             </div>
-            {showBuyback && d.buybackMargin != null && (
-              <div title="Заробіток кільця «продав валюту → відкупив на виручену гривню». Не входить у фінанси.">
-                Маржа з відкупу: <span className={`font-bold ${num(d.buybackMargin) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                  {num(d.buybackMargin) >= 0 ? '+' : ''}{fmt(d.buybackMargin)} ₴
-                </span>
+            {d.tillUsd?.total != null && (
+              <div title="Каса в доларах: USD/USDT як є, гривня ÷ сер. курс, валюти × $-собівартість.">
+                🧮 Каса в доларах: <span className="font-bold text-blue-700">{num(d.tillUsd.total).toFixed(2)} $</span>
+                {d.tillUsd.usdSellRate ? <span className="text-gray-400"> (курс {num(d.tillUsd.usdSellRate).toFixed(2)})</span> : null}
               </div>
             )}
           </div>
@@ -768,8 +774,11 @@ export default function ShiftsAdmin() {
                     </div>
                   </div>
                   {s.status === 'CLOSED' && (
-                    <span className={`text-sm font-bold flex-shrink-0 ${num(s.profit) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {num(s.profit) >= 0 ? '+' : ''}{fmt(s.profit)} ₴
+                    <span className={`text-sm font-bold flex-shrink-0 text-right ${num(s.profitUsd) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {num(s.profitUsd) >= 0 ? '+' : ''}{num(s.profitUsd).toFixed(2)} $
+                      <div className="text-xs font-medium text-gray-400">
+                        {num(s.profit) >= 0 ? '+' : ''}{fmt(s.profit)} ₴
+                      </div>
                     </span>
                   )}
                 </button>

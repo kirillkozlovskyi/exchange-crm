@@ -521,7 +521,6 @@ export default function OperationsSettings() {
   const [seeBank, setSeeBank] = useState<boolean>(false);
   const [seeProfit, setSeeProfit] = useState<boolean>(true);
   const [bankEnabled, setBankEnabled] = useState<boolean>(true);
-  const [buyback, setBuyback] = useState<boolean>(false);
   const [canExpenses, setCanExpenses] = useState<boolean>(false);
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -533,15 +532,13 @@ export default function OperationsSettings() {
       api.get('/settings/cashier-see-bank'),
       api.get('/settings/cashier-see-profit'),
       api.get('/settings/cash-bank-enabled'),
-      api.get('/settings/buyback-margin'),
       api.get('/settings/cashier-expenses'),
-    ]).then(([s, b, k, p, cb, bm, ce]) => {
+    ]).then(([s, b, k, p, cb, ce]) => {
       setMinutes(s.data.minutes);
       setBalanceEdit(b.data.enabled);
       setSeeBank(k.data.enabled);
       setSeeProfit(p.data.enabled);
       setBankEnabled(cb.data.enabled);
-      setBuyback(bm.data.enabled);
       setCanExpenses(ce.data.enabled);
     });
   }, []);
@@ -556,7 +553,6 @@ export default function OperationsSettings() {
         api.put('/settings/cashier-see-bank', { enabled: seeBank }),
         api.put('/settings/cashier-see-profit', { enabled: seeProfit }),
         api.put('/settings/cash-bank-enabled', { enabled: bankEnabled }),
-        api.put('/settings/buyback-margin', { enabled: buyback }),
         api.put('/settings/cashier-expenses', { enabled: canExpenses }),
       ]);
       setSaved(true);
@@ -665,21 +661,6 @@ export default function OperationsSettings() {
             </p>
           </div>
           <Toggle enabled={bankEnabled} onChange={setBankEnabled} />
-        </div>
-
-        <div className="border-t border-gray-100" />
-
-        {/* Маржа з відкупу — додатковий показник поруч із прибутком */}
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-1">
-            <p className="text-sm font-medium text-gray-700">Показувати «маржу з відкупу»</p>
-            <p className="text-xs text-gray-400">
-              Додатковий показник поруч із прибутком: заробіток кільця «продав валюту → відкупив
-              її на виручену гривню». Продаж сам по собі маржі не дає — вона виникає при відкупі.
-              На фінанси й прибуток зміни не впливає.
-            </p>
-          </div>
-          <Toggle enabled={buyback} onChange={setBuyback} />
         </div>
 
         <div className="flex items-center gap-3 pt-1">

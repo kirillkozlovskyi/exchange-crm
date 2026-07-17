@@ -1,6 +1,6 @@
-// Оцінка залишків каси в гривні — для нестачі/надлишку при закритті зміни
-// (дзеркало backend/common/profit.util.ts). Прибуток тут НЕ рахується: він
-// приходить із сервера (op.profit за WAC).
+// Оцінка залишків каси — для нестачі/надлишку при закритті зміни та «каси в
+// доларах» (дзеркало backend/common/profit.util.ts + wac-profit.util.ts).
+// Прибуток тут НЕ рахується: він приходить із сервера (op.profitUsd/op.profit).
 
 export function midRates(
   rates: { currency: string; buy: number | string; sell: number | string }[],
@@ -30,4 +30,37 @@ export function valueOf(
     (sum, [cur, amt]) => sum + Number(amt) * (valuation[cur] ?? 0),
     0,
   );
+}
+
+/** Активний курс продажу USD точки (S — база $-числовника). */
+export function activeUsdSell(
+  rates: { currency: string; buy: number | string; sell: number | string }[],
+): number {
+  const usd = rates.find((r) => r.currency === 'USD');
+  return usd ? Number(usd.sell) : 0;
+}
+
+/**
+ * «Каса в доларах» — підсумок каси за принципом власника (дзеркало backend
+ * tillUsdValue): USD і USDT — як є; UAH — ÷ сер. курс (₴/$); інші валюти —
+ * × їх $-крос-собівартість. basis — людський формат (UAH: 44.95, EUR: 1.1420).
+ * Валюта без бази оцінюється в 0 (чесний нуль, а не вигадана вартість).
+ */
+export function tillUsd(
+  balance: Record<string, number>,
+  basis: Record<string, number>,
+): { byCurrency: Record<string, number>; total: number } {
+  const byCurrency: Record<string, number> = {};
+  let total = 0;
+  for (const [cur, raw] of Object.entries(balance)) {
+    const qty = Number(raw);
+    if (!Number.isFinite(qty) || qty === 0) continue;
+    let usd = 0;
+    if (cur === 'USD' || cur === 'USDT') usd = qty;
+    else if (cur === 'UAH') usd = basis.UAH > 0 ? qty / basis.UAH : 0;
+    else usd = qty * (basis[cur] > 0 ? basis[cur] : 0);
+    byCurrency[cur] = usd;
+    total += usd;
+  }
+  return { byCurrency, total };
 }

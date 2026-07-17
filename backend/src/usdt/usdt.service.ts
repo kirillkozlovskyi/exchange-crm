@@ -252,6 +252,8 @@ export class UsdtService {
     const marginUsd = side === 'SELL' ? settleUsd - usdtAmount : usdtAmount - settleUsd;
     // Немає курсу для конвертації — маржу не оцінюємо (0), щоб не вигадувати.
     const profitUah = Number.isFinite(marginUsd) ? round2(marginUsd * usd.mid) : 0;
+    // Нативна маржа у $ ($-числовник): та сама величина без конвертації.
+    const profitUsd = Number.isFinite(marginUsd) ? round2(marginUsd) : 0;
 
     // Джерело USDT: гаманець точки чи глобальний банк (налаштування).
     const source = await this.getSource();
@@ -331,6 +333,7 @@ export class UsdtService {
           settleAmount,
           settleRate,
           profitUah,
+          profitUsd,
           note: dto.note,
           shiftId: shift.id,
           cashDeskId: shift.cashDeskId,

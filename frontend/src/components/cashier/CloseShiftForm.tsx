@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
-import { sellRates, valueOf } from '../../lib/profit';
+import { sellRates, valueOf, activeUsdSell, tillUsd } from '../../lib/profit';
 import { netTransfers, type TransferRow } from '../../lib/transfers';
 import { cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
-import { usdtCashDelta, usdtProfit, type UsdtOpRow } from '../../lib/usdt';
+import { usdtCashDelta, usdtProfit, usdtProfitUsd, type UsdtOpRow } from '../../lib/usdt';
 import { shiftCashBalance } from '../../lib/shift-balance';
 import { fmtMoney, fmtNum } from '../../lib/format';
 
@@ -18,7 +18,8 @@ type Operation = {
   payCurrency?: string | null;
   payAmount?: string | number | null;
   cancelled?: boolean;
-  profit?: string | number | null;
+  profit?: string | number | null;     // ₴-знімок (за курсом моменту операції)
+  profitUsd?: string | number | null;  // нативний $ ($-числовник)
   createdAt: string;
 };
 
@@ -109,6 +110,7 @@ export default function CloseShiftForm({
   // USDT: фізична готівка (settleCurrency) — торгова, входить у прибуток окремою маржею.
   const usdtNet = useMemo(() => usdtCashDelta(usdtOperations), [usdtOperations]);
   const usdtMargin = useMemo(() => usdtProfit(usdtOperations), [usdtOperations]);
+  const usdtMarginUsd = useMemo(() => usdtProfitUsd(usdtOperations), [usdtOperations]);
 
   // ── Залишок до руху готівки (початок + операції) — база для прибутку ───────
   const opsBalance = useMemo(
@@ -172,23 +174,30 @@ export default function CloseShiftForm({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
-  // ── Прибуток = реалізований WAC (сума op.profit, рахує сервер) ──────────────
-  // Нестача/надлишок оцінюються за курсом ПРОДАЖУ (як на сервері).
+  // ── Прибуток = реалізований за $-числовником (op.profitUsd — нативний $,
+  // op.profit — ₴-знімок; рахує сервер). Нестача/надлишок — за курсом ПРОДАЖУ.
   const valuation = useMemo(() => sellRates(rates), [rates]);
-  // Торговий прибуток по валютах = сума op.profit (продаж проти собівартості,
-  // позиція переноситься між змінами). Розбивка — по валюті операції.
+  const usdSell = useMemo(() => activeUsdSell(rates as any), [rates]);
+  // Торговий прибуток по валютах: відкуп реалізує проти сер. курсу гривні,
+  // продаж валюти — проти її $-кросу. Розбивка — по валюті операції.
   const realized = useMemo(() => {
     const byCurrency: Record<string, number> = {};
+    const byCurrencyUsd: Record<string, number> = {};
     let total = 0;
+    let totalUsd = 0;
     for (const op of shift.operations) {
       if (op.cancelled) continue;
       const p = Number(op.profit ?? 0);
+      const pu = Number(op.profitUsd ?? 0);
       byCurrency[op.currency] = (byCurrency[op.currency] ?? 0) + p;
+      byCurrencyUsd[op.currency] = (byCurrencyUsd[op.currency] ?? 0) + pu;
       total += p;
+      totalUsd += pu;
     }
-    return { total, byCurrency };
+    return { total, totalUsd, byCurrency, byCurrencyUsd };
   }, [shift]);
   const tradingProfit = realized.total + usdtMargin;
+  const tradingProfitUsd = realized.totalUsd + usdtMarginUsd;
   const endBalParsed = useMemo(
     () => Object.fromEntries(Object.entries(endBal).map(([k, v]) => [k, parseFloat(v) || 0])),
     [endBal],
@@ -201,8 +210,10 @@ export default function CloseShiftForm({
     for (const [cur, d] of Object.entries(moveNet)) eff[cur] = (eff[cur] ?? 0) - d; // IN(+)→прибрати, OUT(−)→повернути
     return eff;
   }, [endBalParsed, net, moveNet]);
-  // Фактичний = торговий прибуток + нестача/надлишок каси (за серединним курсом).
-  const factualProfit = tradingProfit + (valueOf(factualEnd, valuation) - valueOf(expectedTrading, valuation));
+  // Фактичний = торговий прибуток + нестача/надлишок каси (за курсом продажу).
+  const surplusShort = valueOf(factualEnd, valuation) - valueOf(expectedTrading, valuation);
+  const factualProfit = tradingProfit + surplusShort;
+  const factualProfitUsd = tradingProfitUsd + (usdSell > 0 ? surplusShort / usdSell : 0);
 
   // Чи були передачі/рух готівки взагалі (для умовного показу колонки/рядка)
   const hasTransfers = Object.values(net).some((v) => Math.abs(v) >= 0.005);
@@ -292,21 +303,22 @@ export default function CloseShiftForm({
       .sort((a, b) => a.cur.localeCompare(b.cur));
   }, [shift]);
 
-  // Прибуток по кожній валюті = реалізований спред «з відкупу» (відкуплено ×
-  // (сер.продаж − сер.купівля)); крос — різниця за серединним курсом.
-  // Непокрита позиція не оцінюється. Сума рядків = торговий прибуток.
+  // Прибуток по кожній валюті ($-числовник): відкуп USD реалізує проти сер.
+  // курсу гривні (рядок USD), продаж валюти — проти її $-кросу. Рядок UAH
+  // показує сер. курс (базу гривні) — головне редаговане поле моделі.
   const profitRows = useMemo(() => {
     const rows = currencies
-      .filter((cur) => cur !== 'UAH')
       .map((cur) => {
         const open = Number(startBal[cur] ?? 0);
         const close = calcBalance[cur] ?? 0;          // показуємо очікуваний (після руху готівки)
         const transfer = net[cur] ?? 0;
         const movement = moveNet[cur] ?? 0;           // рух готівки (підкр. +, інкас. −)
         const profitUah = realized.byCurrency[cur] ?? 0;
-        return { cur, open, close, transfer, movement, profitUah };
+        const profitUsd = realized.byCurrencyUsd[cur] ?? 0;
+        return { cur, open, close, transfer, movement, profitUah, profitUsd };
       })
       .filter((r) =>
+        r.cur === 'UAH' || // сер. курс гривні показуємо завжди
         Math.abs(r.profitUah) >= 0.005 ||
         Math.abs(r.transfer) >= 0.005 ||
         Math.abs(r.movement) >= 0.005 ||
@@ -314,10 +326,23 @@ export default function CloseShiftForm({
       );
     // USDT-маржа — окремим рядком (гаманець не входить у фізичну касу).
     if (Math.abs(usdtMargin) >= 0.005) {
-      rows.push({ cur: 'USDT', open: 0, close: 0, transfer: 0, movement: 0, profitUah: usdtMargin });
+      rows.push({ cur: 'USDT', open: 0, close: 0, transfer: 0, movement: 0, profitUah: usdtMargin, profitUsd: usdtMarginUsd });
     }
     return rows;
-  }, [currencies, startBal, calcBalance, net, moveNet, realized, usdtMargin]);
+  }, [currencies, startBal, calcBalance, net, moveNet, realized, usdtMargin, usdtMarginUsd]);
+
+  // «Каса в доларах» — підсумок каси за принципом власника: за введеним
+  // фактичним залишком і поточною собівартістю (з урахуванням локальних правок).
+  const tillBasis = useMemo(() => {
+    const b: Record<string, number> = {};
+    for (const cur of currencies) {
+      const v = parseFloat(basisEdit[cur] ?? (costBasisLive[cur] != null ? String(costBasisLive[cur]) : ''));
+      if (v > 0) b[cur] = v;
+    }
+    return b;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currencies, basisEdit, costBasisLive]);
+  const till = useMemo(() => tillUsd(endBalParsed, tillBasis), [endBalParsed, tillBasis]);
 
   // ── Друк звіту по зміні (А4) ─────────────────────────────────────────────
   const printReport = () => {
@@ -340,7 +365,17 @@ export default function CloseShiftForm({
         <td class="num">${Math.abs(r.transfer) >= 0.005 ? (r.transfer > 0 ? '+' : '') + n(r.transfer) : '—'}</td>
         <td class="num">${Math.abs(r.movement) >= 0.005 ? (r.movement > 0 ? '+' : '') + n(r.movement) : '—'}</td>
         <td class="num">${n(r.close)}</td>
+        <td class="num">${Math.abs(r.profitUsd) >= 0.005 ? (r.profitUsd > 0 ? '+' : '') + n(r.profitUsd) : '—'}</td>
         <td class="num">${Math.abs(r.profitUah) >= 0.005 ? (r.profitUah > 0 ? '+' : '') + n(r.profitUah) : '—'}</td>
+      </tr>`).join('');
+    const tillRowsHtml = Object.entries(till.byCurrency)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([cur, v]) => `
+      <tr>
+        <td class="b">${cur}</td>
+        <td class="num">${n(endBalParsed[cur] ?? 0)}</td>
+        <td class="num">${cur === 'UAH' ? '÷ ' + (tillBasis.UAH ?? '—') : cur === 'USD' || cur === 'USDT' ? '1:1' : '× ' + n(tillBasis[cur] ?? 0, 4)}</td>
+        <td class="num">${n(v)}</td>
       </tr>`).join('');
     const balanceRows = currencies.map((cur) => {
       const start = Math.round(Number(startBal[cur] ?? 0));
@@ -400,9 +435,21 @@ export default function CloseShiftForm({
         <h2>Прибуток за зміну (по валютах)</h2>
         <table>
           <thead><tr>
-            <th>Валюта</th><th>Відкриття</th><th>Передачі</th><th>Підкр./Інкас.</th><th>Закриття</th><th>Прибуток, ₴</th>
+            <th>Валюта</th><th>Відкриття</th><th>Передачі</th><th>Підкр./Інкас.</th><th>Закриття</th><th>Прибуток, $</th><th>Прибуток, ₴</th>
           </tr></thead>
-          <tbody>${profitRowsHtml || '<tr><td colspan="6" style="text-align:center;color:#888">—</td></tr>'}</tbody>
+          <tbody>${profitRowsHtml || '<tr><td colspan="7" style="text-align:center;color:#888">—</td></tr>'}</tbody>
+        </table>
+      </div>` : ''}
+
+      ${showProfit ? `<div class="section">
+        <h2>Каса в доларах</h2>
+        <table>
+          <thead><tr>
+            <th>Валюта</th><th>Залишок</th><th>Курс/крос</th><th>У доларах</th>
+          </tr></thead>
+          <tbody>${tillRowsHtml || '<tr><td colspan="4" style="text-align:center;color:#888">—</td></tr>'}
+            <tr><td class="b" colspan="3">Разом у доларах</td><td class="num b">${n(till.total)}</td></tr>
+          </tbody>
         </table>
       </div>` : ''}
 
@@ -417,10 +464,10 @@ export default function CloseShiftForm({
       </div>
 
       <div class="totals">
-        ${showProfit ? `<div><span>Торговий прибуток</span><span>${tradingProfit >= 0 ? '+' : ''}${n(tradingProfit)} ₴</span></div>` : ''}
-        ${showProfit && Math.abs(usdtMargin) >= 0.005 ? `<div><span>у т.ч. маржа USDT</span><span>${usdtMargin >= 0 ? '+' : ''}${n(usdtMargin)} ₴</span></div>` : ''}
+        ${showProfit ? `<div><span>Торговий прибуток</span><span>${tradingProfitUsd >= 0 ? '+' : ''}${n(tradingProfitUsd)} $ (${tradingProfit >= 0 ? '+' : ''}${n(tradingProfit)} ₴)</span></div>` : ''}
+        ${showProfit && Math.abs(usdtMargin) >= 0.005 ? `<div><span>у т.ч. маржа USDT</span><span>${usdtMarginUsd >= 0 ? '+' : ''}${n(usdtMarginUsd)} $ (${usdtMargin >= 0 ? '+' : ''}${n(usdtMargin)} ₴)</span></div>` : ''}
         ${Math.abs(cashDiff) >= 0.01 ? `<div><span>Нестача/надлишок каси</span><span>${cashDiff >= 0 ? '+' : ''}${n(cashDiff)} ₴</span></div>` : ''}
-        ${showProfit ? `<div class="line"><span>Фактичний результат</span><span>${factualProfit >= 0 ? '+' : ''}${n(factualProfit)} ₴</span></div>` : ''}
+        ${showProfit ? `<div class="line"><span>Фактичний результат</span><span>${factualProfitUsd >= 0 ? '+' : ''}${n(factualProfitUsd)} $ (${factualProfit >= 0 ? '+' : ''}${n(factualProfit)} ₴)</span></div>` : ''}
       </div>
 
       <div class="sign">
@@ -462,13 +509,15 @@ export default function CloseShiftForm({
   };
 
   // Застосувати відредагований сер. курс: зібрати додатні значення по валютах
-  // і відправити на перерахунок. Після успіху скидаємо локальні правки — форма
-  // перемалюється з новими costBasisLive та op.profit (сервер перерахував).
+  // і відправити на перерахунок. UAH — сер. курс гривні (₴/$, головне поле
+  // моделі); USD — числовник (бази не має); USDT — окремий гаманець. Після
+  // успіху скидаємо локальні правки — форма перемалюється з новими
+  // costBasisLive та op.profit(Usd) (сервер перерахував).
   const applyBasis = async () => {
     if (!onRecalcBasis) return;
     const basis: Record<string, number> = {};
     for (const cur of currencies) {
-      if (cur === 'UAH' || cur === 'USDT') continue;
+      if (cur === 'USD' || cur === 'USDT') continue;
       const v = parseFloat(basisValue(cur));
       if (v > 0) basis[cur] = v;
     }
@@ -483,7 +532,9 @@ export default function CloseShiftForm({
     return Math.abs(actual - expected) >= 1;
   });
 
-  const cashDiff = factualProfit - tradingProfit;
+  const cashDiff = surplusShort;
+  // Формат $: два знаки, зі знаком.
+  const usd = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)} $`;
 
   return (
     <div className="w-full space-y-2.5 pb-24">
@@ -583,9 +634,9 @@ export default function CloseShiftForm({
           <div className="bg-white rounded-xl shadow p-4">
             <h3 className="font-semibold text-gray-800 mb-1">Прибуток за зміну</h3>
             <p className="text-xs text-gray-400 mb-3">
-              Прибуток реалізується при продажу проти собівартості; позиція й
-              собівартість переносяться між змінами (продаж наявного запасу дає
-              прибуток одразу). Купівля лише оновлює собівартість.
+              Каса міряється в доларах: продаж USD формує сер. курс гривні, прибуток
+              реалізується на ВІДКУПІ (купівля USD дешевше за сер. курс) та при
+              продажу валют проти їх $-собівартості (крос).
               {Math.abs(usdtMargin) >= 0.005 && ' USDT — чиста маржа %.'}
               {hasTransfers && ' Передачі між касами не входять у прибуток.'}
               {hasMovements && ' Підкріплення/інкасації не входять у прибуток.'}
@@ -599,8 +650,8 @@ export default function CloseShiftForm({
                   {hasTransfers && <th className="pb-2 text-right">Передачі</th>}
                   {hasMovements && <th className="pb-2 text-right">Підкр./Інкас.</th>}
                   <th className="pb-2 text-right">Закриття</th>
-                  <th className="pb-2 text-right" title="Середня собівартість — курс, проти якого рахується прибуток">Сер. курс</th>
-                  <th className="pb-2 text-right">Прибуток&nbsp;₴</th>
+                  <th className="pb-2 text-right" title="Собівартість: UAH — сер. курс проданого долара (₴/$); валюти — вартість у $ за 1 од.">Сер. курс</th>
+                  <th className="pb-2 text-right">Прибуток</th>
                 </tr>
               </thead>
               <tbody>
@@ -626,14 +677,16 @@ export default function CloseShiftForm({
                     )}
                     <td className="py-2 text-right font-medium text-gray-700">{fmtMoney(r.close)}</td>
                     <td className="py-2 text-right">
-                      {r.cur === 'USDT' || !onRecalcBasis ? (
+                      {r.cur === 'USD' || r.cur === 'USDT' || !onRecalcBasis ? (
                         <span className="text-gray-500">
-                          {costBasisLive[r.cur] ? Number(costBasisLive[r.cur]).toFixed(4) : '—'}
+                          {r.cur === 'USD' || r.cur === 'USDT'
+                            ? '—'
+                            : costBasisLive[r.cur] ? Number(costBasisLive[r.cur]).toFixed(4) : '—'}
                         </span>
                       ) : (
                         <input
                           type="number"
-                          step="0.0001"
+                          step={r.cur === 'UAH' ? '0.01' : '0.0001'}
                           value={basisValue(r.cur)}
                           onChange={(e) => setBasisEdit((b) => ({ ...b, [r.cur]: e.target.value }))}
                           className="w-24 border border-gray-200 rounded px-2 py-1 text-right text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400"
@@ -641,10 +694,17 @@ export default function CloseShiftForm({
                       )}
                     </td>
                     <td className={`py-2 text-right font-semibold ${
-                      Math.abs(r.profitUah) < 0.005 ? 'text-gray-300' :
-                      r.profitUah > 0 ? 'text-green-600' : 'text-red-600'
+                      Math.abs(r.profitUsd) < 0.005 && Math.abs(r.profitUah) < 0.005 ? 'text-gray-300' :
+                      r.profitUsd > 0 || (Math.abs(r.profitUsd) < 0.005 && r.profitUah > 0) ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {Math.abs(r.profitUah) < 0.005 ? '—' : (r.profitUah > 0 ? '+' : '') + fmtNum(r.profitUah)}
+                      {Math.abs(r.profitUsd) < 0.005 && Math.abs(r.profitUah) < 0.005 ? '—' : (
+                        <>
+                          {(r.profitUsd > 0 ? '+' : '') + r.profitUsd.toFixed(2)} $
+                          <div className="text-xs font-normal text-gray-400">
+                            {(r.profitUah > 0 ? '+' : '') + fmtNum(r.profitUah)} ₴
+                          </div>
+                        </>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -654,8 +714,11 @@ export default function CloseShiftForm({
                   <td colSpan={3 + (hasTransfers ? 1 : 0) + (hasMovements ? 1 : 0)} className="pt-2.5 font-semibold text-gray-700">
                     Торговий прибуток
                   </td>
-                  <td className={`pt-2.5 text-right text-lg font-bold ${tradingProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                    {tradingProfit >= 0 ? '+' : ''}{fmtMoney(tradingProfit)}
+                  <td className={`pt-2.5 text-right text-lg font-bold ${tradingProfitUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                    {usd(tradingProfitUsd)}
+                    <div className="text-xs font-medium text-gray-400">
+                      {tradingProfit >= 0 ? '+' : ''}{fmtMoney(tradingProfit)} ₴
+                    </div>
                   </td>
                 </tr>
               </tfoot>
@@ -686,15 +749,58 @@ export default function CloseShiftForm({
                     : ''}
                 </div>
               </div>
-              <span className={`text-lg font-bold ${factualProfit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                {factualProfit >= 0 ? '+' : ''}{fmtMoney(factualProfit)} ₴
+              <span className={`text-lg font-bold text-right ${factualProfitUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                {usd(factualProfitUsd)}
+                <div className="text-xs font-medium text-gray-400">
+                  {factualProfit >= 0 ? '+' : ''}{fmtMoney(factualProfit)} ₴
+                </div>
               </span>
             </div>
             {Math.abs(cashDiff) >= 0.01 && (
               <div className="text-sm text-amber-600 bg-amber-50 rounded-lg px-3 py-1.5 mt-2">
                 Розбіжність каси (нестача/надлишок): {cashDiff >= 0 ? '+' : ''}{fmtNum(cashDiff)} ₴
+                {usdSell > 0 && ` (${(cashDiff / usdSell).toFixed(2)} $)`}
               </div>
             )}
+          </div>
+          )}
+
+          {/* «Каса в доларах» — підсумок каси за принципом власника */}
+          {showProfit && (
+          <div className="bg-white rounded-xl shadow p-4">
+            <h3 className="font-semibold text-gray-800 mb-1">🧮 Каса в доларах</h3>
+            <p className="text-xs text-gray-400 mb-3">
+              Фактичний залишок у доларовому вимірі: USD і USDT — як є, гривня ÷ сер.
+              курс, валюти × їх $-собівартість.
+            </p>
+            <table className="w-full text-sm">
+              <tbody>
+                {Object.entries(till.byCurrency)
+                  .sort(([a], [b]) => a.localeCompare(b))
+                  .map(([cur, v]) => (
+                    <tr key={cur} className="border-b last:border-0">
+                      <td className="py-1.5 font-bold text-gray-800">{cur}</td>
+                      <td className="py-1.5 text-right text-gray-500">
+                        {fmtNum(endBalParsed[cur] ?? 0)}
+                        {cur !== 'USD' && cur !== 'USDT' && tillBasis[cur] > 0 && (
+                          <span className="text-xs text-gray-400">
+                            {' '}{cur === 'UAH' ? `÷ ${tillBasis.UAH}` : `× ${Number(tillBasis[cur]).toFixed(4)}`}
+                          </span>
+                        )}
+                      </td>
+                      <td className="py-1.5 text-right font-medium text-gray-700">{v.toFixed(2)} $</td>
+                    </tr>
+                  ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t-2 border-gray-200">
+                  <td colSpan={2} className="pt-2.5 font-semibold text-gray-700">Разом у доларах</td>
+                  <td className="pt-2.5 text-right text-lg font-bold text-blue-700">
+                    {till.total.toFixed(2)} $
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
           </div>
           )}
 

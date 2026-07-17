@@ -16,16 +16,18 @@ import { ProfitService } from '../profit/profit.service';
  * Якщо система десь загубить/вигадає гроші або переплутає знак — calcBalance
  * розійдеться з фізичним підрахунком каси, і тест впаде.
  *
- * Прибуток перевіряємо точно там, де його легко порахувати руками (продаж проти
- * відомої собівартості WAC), і додатково — інваріантом збереження грошей.
+ * Прибуток перевіряємо точно там, де його легко порахувати руками ($-числовник:
+ * відкуп проти бази гривні, продаж валюти проти $-кросу), і додатково —
+ * інваріантом збереження грошей.
  */
 
 // Курси однакові для обох точок (спрощує ручний підрахунок прибутку).
+const S = 44.6; // курс продажу USD (база гривні за замовчуванням)
 const RATES = [
-  { currency: 'USD', buy: 44.0, sell: 44.6 }, // mid 44.3
-  { currency: 'EUR', buy: 51.0, sell: 51.8 }, // mid 51.4
+  { currency: 'USD', buy: 44.0, sell: S },
+  { currency: 'EUR', buy: 51.0, sell: 51.8 },
 ];
-const midRate: Record<string, number> = { USD: 44.3, EUR: 51.4 };
+const EUR_X = 51.0 / S; // $-крос євро (fallback buy/S) ≈ 1.143498
 
 // ── Незалежний «фізичний» лічильник готівки каси (рахунок купюр) ──────────────
 class Cash {
@@ -49,10 +51,9 @@ class Cash {
   }
 }
 
-// ── Stateful mock Prisma для двох кас (кожна каса має свою собівартість/пул) ──
+// ── Stateful mock Prisma для двох кас (кожна каса має свою собівартість) ──
 function makeWorld() {
   const basis = new Map<number, Map<string, number>>();      // deskId → currency → avgCost
-  const soldPool = new Map<number, Map<string, { units: number; uah: number }>>();
   const shifts = new Map<number, any>();                     // shiftId → shift
   const opIndex = new Map<number, any>();                    // opId → op (для operation.update)
   const transfers: any[] = [];
@@ -61,7 +62,7 @@ function makeWorld() {
   const stamp = () => new Date(Date.UTC(2026, 6, 6) + ++tick * 60_000);
 
   const deskBasis = (d: number) => basis.get(d) ?? (basis.set(d, new Map()), basis.get(d)!);
-  const deskPool = (d: number) => soldPool.get(d) ?? (soldPool.set(d, new Map()), soldPool.get(d)!);
+  const rateRows = RATES.map((r) => ({ ...r, createdAt: new Date(0) }));
 
   const prisma: any = {
     shift: {
@@ -74,8 +75,12 @@ function makeWorld() {
       update: ({ where, data }: any) => { Object.assign(shifts.get(where.id), data); return Promise.resolve({ ...shifts.get(where.id) }); },
     },
     rate: {
-      findMany: ({ where }: any) =>
-        Promise.resolve(RATES.filter(() => where?.status === undefined || where.status === 'ACTIVE').map((r) => ({ ...r }))),
+      // where-свідомий мок: getUsdTimeline фільтрує по currency='USD'.
+      findMany: ({ where }: any) => {
+        let rows = rateRows;
+        if (where?.currency) rows = rows.filter((r) => r.currency === where.currency);
+        return Promise.resolve(rows.map((r) => ({ ...r })));
+      },
     },
     transfer: {
       findMany: ({ where }: any) => {
@@ -96,12 +101,8 @@ function makeWorld() {
       findMany: ({ where }: any) => Promise.resolve([...deskBasis(where.cashDeskId)].map(([currency, avgCost]) => ({ currency, avgCost }))),
       upsert: ({ where, create }: any) => { deskBasis(where.cashDeskId_currency.cashDeskId).set(where.cashDeskId_currency.currency, Number(create.avgCost)); return Promise.resolve({}); },
     },
-    deskSoldPool: {
-      findMany: ({ where }: any) => Promise.resolve([...deskPool(where.cashDeskId)].map(([currency, p]) => ({ currency, ...p }))),
-      upsert: ({ where, create }: any) => { deskPool(where.cashDeskId_currency.cashDeskId).set(where.cashDeskId_currency.currency, { units: Number(create.units), uah: Number(create.uah) }); return Promise.resolve({}); },
-    },
     operation: {
-      update: ({ where, data }: any) => { const op = opIndex.get(where.id); if (op) op.profit = data.profit; return Promise.resolve(op); },
+      update: ({ where, data }: any) => { const op = opIndex.get(where.id); if (op) { op.profit = data.profit; op.profitUsd = data.profitUsd; } return Promise.resolve(op); },
     },
     $transaction: (arr: any[]) => Promise.all(arr),
   };
@@ -118,7 +119,7 @@ function makeWorld() {
     // Крос: каса віддає giveCur, отримує getCur; totalUah — грн-оцінка угоди.
     cross: (giveCur: string, giveAmt: number, getCur: string, getAmt: number, totalUah: number) => doc({ type: 'EXCHANGE', currency: giveCur, amount: giveAmt, totalUah, payCurrency: getCur, payAmount: getAmt, cancelled: false }),
     move: (direction: 'IN' | 'OUT', currency: string, amount: number) => doc({ direction, currency, amount }),
-    usdt: (side: 'BUY' | 'SELL', usdtAmount: number, settleCurrency: string, settleAmount: number, profitUah: number) => doc({ side, usdtAmount, settleCurrency, settleAmount, profitUah, cancelled: false }),
+    usdt: (side: 'BUY' | 'SELL', usdtAmount: number, settleCurrency: string, settleAmount: number, profitUah: number, profitUsd: number) => doc({ side, usdtAmount, settleCurrency, settleAmount, profitUah, profitUsd, cancelled: false }),
     // Підтверджена передача між касами.
     transfer: (fromDeskId: number, toDeskId: number, currency: string, amount: number, counter?: { currency: string; amount: number }) => {
       transfers.push({ id: ++seq, fromDeskId, toDeskId, currency, amount, counterCurrency: counter?.currency ?? null, counterAmount: counter?.amount ?? null, status: 'CONFIRMED', confirmedAt: stamp() });
@@ -149,15 +150,15 @@ describe('Імітація роботи компанії на дві каси (�
   const cashB = new Cash({ UAH: 80_000, EUR: 3_000 });
   let profitA1 = 0, profitA2 = 0, profitB1 = 0;
 
-  it('A1: купівля + продаж + сторно + підкріплення + інкасація + USDT + передача → B', async () => {
+  it('A1: відкуп + продаж + сторно + підкріплення + інкасація + USDT + передача → B', async () => {
     // Документи каси A1.
     const ops = [
-      w.buy('USD', 1000, 44.0),          // +1000 USD, −44000 UAH
-      w.sell('USD', 2000, 44.6),         // −2000 USD, +89200 UAH; прибуток 2000×0.6=1200
+      w.buy('USD', 1000, 44.0),          // +1000 USD, −44000 UAH; відкуп проти бази 44.6 → 600 ₴
+      w.sell('USD', 2000, 44.6),         // −2000 USD, +89200 UAH; продаж → 0 (формує базу)
       w.sell('USD', 500, 44.6, true),    // СТОРНО — не рахується ніде
     ];
     const moves = [w.move('IN', 'UAH', 20_000), w.move('OUT', 'USD', 100)];
-    const usdt = [w.usdt('SELL', 1000, 'UAH', 22_300, 150)]; // +22300 UAH готівки, маржа 150
+    const usdt = [w.usdt('SELL', 1000, 'UAH', 22_300, 150, 150 / S)]; // +22300 UAH готівки, маржа 150 ₴
     const shift = w.openShift(DESK_A, POINT_A, { UAH: 100_000, USD: 5_000 }, { operations: ops, cashMovements: moves, usdtOperations: usdt });
 
     // Передача 500 USD із A на B (підтверджена під час зміни A1).
@@ -177,15 +178,17 @@ describe('Імітація роботи компанії на дві каси (�
     // Розрахунок системи == фізичний підрахунок каси.
     expect(round(res.calcBalance)).toEqual(cashA.rounded());
     expect(cashA.rounded()).toEqual({ UAH: 187_500, USD: 3_400 });
-    // Прибуток: WAC 1200 (продаж проти собівартості 44.0) + USDT-маржа 150.
-    expect(Number(res.profit)).toBeCloseTo(1350, 6);
-    expect(round(res.profitByCurrency)).toEqual({ USD: 1200, USDT: 150 });
+    // Прибуток: відкуп 1000 − 44000/44.6 ≈ 13.45 $ (600 ₴) + USDT-маржа 150 ₴.
+    expect(Number(res.profit)).toBeCloseTo(750, 2);
+    expect(Number(res.profitUsd)).toBeCloseTo((1000 - 44_000 / S) + 150 / S, 3);
+    expect(round(res.profitByCurrency)).toEqual({ USD: 600, USDT: 150 });
     // endBalance == calc → без нестачі → фактичний = прибуток.
-    expect(Number(res.factualProfit)).toBeCloseTo(1350, 6);
+    expect(Number(res.factualProfit)).toBeCloseTo(750, 2);
     // Передача не є прибутком, але рухає баланс (нетто −500 USD у A).
     expect(round(res.netTransfers)).toEqual({ USD: -500 });
-    // Собівартість USD (44.0) переноситься на наступну зміну каси A.
-    expect(w.basisOf(DESK_A, 'USD')).toBeCloseTo(44.0, 6);
+    // Сер. курс гривні (44.6) переноситься на наступну зміну; USD без бази.
+    expect(w.basisOf(DESK_A, 'UAH')).toBeCloseTo(S, 6);
+    expect(w.basisOf(DESK_A, 'USD')).toBeUndefined();
     profitA1 = Number(res.profit);
   });
 
@@ -193,13 +196,13 @@ describe('Імітація роботи компанії на дві каси (�
     const last = await w.lastEnd(DESK_A);
     // Система віддає для префілу нової зміни саме фізичний залишок A1.
     expect(round(last.endBalance)).toEqual(cashA.rounded());
-    // І поточну собівартість каси (дефолт поля «сер. курс»).
-    expect(round(last.costBasis)).toEqual({ USD: 44.0 });
+    // І поточну собівартість каси (дефолт поля «сер. курс») — тепер це база гривні.
+    expect(round(last.costBasis)).toEqual({ UAH: S });
   });
 
-  it('A2: продаж ПЕРЕНЕСЕНОГО запасу дає прибуток одразу; нестача касира окремо', async () => {
+  it('A2: продаж ПЕРЕНЕСЕНОГО запасу — 0 (заробіток буде на відкупі); нестача касира окремо', async () => {
     const start = cashA.rounded(); // {UAH 187500, USD 3400}
-    const ops = [w.sell('USD', 1000, 44.6)]; // −1000 USD, +44600 UAH; прибуток 1000×(44.6−44.0)=600
+    const ops = [w.sell('USD', 1000, 44.6)]; // −1000 USD, +44600 UAH; продаж → 0
     const shift = w.openShift(DESK_A, POINT_A, start, { operations: ops });
 
     // Фізично правильний залишок після продажу:
@@ -213,11 +216,11 @@ describe('Імітація роботи компанії на дві каси (�
     // Розрахунковий (очікуваний) залишок системи == фізично правильний.
     expect(round(res.calcBalance)).toEqual(physical.rounded());
     expect(physical.rounded()).toEqual({ UAH: 232_100, USD: 2_400 });
-    // Торговий прибуток проти ПЕРЕНЕСЕНОЇ собівартості 44.0 → 600.
-    expect(Number(res.profit)).toBeCloseTo(600, 6);
-    // Нестача 50 USD (оцінка за курсом продажу 44.6) зменшує фактичний результат.
-    expect(Number(res.factualProfit)).toBeCloseTo(600 - 50 * 44.6, 6);
-    expect(Number(res.factualProfit)).toBeLessThan(Number(res.profit));
+    // Продаж прибутку НЕ дає (стара WAC дала б 600 ₴) — гривня ще не відкуплена.
+    expect(Number(res.profit)).toBeCloseTo(0, 2);
+    // Нестача 50 USD (оцінка за курсом продажу 44.6) — увесь фактичний результат.
+    expect(Number(res.factualProfit)).toBeCloseTo(-50 * 44.6, 2);
+    expect(Number(res.factualProfitUsd)).toBeCloseTo(-50, 3);
     // Каса далі живе за ФАКТИЧНО перерахованим касиром залишком.
     cashA.bal = { ...counted };
     profitA2 = Number(res.profit);
@@ -225,9 +228,9 @@ describe('Імітація роботи компанії на дві каси (�
 
   it('B1: купівля + крос + продаж + отримана передача від A — баланс і прибуток сходяться', async () => {
     const ops = [
-      w.buy('EUR', 1000, 51.0),                       // +1000 EUR, −51000 UAH
-      w.cross('EUR', 500, 'USD', 600, 25_700),        // −500 EUR, +600 USD; EUR-нога @51.4 → 500×0.4=200
-      w.sell('EUR', 800, 51.8),                       // −800 EUR, +41440 UAH; 800×(51.8−51.0)=640
+      w.buy('EUR', 1000, 51.0),                       // +1000 EUR, −51000 UAH; крос 51/44.6, без прибутку
+      w.cross('EUR', 500, 'USD', 600, 25_700),        // −500 EUR, +600 USD; EUR реалізує @1.2 $/€
+      w.sell('EUR', 800, 51.8),                       // −800 EUR, +41440 UAH; проти кросу 51/44.6
     ];
     // B1 працює одночасно з A1 (openedAt — ранній, до підтвердження передачі),
     // тож отримана передача 500 USD потрапляє в її зміну.
@@ -242,9 +245,11 @@ describe('Імітація роботи компанії на дві каси (�
 
     expect(round(res.calcBalance)).toEqual(cashB.rounded());
     expect(cashB.rounded()).toEqual({ UAH: 70_440, EUR: 2_700, USD: 1_100 });
-    // Прибуток: крос-нога EUR (200) + продаж EUR (640) = 840. USD лише зайшов (0).
-    expect(Number(res.profit)).toBeCloseTo(840, 6);
-    expect(round(res.profitByCurrency)).toEqual({ EUR: 840 });
+    // Прибуток: крос 500×(600/500 − 51/44.6) ≈ 28.25 $ (1260 ₴, отримали числовник —
+    // реалізація одразу) + продаж 800×(51.8−51)/44.6 ≈ 14.35 $ (640 ₴) = 1900 ₴.
+    expect(Number(res.profit)).toBeCloseTo(1900, 1);
+    expect(Number(res.profitUsd)).toBeCloseTo(500 * (1.2 - EUR_X) + (800 * 0.8) / S, 3);
+    expect(round(res.profitByCurrency)).toEqual({ EUR: 1900 });
     // Отримана передача +500 USD у нетто каси B (дзеркало −500 у A).
     expect(round(res.netTransfers)).toEqual({ USD: 500 });
     profitB1 = Number(res.profit);
@@ -254,11 +259,10 @@ describe('Імітація роботи компанії на дві каси (�
     // Сумарний розрахунок системи по обох касах збігається з сумою фізичних кас,
     // а передача 500 USD (−у A, +у B) у сумі компанії взаємно скорочується.
     const companyPhysicalUSD = cashA.rounded().USD + cashB.rounded().USD;
-    // A: 5000 старт −1000(buy... власне +1000−2000)+... простіше: A має 2350 (після нестачі), B 1100.
     expect(companyPhysicalUSD).toBeCloseTo(2_350 + 1_100, 6);
-    // Прибутки додатні й порахувалися для всіх змін.
-    expect(profitA1).toBeCloseTo(1350, 6);
-    expect(profitA2).toBeCloseTo(600, 6);
-    expect(profitB1).toBeCloseTo(840, 6);
+    // Прибутки порахувалися для всіх змін ($-модель: відкуп/кроси, продаж USD — 0).
+    expect(profitA1).toBeCloseTo(750, 2);
+    expect(profitA2).toBeCloseTo(0, 2);
+    expect(profitB1).toBeCloseTo(1900, 1);
   });
 });

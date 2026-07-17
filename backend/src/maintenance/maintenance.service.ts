@@ -52,7 +52,6 @@ export class MaintenanceService {
       await tx.rate.deleteMany({ where: { status: 'INACTIVE' } });
       await tx.shift.deleteMany({}); // після всього, що на неї посилається
       await tx.deskCostBasis.deleteMany({});
-      await tx.deskSoldPool.deleteMany({});
       // Балансові стани — обнуляємо (гроші без підстав після видалення операцій).
       await tx.cashBankBalance.updateMany({ data: { amount: 0 } });
       await tx.usdtGlobalWallet.updateMany({ data: { balance: 0 } });

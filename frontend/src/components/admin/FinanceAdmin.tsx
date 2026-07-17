@@ -16,25 +16,25 @@ export default function FinanceAdmin() {
 
   const periodLabel = { daily: 'За сьогодні', weekly: 'За тиждень', monthly: 'За місяць' };
 
-  // Експорт для бухгалтерії: точка · валюта · обсяг · прибуток; підсумок по касах;
-  // рядок витрат і чистого прибутку. BOM + «;» — відкривається в Excel як є.
+  // Експорт для бухгалтерії: точка · валюта · обсяг · прибуток ($ і ₴); підсумок
+  // по касах; рядок витрат і чистого прибутку. BOM + «;» — відкривається в Excel.
   const exportCsv = () => {
     if (!data) return;
-    const rows: (string | number)[][] = [['Точка', 'Каса/Валюта', 'Обсяг', 'Прибуток ₴']];
+    const rows: (string | number)[][] = [['Точка', 'Каса/Валюта', 'Обсяг', 'Прибуток $', 'Прибуток ₴']];
     for (const pt of data.points ?? []) {
       for (const [cur, d] of Object.entries<any>(pt.byCurrency ?? {})) {
-        rows.push([pt.pointName, cur, Number(d.volume).toFixed(2), Number(d.profit).toFixed(2)]);
+        rows.push([pt.pointName, cur, Number(d.volume).toFixed(2), Number(d.profitUsd ?? 0).toFixed(2), Number(d.profit).toFixed(2)]);
       }
       for (const dk of pt.byDesk ?? []) {
-        rows.push([pt.pointName, `Каса: ${dk.deskName}`, '', Number(dk.profit).toFixed(2)]);
+        rows.push([pt.pointName, `Каса: ${dk.deskName}`, '', Number(dk.profitUsd ?? 0).toFixed(2), Number(dk.profit).toFixed(2)]);
       }
-      rows.push([pt.pointName, 'Витрати', '', (-Number(pt.expenses ?? 0)).toFixed(2)]);
-      rows.push([pt.pointName, 'Чистий прибуток', '', Number(pt.netProfit ?? pt.totalProfit).toFixed(2)]);
+      rows.push([pt.pointName, 'Витрати', '', '', (-Number(pt.expenses ?? 0)).toFixed(2)]);
+      rows.push([pt.pointName, 'Чистий прибуток', '', '', Number(pt.netProfit ?? pt.totalProfit).toFixed(2)]);
     }
     rows.push([]);
-    rows.push(['Мережа', 'Валовий прибуток', '', Number(data.totalProfit).toFixed(2)]);
-    rows.push(['Мережа', 'Витрати', '', (-Number(data.totalExpenses ?? 0)).toFixed(2)]);
-    rows.push(['Мережа', 'Чистий прибуток', '', Number(data.totalNetProfit ?? data.totalProfit).toFixed(2)]);
+    rows.push(['Мережа', 'Валовий прибуток', '', Number(data.totalProfitUsd ?? 0).toFixed(2), Number(data.totalProfit).toFixed(2)]);
+    rows.push(['Мережа', 'Витрати', '', '', (-Number(data.totalExpenses ?? 0)).toFixed(2)]);
+    rows.push(['Мережа', 'Чистий прибуток', '', '', Number(data.totalNetProfit ?? data.totalProfit).toFixed(2)]);
     const csv = '﻿' + rows
       .map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(';'))
       .join('\r\n');
@@ -78,16 +78,20 @@ export default function FinanceAdmin() {
           {/* Total */}
           <div className="bg-blue-700 text-white rounded-xl shadow p-5">
             <div className="text-sm opacity-80">{periodLabel[period]} — мережа</div>
-            <div className="text-3xl font-bold mt-1">{fmtMoney(data.totalNetProfit ?? data.totalProfit)} ₴</div>
-            <div className="text-sm opacity-70 mt-1">чистий прибуток</div>
+            <div className="text-3xl font-bold mt-1">{Number(data.totalProfitUsd ?? 0).toFixed(2)} $</div>
+            <div className="text-sm opacity-70 mt-1">валовий прибуток у доларах</div>
             <div className="flex gap-4 mt-3 pt-3 border-t border-white/20 text-sm">
               <div>
-                <div className="opacity-70 text-xs">валовий</div>
+                <div className="opacity-70 text-xs">валовий ₴</div>
                 <div className="font-semibold">{fmtMoney(data.totalProfit)} ₴</div>
               </div>
               <div>
                 <div className="opacity-70 text-xs">витрати</div>
                 <div className="font-semibold">−{fmtMoney(data.totalExpenses ?? 0)} ₴</div>
+              </div>
+              <div>
+                <div className="opacity-70 text-xs">чистий ₴</div>
+                <div className="font-semibold">{fmtMoney(data.totalNetProfit ?? data.totalProfit)} ₴</div>
               </div>
             </div>
           </div>
@@ -99,14 +103,16 @@ export default function FinanceAdmin() {
                 <h3 className="font-semibold text-lg">{pt.pointName}</h3>
                 <div className="text-right">
                   <div>
-                    <span className={`font-bold ${Number(pt.netProfit ?? pt.totalProfit) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {fmtMoney(pt.netProfit ?? pt.totalProfit)} ₴
+                    <span className={`font-bold ${Number(pt.totalProfitUsd ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {Number(pt.totalProfitUsd ?? 0).toFixed(2)} $
                     </span>
-                    <span className="text-xs text-gray-400 ml-2">чистий · {pt.operationsCount} оп.</span>
+                    <span className="text-xs text-gray-400 ml-2">
+                      чистий {fmtMoney(pt.netProfit ?? pt.totalProfit)} ₴ · {pt.operationsCount} оп.
+                    </span>
                   </div>
                   {Number(pt.expenses ?? 0) > 0 && (
                     <div className="text-xs text-gray-400 mt-0.5">
-                      валовий {fmtMoney(pt.totalProfit)} − витрати {fmtMoney(pt.expenses)}
+                      валовий {fmtMoney(pt.totalProfit)} ₴ − витрати {fmtMoney(pt.expenses)} ₴
                     </div>
                   )}
                 </div>
@@ -118,8 +124,11 @@ export default function FinanceAdmin() {
                     {pt.byDesk.map((dk: any, di: number) => (
                       <div key={di} className="bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
                         <div className="text-xs text-gray-500">{dk.deskName} · {dk.operationsCount} оп.</div>
-                        <div className={`text-sm font-bold ${dk.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {dk.profit >= 0 ? '+' : ''}{fmtMoney(dk.profit)} ₴
+                        <div className={`text-sm font-bold ${(dk.profitUsd ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {(dk.profitUsd ?? 0) >= 0 ? '+' : ''}{Number(dk.profitUsd ?? 0).toFixed(2)} $
+                          <span className="text-xs font-medium text-gray-400 ml-1.5">
+                            {dk.profit >= 0 ? '+' : ''}{fmtMoney(dk.profit)} ₴
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -134,8 +143,11 @@ export default function FinanceAdmin() {
                     {pt.byCashier.map((ch: any, ci: number) => (
                       <div key={ci} className="bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
                         <div className="text-xs text-gray-600">{ch.cashierName} · {ch.operationsCount} оп.</div>
-                        <div className={`text-sm font-bold ${ch.profit >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {ch.profit >= 0 ? '+' : ''}{fmtMoney(ch.profit)} ₴
+                        <div className={`text-sm font-bold ${(ch.profitUsd ?? 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {(ch.profitUsd ?? 0) >= 0 ? '+' : ''}{Number(ch.profitUsd ?? 0).toFixed(2)} $
+                          <span className="text-xs font-medium text-gray-400 ml-1.5">
+                            {ch.profit >= 0 ? '+' : ''}{fmtMoney(ch.profit)} ₴
+                          </span>
                         </div>
                       </div>
                     ))}
@@ -148,7 +160,8 @@ export default function FinanceAdmin() {
                     <tr className="text-gray-500 border-b text-left">
                       <th className="pb-1">Валюта</th>
                       <th className="pb-1 text-right">Обсяг</th>
-                      <th className="pb-1 text-right">Прибуток</th>
+                      <th className="pb-1 text-right">Прибуток $</th>
+                      <th className="pb-1 text-right">Прибуток ₴</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -156,7 +169,8 @@ export default function FinanceAdmin() {
                       <tr key={cur} className="border-b last:border-0">
                         <td className="py-1.5 font-bold">{cur}</td>
                         <td className="py-1.5 text-right">{fmtMoney(d.volume)}</td>
-                        <td className="py-1.5 text-right text-green-600">{fmtMoney(d.profit)} ₴</td>
+                        <td className="py-1.5 text-right text-green-600 font-medium">{Number(d.profitUsd ?? 0).toFixed(2)} $</td>
+                        <td className="py-1.5 text-right text-gray-500">{fmtMoney(d.profit)} ₴</td>
                       </tr>
                     ))}
                   </tbody>

@@ -2,21 +2,27 @@ import { ShiftsService } from './shifts.service';
 import { ProfitService } from '../profit/profit.service';
 
 /**
- * Симуляція ТИЖНЯ роботи однієї каси з закриттям кожної зміни.
+ * Симуляція ТИЖНЯ роботи однієї каси з закриттям кожної зміни ($-числовник).
  *
- * Навіщо: прибуток рахується за WAC із ПЕРЕХІДНОЮ собівартістю (Варіант 1) —
- * помилки в перенесенні basis/залишку між змінами не видно в юніт-тестах
- * однієї зміни. Тут стан переноситься як у проді: endBalance закритої зміни →
- * startBalance наступної, DeskCostBasis → відкриваюча собівартість.
+ * Навіщо: прибуток рахується за моделлю «каса в доларах» із ПЕРЕХІДНОЮ
+ * собівартістю (сер. курс гривні + $-кроси валют) — помилки в перенесенні
+ * basis/залишку між змінами не видно в юніт-тестах однієї зміни. Тут стан
+ * переноситься як у проді: endBalance закритої зміни → startBalance наступної,
+ * DeskCostBasis → відкриваюча собівартість.
  *
- * Курси точки незмінні весь тиждень: USD 41.0/41.6 (mid 41.3), EUR 45.0/45.8.
+ * Ключові властивості моделі (рішення власника 2026-07-17):
+ *   • продаж USD прибутку НЕ дає — він формує базу гривні (сер. курс);
+ *   • прибуток реалізується на ВІДКУПІ (купівля USD дешевше за базу);
+ *   • валюти несуть $-крос; USD — числовник без позиції.
+ *
+ * Курси точки незмінні весь тиждень: USD 44.50/45.00 (S=45), EUR 51.30/51.60.
  */
 
 function makeWorld(rates: { currency: string; buy: number; sell: number }[]) {
-  const basis = new Map<string, number>(); // DeskCostBasis: currency → avgCost
-  const soldPool = new Map<string, { units: number; uah: number }>(); // DeskSoldPool
+  const basis = new Map<string, number>(); // DeskCostBasis: currency → avgCost (людський формат)
   let shift: any = null;
   let transfers: any[] = [];
+  const rateRows = rates.map((r) => ({ ...r, createdAt: new Date(0) }));
 
   const prisma: any = {
     shift: {
@@ -26,7 +32,13 @@ function makeWorld(rates: { currency: string; buy: number; sell: number }[]) {
         return Promise.resolve({ ...shift });
       }),
     },
-    rate: { findMany: jest.fn(() => Promise.resolve(rates.map((r) => ({ ...r })))) },
+    // where-свідомий мок: getUsdTimeline фільтрує по currency='USD'.
+    rate: {
+      findMany: jest.fn((args: any) => {
+        const cur = args?.where?.currency;
+        return Promise.resolve((cur ? rateRows.filter((r) => r.currency === cur) : rateRows).map((r) => ({ ...r })));
+      }),
+    },
     // Мок чутливий до статусу: перевірка непідтверджених передач (PENDING) при
     // закритті зміни має бачити порожньо — тут усі передачі вже підтверджені.
     transfer: {
@@ -43,20 +55,10 @@ function makeWorld(rates: { currency: string; buy: number; sell: number }[]) {
         return Promise.resolve({});
       }),
     },
-    // Пул проданої гривні (маржа з відкупу) — переноситься між змінами, як і basis.
-    deskSoldPool: {
-      findMany: jest.fn(() =>
-        Promise.resolve([...soldPool].map(([currency, p]) => ({ currency, ...p }))),
-      ),
-      upsert: jest.fn(({ create }: any) => {
-        soldPool.set(create.currency, { units: Number(create.units), uah: Number(create.uah) });
-        return Promise.resolve({});
-      }),
-    },
     operation: {
       update: jest.fn(({ where, data }: any) => {
         const op = shift.operations.find((o: any) => o.id === where.id);
-        if (op) op.profit = data.profit;
+        if (op) { op.profit = data.profit; op.profitUsd = data.profitUsd; }
         return Promise.resolve(op);
       }),
     },
@@ -78,11 +80,6 @@ function makeWorld(rates: { currency: string; buy: number; sell: number }[]) {
     id: ++opSeq, type: 'SELL', currency, amount, totalUah: amount * rate,
     payCurrency: null, payAmount: null, cancelled, createdAt: stamp(),
   });
-  // Крос: клієнт дає payAmount payCurrency, отримує amount currency; totalUah — обидва плеча.
-  const cross = (currency: string, amount: number, payCurrency: string, payAmount: number, totalUah: number) => ({
-    id: ++opSeq, type: 'EXCHANGE', currency, amount, totalUah,
-    payCurrency, payAmount, cancelled: false, createdAt: stamp(),
-  });
 
   /** Відкриває зміну дня і одразу закриває її з переданим фактичним залишком. */
   const runDay = async (params: {
@@ -95,7 +92,7 @@ function makeWorld(rates: { currency: string; buy: number; sell: number }[]) {
       id: ++shiftSeq, status: 'OPEN', cashDeskId: 7, openedAt: stamp(),
       startBalance: params.startBalance,
       operations: params.operations ?? [],
-      cashMovements: params.cashMovements ?? [],
+      cashMovements: (params.cashMovements ?? []).map((m) => ({ createdAt: stamp(), ...m })),
       usdtOperations: [],
       cashDesk: { exchangePointId: 1 },
     };
@@ -103,141 +100,145 @@ function makeWorld(rates: { currency: string; buy: number; sell: number }[]) {
   };
 
   return {
-    runDay, buy, sell, cross,
+    runDay, buy, sell,
     basisOf: (cur: string) => basis.get(cur),
     setTransfers: (rows: any[]) => { transfers = rows; },
     lastOps: () => shift.operations as any[],
   };
 }
 
-describe('Симуляція тижня роботи каси (WAC із перехідною собівартістю)', () => {
+describe('Симуляція тижня роботи каси ($-числовник, перехідна собівартість)', () => {
   const world = makeWorld([
-    { currency: 'USD', buy: 41.0, sell: 41.6 }, // mid 41.3
-    { currency: 'EUR', buy: 45.0, sell: 45.8 }, // mid 45.4
+    { currency: 'USD', buy: 44.5, sell: 45.0 },
+    { currency: 'EUR', buy: 51.3, sell: 51.6 },
   ]);
-  const weekProfits: number[] = [];
+  const weekUah: number[] = [];
+  const weekUsd: number[] = [];
 
-  it('Пн: купівля + частковий продаж — прибуток лише з проданого, решта переноситься за собівартістю', async () => {
+  it('Пн (коло власника): продаж USD → 0, відкуп дешевше → +400 ₴ (8.89 $)', async () => {
     const res: any = await world.runDay({
-      startBalance: { UAH: 100000 },
-      operations: [world.buy('USD', 1000, 41.0), world.sell('USD', 400, 41.6)],
-      endBalance: { UAH: 75640, USD: 600 },
+      startBalance: { USD: 2000 },
+      operations: [world.sell('USD', 1000, 45.0), world.buy('USD', 1000, 44.6)],
+      endBalance: { USD: 2000, UAH: 400 },
     });
-    // Продано 400 проти собівартості 41.0: 400 × 0.6 = 240. Непродані 600 не переоцінюються.
-    expect(Number(res.profit)).toBeCloseTo(240, 6);
-    expect(Number(res.factualProfit)).toBeCloseTo(240, 6);
-    expect(res.calcBalance).toEqual({ UAH: 75640, USD: 600 });
-    // Прибуток кожної операції збережено (для фінансів): купівля 0, продаж 240.
+    expect(Number(res.profitUsd)).toBeCloseTo(1000 - 44600 / 45, 4); // ≈ 8.889 $
+    expect(Number(res.profit)).toBeCloseTo(400, 2);
+    expect(Number(res.factualProfit)).toBeCloseTo(400, 2);
+    expect(res.calcBalance).toEqual({ USD: 2000, UAH: 400 });
+    // Прибуток кожної операції збережено: продаж 0, відкуп 400 ₴.
     const opProfits = world.lastOps().map((o) => o.profit);
     expect(opProfits[0]).toBeCloseTo(0, 6);
-    expect(opProfits[1]).toBeCloseTo(240, 6);
-    // Собівартість перенесено на завтра.
-    expect(world.basisOf('USD')).toBeCloseTo(41.0, 6);
-    weekProfits.push(Number(res.profit));
+    expect(opProfits[1]).toBeCloseTo(400, 2);
+    // Сер. курс гривні = курс фактичного продажу; USD (числовник) бази не має.
+    expect(world.basisOf('UAH')).toBeCloseTo(45.0, 6);
+    expect(world.basisOf('USD')).toBeUndefined();
+    weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
 
-  it('Вт: сценарій власника — продаж УЧОРАШНЬОГО запасу дає прибуток одразу, без купівлі сьогодні', async () => {
+  it('Вт: сер. курс переноситься — відкуп наступного дня реалізує проти НЬОГО', async () => {
     const res: any = await world.runDay({
-      startBalance: { UAH: 75640, USD: 600 },
-      operations: [world.sell('USD', 600, 41.7)],
-      endBalance: { UAH: 100660, USD: 0 },
+      startBalance: { USD: 2000, UAH: 400 },
+      operations: [world.sell('USD', 500, 45.0), world.buy('USD', 500, 44.55)],
+      endBalance: { USD: 2000, UAH: 625 },
     });
-    // 600 × (41.7 − перенесена собівартість 41.0) = 420.
-    expect(Number(res.profit)).toBeCloseTo(420, 6);
-    expect(Number(res.factualProfit)).toBeCloseTo(420, 6);
-    weekProfits.push(Number(res.profit));
+    // Відкуп 500 по 44.55 проти перенесеної бази 45: 500 − 22275/45 = 5 $ (225 ₴).
+    expect(Number(res.profitUsd)).toBeCloseTo(5, 4);
+    expect(Number(res.profit)).toBeCloseTo(225, 2);
+    expect(world.basisOf('UAH')).toBeCloseTo(45.0, 6);
+    weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
 
-  it('Ср: дві купівлі за різними цінами → зважена середня собівартість', async () => {
+  it('Ср: купівля євро за гривню — БЕЗ прибутку, крос = 51.30/45 = 1.14', async () => {
     const res: any = await world.runDay({
-      startBalance: { UAH: 100660 },
-      operations: [
-        world.buy('USD', 500, 41.2),
-        world.buy('USD', 500, 41.4),
-        world.sell('USD', 300, 41.9),
-      ],
-      endBalance: { UAH: 71930, USD: 700 },
+      startBalance: { USD: 2000, UAH: 625 },
+      cashMovements: [{ direction: 'IN', currency: 'UAH', amount: 60000 }],
+      operations: [world.buy('EUR', 1000, 51.3)],
+      endBalance: { USD: 2000, UAH: 9325, EUR: 1000 },
     });
-    // Середня (41.2+41.4)/2 = 41.3; продаж 300 × (41.9 − 41.3) = 180.
-    expect(Number(res.profit)).toBeCloseTo(180, 6);
-    expect(world.basisOf('USD')).toBeCloseTo(41.3, 6);
-    weekProfits.push(Number(res.profit));
+    expect(Number(res.profit)).toBeCloseTo(0, 6);      // купівля товару — ще не заробіток
+    expect(res.calcBalance).toEqual({ USD: 2000, UAH: 9325, EUR: 1000 });
+    expect(world.basisOf('EUR')).toBeCloseTo(1.14, 6); // $-крос — число власника
+    expect(world.basisOf('UAH')).toBeCloseTo(45.0, 6); // підкріплення не зламало базу
+    expect(res.netCashMovements).toEqual({ UAH: 60000 });
+    weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
 
-  it('Чт: крос EUR→USD + сторно — USD-плече реалізує прибуток, скасована операція не рахується', async () => {
+  it('Чт (приклад №2 власника): продаж євро проти кросу + відкуп гривні', async () => {
     const res: any = await world.runDay({
-      startBalance: { UAH: 71930, USD: 700 },
-      operations: [
-        // Клієнт дає 104 EUR (по buy 45 → 4680 грн), отримує 112.5 USD (по sell 41.6).
-        world.cross('USD', 112.5, 'EUR', 104, 4680),
-        world.sell('USD', 200, 41.9, true), // сторно
-        world.sell('USD', 100, 41.8),
-      ],
-      endBalance: { UAH: 76110, USD: 487.5, EUR: 104 },
+      startBalance: { USD: 2000, UAH: 9325, EUR: 1000 },
+      operations: [world.sell('EUR', 1000, 51.6), world.buy('USD', 1000, 44.5)],
+      endBalance: { USD: 3000, UAH: 16425, EUR: 0 },
     });
-    // USD: крос 112.5×(41.6−41.3)=33.75 + продаж 100×(41.8−41.3)=50 = 83.75. EUR лише придбано.
-    expect(Number(res.profit)).toBeCloseTo(83.75, 6);
-    expect(res.profitByCurrency.USD).toBeCloseTo(83.75, 6);
-    expect(res.profitByCurrency.EUR ?? 0).toBeCloseTo(0, 6);
-    // Сторнованій операції прибуток записано нулем.
-    expect(world.lastOps()[1].profit).toBe(0);
-    // EUR отримали за 4680/104 = 45.0 — це його собівартість на завтра.
-    expect(world.basisOf('EUR')).toBeCloseTo(45.0, 6);
-    expect(world.basisOf('USD')).toBeCloseTo(41.3, 6);
-    weekProfits.push(Number(res.profit));
+    // EUR: 1000 × (51.60/45 − 1.14) ≈ 6.67 $ (300 ₴); відкуп: 1000 − 44500/45 ≈ 11.11 $ (500 ₴).
+    expect(Number(res.profitUsd)).toBeCloseTo(1000 * (51.6 / 45 - 1.14) + (1000 - 44500 / 45), 4);
+    expect(Number(res.profit)).toBeCloseTo(800, 2);
+    expect(res.profitByCurrency.EUR).toBeCloseTo(300, 2);
+    expect(res.profitByCurrency.USD).toBeCloseTo(500, 2);
+    // Позиція EUR закрита — крос лишається як остання відома ціна.
+    expect(world.basisOf('EUR')).toBeCloseTo(1.14, 6);
+    weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
 
-  it('Пт: передача +1000 USD та інкасація 50000 UAH рухають залишок, але НЕ прибуток', async () => {
+  it('Пт: передача +1000 USD рухає залишок, але НЕ прибуток', async () => {
     world.setTransfers([
-      { currency: 'USD', amount: 1000, fromDeskId: 9, toDeskId: 7, counterCurrency: null, counterAmount: null },
+      { currency: 'USD', amount: 1000, fromDeskId: 9, toDeskId: 7, counterCurrency: null, counterAmount: null, confirmedAt: new Date(Date.UTC(2026, 6, 10)) },
     ]);
     const res: any = await world.runDay({
-      startBalance: { UAH: 76110, USD: 487.5, EUR: 104 },
-      operations: [world.sell('USD', 200, 41.9)],
-      cashMovements: [{ direction: 'OUT', currency: 'UAH', amount: 50000 }],
-      endBalance: { UAH: 34490, USD: 1287.5, EUR: 104 },
+      startBalance: { USD: 3000, UAH: 16425 },
+      operations: [],
+      endBalance: { USD: 4000, UAH: 16425 },
     });
-    expect(res.calcBalance).toEqual({ UAH: 34490, USD: 1287.5, EUR: 104 });
-    // Лише торговий результат: 200 × (41.9 − 41.3) = 120; передача/інкасація вилучені.
-    expect(Number(res.profit)).toBeCloseTo(120, 6);
-    expect(Number(res.factualProfit)).toBeCloseTo(120, 6);
+    expect(res.calcBalance).toEqual({ USD: 4000, UAH: 16425 });
+    expect(Number(res.profit)).toBeCloseTo(0, 6);
+    expect(Number(res.factualProfit)).toBeCloseTo(0, 6);
     expect(res.netTransfers).toEqual({ USD: 1000 });
-    expect(res.netCashMovements).toEqual({ UAH: -50000 });
     world.setTransfers([]);
-    weekProfits.push(Number(res.profit));
+    weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
 
-  it('Сб: нестача касира зменшує ФАКТИЧНИЙ прибуток (за курсом продажу), торговий — ні', async () => {
+  it('Сб (приклад №6 власника): продаж запасу — 0; нестача касира — лише у фактичному', async () => {
     const res: any = await world.runDay({
-      startBalance: { UAH: 34490, USD: 1287.5, EUR: 104 },
-      operations: [world.sell('USD', 100, 41.9)],
-      // Розрахунково USD 1187.5, касир нарахував 1177.5 → нестача 10 USD.
-      endBalance: { UAH: 38680, USD: 1177.5, EUR: 104 },
+      startBalance: { USD: 4000, UAH: 16425 },
+      operations: [world.sell('USD', 500, 45.0)],
+      // Розрахунково USD 3500, касир нарахував 3490 → нестача 10 USD.
+      endBalance: { USD: 3490, UAH: 38925 },
     });
-    expect(Number(res.profit)).toBeCloseTo(60, 6); // 100 × 0.6
-    // Нестача 10 USD оцінюється за курсом ПРОДАЖУ (41.6): 60 − 10 × 41.6 = −356.
-    expect(Number(res.factualProfit)).toBeCloseTo(-356, 6);
-    weekProfits.push(Number(res.profit));
+    // Продаж прибутку не дає (це стара WAC давала б +250) — гроші ще «не на місці».
+    expect(Number(res.profit)).toBeCloseTo(0, 6);
+    // Нестача 10 USD за курсом продажу: −450 ₴ = −10 $.
+    expect(Number(res.factualProfit)).toBeCloseTo(-450, 2);
+    expect(Number(res.factualProfitUsd)).toBeCloseTo(-10, 4);
+    weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
 
-  it('Нд: розпродаж усього запасу — прибуток проти перенесеної собівартості, позиції закриті', async () => {
-    // Старт — з ФАКТИЧНОГО (нарахованого) залишку суботи, як у проді.
+  it('Нд: сторно не рахується; відкуп реалізує; «каса в доларах» зберігається', async () => {
     const res: any = await world.runDay({
-      startBalance: { UAH: 38680, USD: 1177.5, EUR: 104 },
-      operations: [world.sell('USD', 1177.5, 42.0), world.sell('EUR', 104, 45.9)],
-      endBalance: { UAH: 92908.6, USD: 0, EUR: 0 },
+      startBalance: { USD: 3490, UAH: 38925 },
+      operations: [world.sell('USD', 200, 45.0, true), world.buy('USD', 200, 44.6)],
+      endBalance: { USD: 3690, UAH: 30005 },
     });
-    // USD: 1177.5 × (42 − 41.3) = 824.25; EUR: 104 × (45.9 − 45.0) = 93.6.
-    expect(Number(res.profit)).toBeCloseTo(917.85, 6);
-    expect(res.profitByCurrency.USD).toBeCloseTo(824.25, 6);
-    expect(res.profitByCurrency.EUR).toBeCloseTo(93.6, 6);
-    weekProfits.push(Number(res.profit));
+    // Сторнованій операції прибуток записано нулем; відкуп: 200 − 8920/45 ≈ 1.78 $ (80 ₴).
+    expect(world.lastOps()[0].profit).toBe(0);
+    expect(Number(res.profit)).toBeCloseTo(80, 2);
+    // «Каса в доларах» на закритті: 3690 + 30005/45.
+    expect(res.tillUsd.total).toBeCloseTo(3690 + 30005 / 45, 2);
+    expect(res.tillUsd.byCurrency.UAH).toBeCloseTo(30005 / 45, 2);
+    weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
 
-  it('Підсумок тижня: сума прибутків змін відповідає очікуваній', () => {
-    expect(weekProfits).toHaveLength(7);
-    const total = weekProfits.reduce((a, v) => a + v, 0);
-    // 240 + 420 + 180 + 83.75 + 120 + 60 + 917.85
-    expect(total).toBeCloseTo(2021.6, 6);
+  it('ІНВАРІАНТ тижня: приріст доларової вартості каси = Σ прибутків + вливання − нестача', () => {
+    expect(weekUah).toHaveLength(7);
+    // ₴: 400 + 225 + 0 + 800 + 0 + 0 + 80 = 1505; $ = 1505/45 (курс незмінний).
+    const totalUah = weekUah.reduce((a, v) => a + v, 0);
+    const totalUsd = weekUsd.reduce((a, v) => a + v, 0);
+    expect(totalUah).toBeCloseTo(1505, 2);
+    expect(totalUsd).toBeCloseTo(1505 / 45, 4);
+    // Каса: старт 2000 $ (2000 USD) → фінал 3690 + 30005/45 ≈ 4356.78 $.
+    // Вливання: підкріплення 60000₴/45 ≈ 1333.33 $ + передача 1000 $; нестача −10 $.
+    const startValue = 2000;
+    const endValue = 3690 + 30005 / 45;
+    const inflows = 60000 / 45 + 1000;
+    const shortage = -10;
+    expect(endValue).toBeCloseTo(startValue + inflows + shortage + totalUsd, 2);
   });
 });

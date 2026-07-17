@@ -4,7 +4,8 @@ import { format } from 'date-fns';
 import { applyOperationsToBalance, operationsDelta } from '../common/balance.util';
 import { sellRates, valueOf } from '../common/profit.util';
 import { cashMovementsDelta } from '../common/cash-movements.util';
-import { usdtCashDelta, usdtProfit } from '../common/usdt.util';
+import { usdtCashDelta, usdtProfit, usdtProfitUsd } from '../common/usdt.util';
+import { tillUsdValue, costToUahBasis, NUMERAIRE } from '../common/wac-profit.util';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
 import { nextDocNumber } from '../common/number-seq.util';
 
@@ -152,9 +153,9 @@ export class ShiftsService {
     // готівка (входить у прибуток окремою маржею), на відміну від руху готівки.
     const usdtDelta = usdtCashDelta((shift.usdtOperations as any) ?? []);
 
-    // Прибуток за WAC (Варіант 1): продаж реалізується проти ковзної собівартості,
-    // яка ПЕРЕНОСИТЬСЯ між змінами. Продаж наявного запасу дає прибуток одразу,
-    // навіть без купівлі в цій зміні. Непроданий запас не переоцінюється.
+    // Прибуток за $-числовником («каса в доларах»): гривня — позиція з сер.
+    // курсом, прибуток реалізується при відкупі; собівартість ПЕРЕНОСИТЬСЯ між
+    // змінами. Непроданий запас не переоцінюється.
     const rates = await this.prisma.rate.findMany({
       where: { exchangePointId: shift.cashDesk.exchangePointId, status: 'ACTIVE' },
     });
@@ -163,6 +164,9 @@ export class ShiftsService {
     const valuation = sellRates(
       rates.map((r) => ({ currency: r.currency, buy: Number(r.buy), sell: Number(r.sell) })),
     );
+    // Курс продажу USD на закритті — знімок для конвертацій $↔₴ у звіті.
+    const usdRow = rates.find((r) => r.currency === NUMERAIRE);
+    const sClose = usdRow ? Number(usdRow.sell) : 0;
     const wac = await this.profit.computeShift({
       cashDeskId: shift.cashDeskId,
       exchangePointId: shift.cashDesk.exchangePointId,
@@ -171,22 +175,26 @@ export class ShiftsService {
       // Підкріплення/інкасації та передачі теж рухають позицію (без прибутку) —
       // інакше продаж підкріпленої валюти давав би 0 і псував собівартість.
       cashMovements: (shift.cashMovements ?? []) as any,
+      // Готівкові розрахунки USDT-вікна рухають гривню/валюту каси (флоу).
+      usdtOperations: (shift.usdtOperations as any) ?? [],
       openedAt: shift.openedAt,
       closedAt: null, // зміна ще відкрита — беремо всі підтверджені передачі
     });
-    // Прибуток USDT — чиста маржа (%) у гривні, окремим рядком «USDT».
-    const usdtMargin = usdtProfit((shift.usdtOperations as any) ?? []);
-    const profitByCurrency: Record<string, number> = { ...wac.byCurrency };
-    if (Math.abs(usdtMargin) >= 0.005) profitByCurrency.USDT = usdtMargin;
-    const profit = wac.totalRealized + usdtMargin;
-
-    // Маржа з відкупу — ДОДАТКОВИЙ показник (модель замовника: заробіток кільця
-    // «продав валюту → відкупив на виручену гривню»). Фінанси на ньому не
-    // будуються — він лише показується поруч із прибутком.
-    const buyback = await this.profit.computeBuybackMargin({
-      cashDeskId: shift.cashDeskId,
-      operations: shift.operations as any,
+    // Прибуток USDT — чиста маржа (%) з факту проти 1:1, окремим рядком «USDT».
+    const usdtUah = usdtProfit((shift.usdtOperations as any) ?? []);
+    const usdtUsd = usdtProfitUsd((shift.usdtOperations as any) ?? []);
+    // $-нативні підсумки + гривневі знімки (за курсом моменту кожної операції).
+    const profitUsd = wac.totalRealized + usdtUsd;
+    const perOpUah = wac.perOp.map((p, i) => p * wac.sUsdPerOp[i]);
+    const profit = perOpUah.reduce((s, v) => s + v, 0) + usdtUah;
+    const profitByCurrencyUsd: Record<string, number> = { ...wac.byCurrency };
+    if (Math.abs(usdtUsd) >= 0.005) profitByCurrencyUsd.USDT = usdtUsd;
+    const profitByCurrency: Record<string, number> = {};
+    wac.ops.forEach((o: any, i: number) => {
+      if (Math.abs(perOpUah[i]) < 0.005) return;
+      profitByCurrency[o.currency] = (profitByCurrency[o.currency] ?? 0) + perOpUah[i];
     });
+    if (Math.abs(usdtUah) >= 0.005) profitByCurrency.USDT = usdtUah;
 
     // Передачі між касами/точками — це рух готівки, а не торговий прибуток.
     // Вилучаємо їх із фактичного залишку, щоб отримана/відправлена валюта не
@@ -223,10 +231,25 @@ export class ShiftsService {
     for (const [cur, d] of Object.entries(usdtDelta)) {
       expectedTrading[cur] = (expectedTrading[cur] ?? 0) + d;
     }
-    // Фактичний результат = прибуток (спред + маржа USDT) + нестача/надлишок каси
-    // (різниця між фактично введеним і очікуваним залишком за серединним курсом).
+    // Фактичний результат = прибуток (реалізований + маржа USDT) + нестача/
+    // надлишок каси (різниця між фактично введеним і очікуваним залишком за
+    // курсами продажу). У ₴ — напряму; у $ — через курс продажу USD на закритті.
     const surplusShort = valueOf(factualEnd, valuation) - valueOf(expectedTrading, valuation);
     const factualProfit = profit + surplusShort;
+    const factualProfitUsd = profitUsd + (sClose > 0 ? surplusShort / sClose : 0);
+
+    // Собівартість на закриття — людський формат (UAH ₴/$, інші — $-крос).
+    const costBasisSnapshot = Object.fromEntries(
+      Object.entries(wac.ending)
+        .filter(([cur, p]) => cur !== NUMERAIRE && cur !== 'USDT' && p.avgCost > 0)
+        .map(([cur, p]) => [cur, cur === 'UAH' ? costToUahBasis(p.avgCost) : p.avgCost]),
+    );
+    // «Каса в доларах» за принципом власника — від фактично введеного залишку.
+    // USDT — глобальний банк, не готівка каси, тож у підсумок каси не входить.
+    const till = tillUsdValue(
+      (endBalance as Record<string, number>) ?? calcBalance,
+      costBasisSnapshot as Record<string, number>,
+    );
 
     const updated = await this.prisma.shift.update({
       where: { id: shiftId },
@@ -236,30 +259,34 @@ export class ShiftsService {
         endBalance,
         calcBalance,
         profit,
+        profitUsd,
         // Звіт закриття зберігаємо: історія не залежить від подальших курсів.
         factualProfit,
+        factualProfitUsd,
         profitByCurrency,
+        profitByCurrencyUsd,
         valuationRates: valuation,
-        buybackMargin: buyback.totalMargin,
-        buybackMarginByCurrency: buyback.byCurrency,
-        // Собівартість на закриття — середній курс, проти якого рахувався прибуток.
-        costBasis: Object.fromEntries(
-          Object.entries(wac.ending)
-            .filter(([, p]) => p.avgCost > 0)
-            .map(([cur, p]) => [cur, p.avgCost]),
-        ),
+        usdSellAtClose: sClose || null,
+        tillUsd: { byCurrency: till.byCurrency, total: till.total, usdSellRate: sClose, usdtIncluded: false },
+        costBasis: costBasisSnapshot,
       },
     });
-    // Переносимо ковзну собівартість і пул проданої гривні на наступну зміну цієї
-    // каси + записуємо реалізований прибуток кожної операції (фінанси/живий підрахунок).
+    // Переносимо собівартість на наступну зміну цієї каси + записуємо
+    // реалізований прибуток кожної операції (фінанси/живий підрахунок).
     await this.profit.saveBasis(shift.cashDeskId, wac.ending);
-    await this.profit.saveSoldPool(shift.cashDeskId, buyback.ending);
     const opUpdates = wac.ops
-      .map((o: any, i: number) => (o.id != null ? { id: o.id, profit: wac.perOp[i] } : null))
-      .filter((x): x is { id: number; profit: number } => x != null);
+      .map((o: any, i: number) =>
+        o.id != null ? { id: o.id, profitUsd: wac.perOp[i], profit: perOpUah[i] } : null,
+      )
+      .filter((x): x is { id: number; profitUsd: number; profit: number } => x != null);
     if (opUpdates.length) {
       await this.prisma.$transaction(
-        opUpdates.map((u) => this.prisma.operation.update({ where: { id: u.id }, data: { profit: u.profit } })),
+        opUpdates.map((u) =>
+          this.prisma.operation.update({
+            where: { id: u.id },
+            data: { profitUsd: u.profitUsd, profit: u.profit },
+          }),
+        ),
       );
     }
 
@@ -267,10 +294,17 @@ export class ShiftsService {
     const who = (shift as any).openedBy?.name ?? '';
     void this.telegram?.notifyShiftClosed(shift.number, who, profit, factualProfit);
     void this.notifications?.notifyAdmins(
-      `Зміну №${shift.number} закрито (${who}). Прибуток: ${factualProfit.toFixed(2)} ₴`,
+      `Зміну №${shift.number} закрито (${who}). Прибуток: ${factualProfitUsd.toFixed(2)} $ (${factualProfit.toFixed(2)} ₴)`,
     );
 
-    return { ...updated, netTransfers: net, netCashMovements: moveDelta, netUsdt: usdtDelta, usdtProfit: usdtMargin };
+    return {
+      ...updated,
+      netTransfers: net,
+      netCashMovements: moveDelta,
+      netUsdt: usdtDelta,
+      usdtProfit: usdtUah,
+      usdtProfitUsd: usdtUsd,
+    };
   }
 
   // Залишок із закриття останньої зміни цієї каси — для префілу при відкритті нової.
@@ -496,11 +530,10 @@ export class ShiftsService {
       }
     }
 
-    // Контекст моделей: перехідна собівартість (WAC), пул проданої гривні
-    // (маржа з відкупу) і активні курси точки.
-    const [costBasis, soldPool, activeRates] = await Promise.all([
+    // Контекст моделі: перехідна собівартість ($-числовник: UAH — сер. курс
+    // ₴/$, інші — $-крос) і активні курси точки.
+    const [costBasis, activeRates] = await Promise.all([
       this.profit.getBasis(shift.cashDeskId),
-      this.profit.getSoldPool(shift.cashDeskId),
       this.prisma.rate.findMany({
         where: { exchangePointId: shift.cashDesk.exchangePointId, status: 'ACTIVE' },
         select: { currency: true, buy: true, sell: true, updatedAt: true },
@@ -509,7 +542,7 @@ export class ShiftsService {
 
     const { operations, cashMovements, usdtOperations, reconciliations, ...shiftMeta } = shift;
     return reportDatesToKyiv({
-      reportVersion: 1,
+      reportVersion: 2, // v2: $-числовник (profitUsd/tillUsd/usdSellAtClose), без buyback
       generatedAt: new Date(),
       shift: shiftMeta,
       operations,
@@ -529,15 +562,10 @@ export class ShiftsService {
       discrepancy,
       usdtSummary: {
         margin: usdtProfit(shift.usdtOperations as any),
+        marginUsd: usdtProfitUsd(shift.usdtOperations as any),
         cashDelta: usdtDelta,
       },
       wacCostBasis: costBasis,
-      // Маржа з відкупу (модель замовника) — додатковий показник поруч із profit.
-      buyback: {
-        margin: shift.buybackMargin != null ? Number(shift.buybackMargin) : null,
-        byCurrency: shift.buybackMarginByCurrency,
-        soldPool, // пул проданої гривні, що чекає відкупу (поточний стан каси)
-      },
       activeRates,
     });
   }

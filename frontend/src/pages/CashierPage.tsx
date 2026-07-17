@@ -12,7 +12,7 @@ import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
 import { type CashDirection } from '../lib/cash-movements';
 import { shiftCashBalanceWithTransfers } from '../lib/shift-balance';
-import { usdtProfit } from '../lib/usdt';
+import { usdtProfit, usdtProfitUsd } from '../lib/usdt';
 import { offlineQueue, isNetworkError, type QueuedOp } from '../lib/offline-queue';
 import UsdtModal from '../components/cashier/UsdtModal';
 
@@ -377,14 +377,16 @@ export default function CashierPage() {
     );
   }, [shift, queued]);
 
-  // Живий прибуток каси за поточну зміну — реалізований WAC (сума op.profit,
-  // рахується сервером при кожній операції) + чиста маржа USDT. Без нестачі/
-  // надлишку (фактичний перерахунок буде лише на закритті).
+  // Живий прибуток каси за поточну зміну ($-числовник: op.profitUsd нативний,
+  // op.profit — ₴-знімок; рахується сервером при кожній операції) + маржа USDT.
+  // Без нестачі/надлишку (фактичний перерахунок буде лише на закритті).
   const liveProfit = useMemo(() => {
     const ops = shift?.operations ?? [];
     const trading = ops.reduce((s: number, o: any) => s + (o.cancelled ? 0 : Number(o.profit ?? 0)), 0);
+    const tradingUsd = ops.reduce((s: number, o: any) => s + (o.cancelled ? 0 : Number(o.profitUsd ?? 0)), 0);
     const usdt = usdtProfit(shift?.usdtOperations ?? []);
-    return { total: trading + usdt, trading, usdt };
+    const usdtUsd = usdtProfitUsd(shift?.usdtOperations ?? []);
+    return { total: trading + usdt, totalUsd: tradingUsd + usdtUsd, trading, usdt };
   }, [shift]);
 
   // ── Синхронізація інфо зміни в хедер ─────────────────────────────────────
@@ -775,10 +777,13 @@ export default function CashierPage() {
                   <div className="flex items-center mt-1.5 pt-1.5 border-t border-gray-200 px-1">
                     <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Прибуток каси</span>
                     <span
-                      className={`text-xl font-bold ${liveProfit.total >= 0 ? 'text-green-600' : 'text-red-600'}`}
+                      className={`text-right text-xl font-bold ${liveProfit.totalUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}
                       title={`Торговий: ${liveProfit.trading.toFixed(2)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${liveProfit.usdt.toFixed(2)} ₴` : ''}`}
                     >
-                      {liveProfit.total >= 0 ? '+' : ''}{fmtMoney(liveProfit.total)} ₴
+                      {liveProfit.totalUsd >= 0 ? '+' : ''}{liveProfit.totalUsd.toFixed(2)} $
+                      <div className="text-xs font-medium text-gray-400">
+                        {liveProfit.total >= 0 ? '+' : ''}{fmtMoney(liveProfit.total)} ₴
+                      </div>
                     </span>
                   </div>
                 )}

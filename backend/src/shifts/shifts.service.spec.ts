@@ -3,26 +3,36 @@ import { ShiftsService } from './shifts.service';
 import { ProfitService } from '../profit/profit.service';
 
 // Будує сервіс із реальним ProfitService на тому ж mock-prisma, доповнюючи його
-// потрібними для WAC методами (собівартість каси, $transaction).
+// потрібними для $-числовника методами (собівартість каси, $transaction).
 function build(prisma: any) {
   prisma.deskCostBasis = prisma.deskCostBasis ?? { findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() };
-  prisma.deskSoldPool = prisma.deskSoldPool ?? { findMany: jest.fn().mockResolvedValue([]), upsert: jest.fn() };
   prisma.$transaction = prisma.$transaction ?? ((arr: any[]) => Promise.all(arr));
   prisma.rate = prisma.rate ?? { findMany: jest.fn().mockResolvedValue([]) };
   return new ShiftsService(prisma, new ProfitService(prisma));
 }
 
+// where-свідомий мок курсів: getUsdTimeline фільтрує по currency='USD'.
+function rateMock(rows: { currency: string; buy: number; sell: number }[]) {
+  const withDates = rows.map((r) => ({ createdAt: new Date(0), ...r }));
+  return {
+    findMany: jest.fn((args: any) => {
+      const cur = args?.where?.currency;
+      return Promise.resolve(cur ? withDates.filter((r) => r.currency === cur) : withDates);
+    }),
+  };
+}
+
 describe('ShiftsService — закриття та коригування', () => {
   describe('closeShift()', () => {
-    it('прибуток = реалізований спред «з відкупу» (відкуплено × спред)', async () => {
+    it('прибуток реалізується на ВІДКУПІ проти бази гривні (продаж USD — 0)', async () => {
       const shift = {
         id: 1,
         status: 'OPEN',
         startBalance: { UAH: 10000, USD: 500 },
         cashDesk: { exchangePointId: 1 },
         operations: [
-          { type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, cancelled: false },  // куп. @41
-          { type: 'SELL', currency: 'USD', amount: 40, totalUah: 1660, cancelled: false },   // прод. @41.5
+          { type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, cancelled: false },  // відкуп @41
+          { type: 'SELL', currency: 'USD', amount: 40, totalUah: 1660, cancelled: false },   // прод. @41.5 → 0
           { type: 'BUY', currency: 'USD', amount: 999, totalUah: 99999, cancelled: true },   // скасована
         ],
       };
@@ -31,20 +41,21 @@ describe('ShiftsService — закриття та коригування', () =>
           findUnique: jest.fn().mockResolvedValue(shift),
           update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })),
         },
-        rate: {
-          findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]), // mid 41.25
-        },
+        rate: rateMock([{ currency: 'USD', buy: 41, sell: 41.5 }]),
         transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
       const service = build(prisma);
 
       const res: any = await service.closeShift(1, { UAH: 7560, USD: 560 });
 
-      // Реаліз. прибуток: куплено 100 @41, продано 40 @41.5.
-      // відкуплено = min(100,40)=40; 40×(41.5−41)=20. Відкриті 60 USD не оцінюються.
-      expect(Number(res.profit)).toBeCloseTo(20);
-      expect(Number(res.factualProfit)).toBeCloseTo(20); // endBalance = calcBalance → без нестачі
+      // База гривні (fallback) = курс продажу USD 41.5. Відкуп 100 USD по 41:
+      // profitUsd = 100 − 4100/41.5 ≈ 1.2048 $; у ₴ (×41.5) = рівно 50.
+      // Продаж 40 @41.5 прибутку не дає (гривня заходить за курсом продажу).
+      expect(Number(res.profitUsd)).toBeCloseTo(100 - 4100 / 41.5, 4);
+      expect(Number(res.profit)).toBeCloseTo(50, 2);
+      expect(Number(res.factualProfit)).toBeCloseTo(50, 2); // endBalance = calcBalance → без нестачі
       expect(res.calcBalance).toEqual({ UAH: 7560, USD: 560 });
+      expect(Number(res.usdSellAtClose)).toBeCloseTo(41.5, 4);
     });
 
     it('фактичний прибуток менший за торговий при нестачі касира', async () => {
@@ -54,16 +65,17 @@ describe('ShiftsService — закриття та коригування', () =>
       };
       const prisma = {
         shift: { findUnique: jest.fn().mockResolvedValue(shift), update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })) },
-        rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]) },
+        rate: rateMock([{ currency: 'USD', buy: 41, sell: 41.5 }]),
         transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
       const service = build(prisma);
       // calc: USD 100, UAH 5900. Касир нарахував лише 90 USD (нестача 10).
       const res: any = await service.closeShift(1, { UAH: 5900, USD: 90 });
-      // Лише купівля (без продажу) → відкупу немає → торговий прибуток 0.
-      // Нестача оцінюється за курсом ПРОДАЖУ (рішення власника): 10 USD × 41.5.
-      expect(Number(res.profit)).toBeCloseTo(0);
-      expect(Number(res.factualProfit)).toBeCloseTo(-415);
+      // Відкуп по 41 проти бази 41.5 → +50 ₴. Нестача за курсом ПРОДАЖУ: 10 × 41.5 = 415.
+      expect(Number(res.profit)).toBeCloseTo(50, 2);
+      expect(Number(res.factualProfit)).toBeCloseTo(50 - 415, 2);
+      // У $ — та сама нестача через курс продажу USD на закритті.
+      expect(Number(res.factualProfitUsd)).toBeCloseTo(Number(res.profitUsd) - 415 / 41.5, 3);
     });
 
     it('передачі між касами не входять у фактичний прибуток', async () => {
@@ -72,9 +84,13 @@ describe('ShiftsService — закриття та коригування', () =>
         cashDesk: { exchangePointId: 1 },
         operations: [{ type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, cancelled: false }],
       };
+      const usdRow = { currency: 'USD', buy: 41, sell: 41.5, createdAt: new Date(0) };
       const prisma = {
         shift: { findUnique: jest.fn().mockResolvedValue(shift), update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })) },
-        rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]) }, // mid 41.25
+        rate: {
+          findMany: jest.fn((args: any) =>
+            Promise.resolve(args?.where?.currency === 'USD' ? [usdRow] : [usdRow])),
+        },
         // На касу 7 надійшла передача 200 USD → фізично в касі 300 USD, але це не прибуток.
         // Мок чутливий до статусу: перевірка непідтверджених (PENDING) має бачити порожньо.
         transfer: { findMany: jest.fn(({ where }: any) =>
@@ -85,10 +101,10 @@ describe('ShiftsService — закриття та коригування', () =>
       const service = build(prisma);
       // Касир нарахував 300 USD (100 від операції + 200 передача), UAH 5900.
       const res: any = await service.closeShift(1, { UAH: 5900, USD: 300 });
-      // Лише купівля → відкупу немає → торговий прибуток 0.
-      expect(Number(res.profit)).toBeCloseTo(0);
-      // Фактичний: вилучаємо 200 USD передачі → залишок збігається з очікуваним → 0.
-      expect(Number(res.factualProfit)).toBeCloseTo(0);
+      // Відкуп по 41 проти бази 41.5 → +50 ₴; передача прибутку не додає.
+      expect(Number(res.profit)).toBeCloseTo(50, 2);
+      // Фактичний: вилучаємо 200 USD передачі → залишок збігається з очікуваним → без нестачі.
+      expect(Number(res.factualProfit)).toBeCloseTo(50, 2);
       expect(res.netTransfers).toEqual({ USD: 200 });
     });
 
@@ -105,7 +121,7 @@ describe('ShiftsService — закриття та коригування', () =>
       };
       const prisma = {
         shift: { findUnique: jest.fn().mockResolvedValue(shift), update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })) },
-        rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 41.5 }]) }, // mid 41.25
+        rate: rateMock([{ currency: 'USD', buy: 41, sell: 41.5 }]),
         transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
       const service = build(prisma);
@@ -113,12 +129,32 @@ describe('ShiftsService — закриття та коригування', () =>
       const res: any = await service.closeShift(1, { UAH: 7900, USD: 60 });
       // Розрахунковий залишок враховує рух готівки.
       expect(res.calcBalance).toEqual({ UAH: 7900, USD: 60 });
-      // Лише купівля → відкупу немає → торговий прибуток 0 (рух готівки не впливає).
-      expect(Number(res.profit)).toBeCloseTo(0);
+      // Відкуп @41 → +50 ₴; рух готівки прибутку не дає (гривня зайшла флоу за 1/S).
+      expect(Number(res.profit)).toBeCloseTo(50, 2);
       // Фактичний: повертаємо інкасовані 40 USD і прибираємо 2000 UAH підкріплення →
-      // залишок збігається з очікуваним → 0 (без нестачі).
-      expect(Number(res.factualProfit)).toBeCloseTo(0);
+      // залишок збігається з очікуваним → без нестачі.
+      expect(Number(res.factualProfit)).toBeCloseTo(50, 2);
       expect(res.netCashMovements).toEqual({ USD: -40, UAH: 2000 });
+    });
+
+    it('закриття зберігає «касу в доларах» (tillUsd) за принципом власника', async () => {
+      const shift = {
+        id: 1, status: 'OPEN', startBalance: { UAH: 41500, USD: 100 },
+        cashDesk: { exchangePointId: 1 },
+        operations: [],
+      };
+      const prisma = {
+        shift: { findUnique: jest.fn().mockResolvedValue(shift), update: jest.fn(({ data }: any) => Promise.resolve({ id: 1, ...data })) },
+        rate: rateMock([{ currency: 'USD', buy: 41, sell: 41.5 }]),
+        transfer: { findMany: jest.fn().mockResolvedValue([]) },
+      };
+      const service = build(prisma);
+      const res: any = await service.closeShift(1, { UAH: 41500, USD: 100 });
+      // Гривня за базою (fallback 41.5): 41500/41.5 = 1000 $; USD як є.
+      expect(res.tillUsd.total).toBeCloseTo(1100, 2);
+      expect(res.tillUsd.byCurrency.UAH).toBeCloseTo(1000, 2);
+      expect(res.tillUsd.byCurrency.USD).toBe(100);
+      expect(res.tillUsd.usdSellRate).toBeCloseTo(41.5, 4);
     });
 
     it('НЕ дає закрити зміну з непідтвердженою передачею (інакше — фантомна нестача)', async () => {
@@ -235,32 +271,33 @@ describe('ShiftsService — закриття та коригування', () =>
       };
     }
 
-    it('змінює сер. курс і перераховує прибуток продажу (собівартість — вхід прибутку)', async () => {
+    it('змінює сер. курс гривні і перераховує прибуток відкупу (база — вхід прибутку)', async () => {
       const shift = {
-        id: 1, status: 'OPEN', cashDeskId: 7, openedAt: new Date(), openedById: 5,
+        id: 1, status: 'OPEN', cashDeskId: 7, openedAt: new Date(0), openedById: 5,
         cashDesk: { exchangePointId: 1 },
-        startBalance: { USD: 100 },
-        // Продаж 100 USD по 42.00.
-        operations: [{ id: 10, type: 'SELL', currency: 'USD', amount: 100, totalUah: 4200, cancelled: false }],
+        startBalance: { UAH: 4200 },
+        // Відкуп 100 USD по 41.00.
+        operations: [{ id: 10, type: 'BUY', currency: 'USD', amount: 100, totalUah: 4100, cancelled: false }],
         cashMovements: [],
       };
-      const basis = statefulBasis({ USD: 41 }); // собівартість була 41 → прибуток 100
+      const basis = statefulBasis({ UAH: 42 }); // сер. курс був 42 → прибуток відкупу 100 ₴
       const updated: Record<number, number> = {};
       const prisma: any = {
         shift: { findUnique: jest.fn().mockResolvedValue(shift) },
         deskCostBasis: basis,
-        rate: { findMany: jest.fn().mockResolvedValue([{ currency: 'USD', buy: 41, sell: 42 }]) },
+        rate: rateMock([{ currency: 'USD', buy: 41, sell: 42 }]),
         operation: { update: jest.fn(async ({ where, data }: any) => { updated[where.id] = data.profit; return {}; }) },
         transfer: { findMany: jest.fn().mockResolvedValue([]) },
       };
       const service = build(prisma);
 
-      // Знижуємо собівартість до 40 → прибуток продажу 100×(42−40)=200.
-      const res: any = await service.updateCostBasis(1, { USD: 40 }, { sub: 5, role: 'CASHIER' });
+      // Знижуємо сер. курс до 41.5 → прибуток відкупу = 100 − 4100/41.5 ≈ 1.2048 $;
+      // ₴-знімок за курсом МОМЕНТУ операції (S=42): ≈ 50.60 ₴.
+      const res: any = await service.updateCostBasis(1, { UAH: 41.5 }, { sub: 5, role: 'CASHIER' });
 
-      expect(basis._map.get('USD')).toBe(40);          // сер. курс перезаписано
-      expect(updated[10]).toBeCloseTo(200, 6);          // прибуток операції перераховано
-      expect(res.costBasis).toEqual({ USD: 40 });
+      expect(basis._map.get('UAH')).toBe(41.5);        // сер. курс перезаписано
+      expect(updated[10]).toBeCloseTo((100 - 4100 / 41.5) * 42, 2); // прибуток перераховано (₴-знімок)
+      expect(res.costBasis).toEqual({ UAH: 41.5 });
     });
 
     it('не дає редагувати закриту зміну (собівартість уже перенесена далі)', async () => {
@@ -268,7 +305,7 @@ describe('ShiftsService — закриття та коригування', () =>
         shift: { findUnique: jest.fn().mockResolvedValue({ id: 1, status: 'CLOSED', cashDeskId: 7, openedById: 5 }) },
       };
       const service = build(prisma);
-      await expect(service.updateCostBasis(1, { USD: 40 })).rejects.toBeInstanceOf(BadRequestException);
+      await expect(service.updateCostBasis(1, { UAH: 41 })).rejects.toBeInstanceOf(BadRequestException);
     });
 
     it('касир не може редагувати чужу зміну', async () => {
@@ -277,7 +314,7 @@ describe('ShiftsService — закриття та коригування', () =>
       };
       const service = build(prisma);
       await expect(
-        service.updateCostBasis(1, { USD: 40 }, { sub: 99, role: 'CASHIER' }),
+        service.updateCostBasis(1, { UAH: 41 }, { sub: 99, role: 'CASHIER' }),
       ).rejects.toBeInstanceOf(BadRequestException);
     });
   });

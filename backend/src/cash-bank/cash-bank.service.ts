@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsdtService } from '../usdt/usdt.service';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
+import { tillUsdValue } from '../common/wac-profit.util';
 
 // Клієнт БД: звичайний або транзакційний (щоб рух банку можна було включити
 // в одну транзакцію з рухом готівки каси).
@@ -133,7 +134,7 @@ export class CashBankService {
    * USDT рахується окремо: глобальний гаманець + гаманці точок.
    */
   async getCompanyBalance() {
-    const [bankRows, desks, gWallet, pWallets] = await Promise.all([
+    const [bankRows, desks, gWallet, pWallets, basisRows, activeRates] = await Promise.all([
       this.prisma.cashBankBalance.findMany(),
       this.prisma.cashDesk.findMany({
         include: {
@@ -145,15 +146,42 @@ export class CashBankService {
       }),
       this.usdt.getGlobalWallet(),
       this.prisma.usdtWallet.findMany(),
+      this.prisma.deskCostBasis.findMany(),
+      this.prisma.rate.findMany({
+        where: { status: 'ACTIVE' },
+        orderBy: { exchangePointId: 'asc' },
+        select: { exchangePointId: true, currency: true, buy: true, sell: true },
+      }),
     ]);
 
     const bank: Record<string, number> = {};
     for (const r of bankRows) bank[r.currency] = Number(r.amount);
 
+    // Ринкова база для оцінки в $ (банк і каси без власної собівартості):
+    // курси ПЕРШОЇ точки — UAH за курсом продажу USD, валюти за кросом buy/S.
+    const firstPoint = activeRates[0]?.exchangePointId;
+    const marketBasis: Record<string, number> = {};
+    const usdRow = activeRates.find((r) => r.exchangePointId === firstPoint && r.currency === 'USD');
+    const sUsd = usdRow ? Number(usdRow.sell) : 0;
+    if (sUsd > 0) {
+      marketBasis.UAH = sUsd;
+      for (const r of activeRates) {
+        if (r.exchangePointId !== firstPoint || r.currency === 'USD') continue;
+        marketBasis[r.currency] = Number(r.buy) / sUsd;
+      }
+    }
+    const basisByDesk = new Map<number, Record<string, number>>();
+    for (const b of basisRows) {
+      const m = basisByDesk.get(b.cashDeskId) ?? {};
+      m[b.currency] = Number(b.avgCost);
+      basisByDesk.set(b.cashDeskId, m);
+    }
+
     const desksTotal: Record<string, number> = {};
     const addTo = (acc: Record<string, number>, cur: string, amt: number) => {
       acc[cur] = (acc[cur] ?? 0) + amt;
     };
+    let desksUsd = 0;
 
     for (const desk of desks) {
       const open = desk.shifts[0];
@@ -178,6 +206,8 @@ export class CashBankService {
         cur = (last?.endBalance as Record<string, number>) ?? {};
       }
       for (const [c, amt] of Object.entries(cur)) addTo(desksTotal, c, Number(amt));
+      // «Каса в доларах»: за власною собівартістю каси, дірки — за ринковою базою.
+      desksUsd += tillUsdValue(cur, { ...marketBasis, ...basisByDesk.get(desk.id) }).total;
     }
 
     const total: Record<string, number> = { ...bank };
@@ -185,12 +215,25 @@ export class CashBankService {
 
     const usdtPoints = pWallets.reduce((s, w) => s + Number(w.balance), 0);
     const usdtGlobal = Number(gWallet.balance);
+    const usdtTotal = usdtGlobal + usdtPoints;
+
+    // Загальний баланс компанії в доларах: каси за собівартістю, банк — за
+    // ринковою базою (власної собівартості не має), USDT 1:1.
+    const bankUsd = tillUsdValue(bank, marketBasis).total;
+    const usdTotal = {
+      desks: desksUsd,
+      bank: bankUsd,
+      usdt: usdtTotal,
+      total: desksUsd + bankUsd + usdtTotal,
+      usdSellRate: sUsd,
+    };
 
     return {
       bank,
       desks: desksTotal,
       total,
-      usdt: { global: usdtGlobal, points: usdtPoints, total: usdtGlobal + usdtPoints },
+      usdt: { global: usdtGlobal, points: usdtPoints, total: usdtTotal },
+      usdTotal,
     };
   }
 
