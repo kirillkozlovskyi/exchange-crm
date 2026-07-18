@@ -612,12 +612,12 @@ export default function OperationsSettings() {
 
         <div className="border-t border-gray-100" />
 
-        {/* Видимість банку для касира */}
+        {/* Видимість карти для касира */}
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-gray-700">Касир бачить баланс банку</p>
+            <p className="text-sm font-medium text-gray-700">Касир бачить баланс карти</p>
             <p className="text-xs text-gray-400">
-              Показувати касиру залишок глобального банку при виборі джерела «Банк». Рухати банк касир може завжди.
+              Показувати касиру залишок карти при виборі джерела «Карта». Рухати карту касир може завжди.
             </p>
           </div>
           <Toggle enabled={seeBank} onChange={setSeeBank} />
@@ -651,13 +651,13 @@ export default function OperationsSettings() {
 
         <div className="border-t border-gray-100" />
 
-        {/* Глобальний банк готівки */}
+        {/* Глобальний банк готівки (ярлик для користувача — «Карта») */}
         <div className="flex items-start justify-between gap-4">
           <div className="space-y-1">
-            <p className="text-sm font-medium text-gray-700">Використовувати банк готівки</p>
+            <p className="text-sm font-medium text-gray-700">Використовувати карту компанії</p>
             <p className="text-xs text-gray-400">
-              Увімкнено: підкріплення/інкасації рухають спільний банк фірми, є сторінка «Банк».
-              Вимкнено: гроші живуть лише по касах, джерело «Банк» у русі готівки не пропонується.
+              Увімкнено: підкріплення/інкасації рухають спільний баланс карти, є сторінка «Карта».
+              Вимкнено: гроші живуть лише по касах, джерело «Карта» у русі готівки не пропонується.
             </p>
           </div>
           <Toggle enabled={bankEnabled} onChange={setBankEnabled} />
@@ -718,7 +718,7 @@ function DangerZone() {
           Буде видалено: <b>{counts.operations}</b> операцій, <b>{counts.shifts}</b> змін,{' '}
           <b>{counts.cashMovements}</b> рухів готівки, <b>{counts.transfers}</b> передач,{' '}
           <b>{counts.usdtOperations}</b> USDT, <b>{counts.reconciliations}</b> звірок,{' '}
-          <b>{counts.expenses}</b> витрат. Баланс банку й гаманців — обнулиться.
+          <b>{counts.expenses}</b> витрат. Баланс карти й гаманців — обнулиться.
           <br />
           Залишаться: точки, каси, валюти, користувачі, налаштування та активні курси.
         </p>

@@ -13,7 +13,7 @@ type Company = {
 
 /**
  * Загальний баланс компанії = Банк + Σ поточної готівки кас (+ USDT).
- * Використовується на «Огляді» та сторінці «Банк».
+ * Використовується на «Огляді» та сторінці «Карта».
  */
 export default function CompanyBalanceCard({ refreshKey = 0 }: { refreshKey?: number }) {
   const [company, setCompany] = useState<Company | null>(null);
@@ -42,7 +42,7 @@ export default function CompanyBalanceCard({ refreshKey = 0 }: { refreshKey?: nu
           <thead>
             <tr className="text-[11px] text-gray-500 uppercase tracking-wide border-b">
               <th className="py-1.5 px-3 text-left font-medium">Валюта</th>
-              <th className="py-1.5 px-3 text-right font-medium">Банк</th>
+              <th className="py-1.5 px-3 text-right font-medium">Карта</th>
               <th className="py-1.5 px-3 text-right font-medium">Каси</th>
               <th className="py-1.5 px-3 text-right font-medium">Разом</th>
             </tr>
@@ -77,7 +77,7 @@ export default function CompanyBalanceCard({ refreshKey = 0 }: { refreshKey?: nu
       </div>
       <p className="text-xs text-gray-400 mt-2">
         Каси = поточна готівка відкритих змін + останній залишок закритих. USDT — глобальний гаманець + гаманці точок.
-        {company.usdTotal ? ' «Разом у $»: каси за їх собівартістю (сер. курс/кроси), банк — за поточними курсами, USDT 1:1.' : ''}
+        {company.usdTotal ? ' «Разом у $»: каси за їх собівартістю (сер. курс/кроси), карта — за поточними курсами, USDT 1:1.' : ''}
       </p>
     </div>
   );

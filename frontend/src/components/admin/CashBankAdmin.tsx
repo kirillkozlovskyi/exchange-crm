@@ -21,7 +21,7 @@ const TYPE_LABEL: Record<string, string> = {
   DEPOSIT: 'Депозит',
   WITHDRAW: 'Зняття',
   REPLENISH: 'Підкріплення каси',
-  COLLECT: 'Інкасація в банк',
+  COLLECT: 'Інкасація на карту',
 };
 
 export default function CashBankAdmin() {
@@ -59,7 +59,7 @@ export default function CashBankAdmin() {
     setBusy(true); setMsg('');
     try {
       await api.post(`/cash-bank/${kind}`, { currency, amount: amt });
-      setAmount(''); setMsg(kind === 'deposit' ? 'Додано в банк' : 'Знято з банку');
+      setAmount(''); setMsg(kind === 'deposit' ? 'Додано на карту' : 'Знято з карти');
       load();
     } catch (e: any) {
       setMsg(e.response?.data?.message ?? 'Помилка');
@@ -73,15 +73,15 @@ export default function CashBankAdmin() {
       {/* Загальний баланс компанії */}
       <CompanyBalanceCard refreshKey={refreshKey} />
 
-      {/* Баланси банку */}
+      {/* Баланси карти (глобальний банк готівки) */}
       <div className="bg-white rounded-xl shadow p-5">
-        <h3 className="font-semibold text-lg mb-3">🏦 Банк компанії — готівка</h3>
+        <h3 className="font-semibold text-lg mb-3">💳 Карта компанії</h3>
         {loading ? (
           <div className="text-center py-6 text-gray-400">Завантаження...</div>
         ) : (
           <div className="flex flex-wrap gap-2">
             {balances.currencies.length === 0 && (
-              <span className="text-gray-400 text-sm italic">Банк порожній</span>
+              <span className="text-gray-400 text-sm italic">Карта порожня</span>
             )}
             {balances.currencies.map((c) => (
               <div key={c.currency} className="border border-gray-200 rounded-lg px-4 py-2 min-w-[120px]">
@@ -99,7 +99,7 @@ export default function CashBankAdmin() {
 
         {/* Депозит / зняття */}
         <div className="mt-4 border-t pt-3">
-          <div className="text-xs text-gray-500 mb-1">Депозит / зняття готівки (ззовні)</div>
+          <div className="text-xs text-gray-500 mb-1">Депозит / зняття (ззовні)</div>
           <div className="flex gap-2 flex-wrap items-center max-w-2xl">
             <select value={currency} onChange={(e) => setCurrency(e.target.value)}
               className="border border-gray-300 rounded px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400">
@@ -115,7 +115,7 @@ export default function CashBankAdmin() {
           </div>
           {msg && <div className="text-xs text-gray-500 mt-1.5">{msg}</div>}
           <p className="text-xs text-gray-400 mt-2">
-            Підкріплення/інкасація кас із джерелом «Банк» рухають цей баланс автоматично. USDT-банк — нижче на цій сторінці.
+            Підкріплення/інкасація кас із джерелом «Карта» рухають цей баланс автоматично. USDT-банк — нижче на цій сторінці.
           </p>
         </div>
       </div>
@@ -123,9 +123,9 @@ export default function CashBankAdmin() {
       {/* USDT — частина банку: керування гаманцем + швидкі суми */}
       <UsdtBankSection />
 
-      {/* Журнал рухів банку */}
+      {/* Журнал рухів карти */}
       <div className="bg-white rounded-xl shadow p-5">
-        <h3 className="font-semibold text-lg mb-3">Рухи банку</h3>
+        <h3 className="font-semibold text-lg mb-3">Рухи карти</h3>
         {movements.length === 0 ? (
           <p className="text-gray-400 text-sm text-center py-6">Немає записів</p>
         ) : (

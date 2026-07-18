@@ -943,15 +943,16 @@ type MovementItem = {
 };
 
 // Джерело/призначення руху готівки:
-//  • «Банк» — рухає глобальний банк компанії (підкріплення: банк ↓ каса ↑;
-//    інкасація: каса ↓ банк ↑) — перевірено, працює через counterparty BANK;
-//  • «Інше» — гроші ззовні/назовні компанії (не чіпають банк).
+//  • «Карта» — рухає глобальний банк компанії (у замовника це гроші на карті:
+//    підкріплення: карта ↓ каса ↑; інкасація: каса ↓ карта ↑) — працює через
+//    counterparty BANK;
+//  • «Інше» — гроші ззовні/назовні компанії (не чіпають карту).
 // «Інша каса» прибрано: для переміщень між касами є Передачі (з підтвердженням
 // отримувачем); «Офіс»/«Власник» злиті в «Інше».
-//  • «Коригування» — вирівнювання перерахунку каси (копійки/округлення). Банк не
+//  • «Коригування» — вирівнювання перерахунку каси (копійки/округлення). Карту не
 //    чіпає, лишає слід у журналі. Доступне, лише якщо адмін дозволив
 //    «Редагування залишків каси».
-const SOURCE_CATEGORIES = ['Банк', 'Інше'];
+const SOURCE_CATEGORIES = ['Карта', 'Інше'];
 const ADJUST_SOURCE = 'Коригування';
 
 // Короткий двотональний сигнал про нову вхідну передачу (WebAudio, без файлів).
@@ -1000,14 +1001,14 @@ function CashMovementModal({
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  // Баланс банку — показуємо касиру лише якщо ввімкнено в налаштуваннях і обрано «Банк».
+  // Баланс карти — показуємо касиру лише якщо ввімкнено в налаштуваннях і обрано «Карта».
   const [bankBalances, setBankBalances] = useState<Record<string, number> | null>(null);
-  // Банк може бути вимкнений адміном — тоді джерела «Банк» узагалі немає.
+  // Карта може бути вимкнена адміном — тоді джерела «Карта» узагалі немає.
   const [bankEnabled, setBankEnabled] = useState(true);
-  // «Коригування» — окремий інструмент вирівнювання каси (не чіпає банк).
+  // «Коригування» — окремий інструмент вирівнювання каси (не чіпає карту).
   const [adjustEnabled, setAdjustEnabled] = useState(false);
   const sources = [
-    ...(bankEnabled ? SOURCE_CATEGORIES : SOURCE_CATEGORIES.filter((c) => c !== 'Банк')),
+    ...(bankEnabled ? SOURCE_CATEGORIES : SOURCE_CATEGORIES.filter((c) => c !== 'Карта')),
     ...(adjustEnabled ? [ADJUST_SOURCE] : []),
   ];
 
@@ -1047,8 +1048,8 @@ function CashMovementModal({
       await api.post('/cash-movements', {
         shiftId, direction, currency, amount: parsed,
         source: source || undefined,
-        // Контрагент «Банк» рухає глобальний банк готівки; решта — зовнішні мітки.
-        counterparty: source === 'Банк' ? 'BANK' : 'EXTERNAL',
+        // Контрагент «Карта» рухає глобальний банк готівки; решта — зовнішні мітки.
+        counterparty: source === 'Карта' ? 'BANK' : 'EXTERNAL',
         note: note || undefined,
       });
       onSaved();
@@ -1067,8 +1068,8 @@ function CashMovementModal({
           <div className={`text-sm font-semibold ${ui.head} uppercase tracking-wider`}>{title}</div>
           <p className="text-sm text-gray-500 mt-1">
             {isIn
-              ? 'Готівка приходить у касу (з банку / офісу / іншої каси). Збільшує залишок каси, але не впливає на прибуток зміни.'
-              : 'Вилучення готівки з каси (в банк / офіс / сейф). Зменшує залишок каси, але не впливає на прибуток зміни.'}
+              ? 'Готівка приходить у касу (з карти / офісу / іншої каси). Збільшує залишок каси, але не впливає на прибуток зміни.'
+              : 'Вилучення готівки з каси (на карту / офіс / сейф). Зменшує залишок каси, але не впливає на прибуток зміни.'}
           </p>
         </div>
 
@@ -1110,14 +1111,14 @@ function CashMovementModal({
             >
               {sources.map((c) => <option key={c}>{c}</option>)}
             </select>
-            {source === 'Банк' && bankBalances && (
+            {source === 'Карта' && bankBalances && (
               <p className="text-xs text-gray-500 mt-1">
-                У банку: <span className="font-semibold">{fmtMoney(bankBalances[currency] ?? 0)} {currency}</span>
+                На карті: <span className="font-semibold">{fmtMoney(bankBalances[currency] ?? 0)} {currency}</span>
               </p>
             )}
             {source === ADJUST_SOURCE && (
               <p className="text-xs text-amber-600 mt-1">
-                Вирівнювання перерахунку каси. Банк не змінюється; запис лишиться в журналі.
+                Вирівнювання перерахунку каси. Карта не змінюється; запис лишиться в журналі.
               </p>
             )}
           </div>
@@ -1127,7 +1128,7 @@ function CashMovementModal({
               type="text"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder={isIn ? 'Напр.: підкріплення з головної каси' : 'Напр.: інкасація в банк'}
+              placeholder={isIn ? 'Напр.: підкріплення з головної каси' : 'Напр.: інкасація на карту'}
               className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring}`}
             />
           </div>

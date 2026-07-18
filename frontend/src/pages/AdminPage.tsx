@@ -32,7 +32,7 @@ const NAV: { header?: string; items: { key: Tab; icon: string; label: string }[]
     header: 'Гроші',
     items: [
       { key: 'rates', icon: '📊', label: 'Курси' },
-      { key: 'bank', icon: '🏦', label: 'Банк' },
+      { key: 'bank', icon: '💳', label: 'Карта' },
     ],
   },
   {
