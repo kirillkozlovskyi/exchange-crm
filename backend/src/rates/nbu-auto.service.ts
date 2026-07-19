@@ -3,7 +3,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import { format } from 'date-fns';
 
-const NBU_URL = 'https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?json';
+// Без параметра date НБУ після ~15:30 віддає курс на НАСТУПНИЙ день — тому
+// явно запитуємо курс на сьогодні (дата за Києвом).
+const nbuUrlToday = () => {
+  const d = new Date().toLocaleDateString('en-CA', { timeZone: 'Europe/Kyiv' }).replace(/-/g, '');
+  return `https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?date=${d}&json`;
+};
 const round4 = (n: number) => Math.round(n * 10000) / 10000;
 
 // Автопідтягування курсів НБУ за розкладом. Раз на годину перевіряє: якщо
@@ -57,7 +62,7 @@ export class NbuAutoService implements OnModuleInit {
   /** Довідкові курси НБУ для відображення в адмінці: { дата, {код: курс} }. */
   async getReference(): Promise<{ date: string; rates: Record<string, number> } | null> {
     try {
-      const res = await fetch(NBU_URL);
+      const res = await fetch(nbuUrlToday());
       if (!res.ok) return null;
       const list = (await res.json()) as { cc: string; rate: number; exchangedate: string }[];
       const map: Record<string, number> = {};
