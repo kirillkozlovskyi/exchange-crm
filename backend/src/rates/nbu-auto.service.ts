@@ -50,13 +50,19 @@ export class NbuAutoService implements OnModuleInit {
   }
 
   private async fetchNbu(): Promise<Record<string, number> | null> {
+    const ref = await this.getReference();
+    return ref ? ref.rates : null;
+  }
+
+  /** Довідкові курси НБУ для відображення в адмінці: { дата, {код: курс} }. */
+  async getReference(): Promise<{ date: string; rates: Record<string, number> } | null> {
     try {
       const res = await fetch(NBU_URL);
       if (!res.ok) return null;
-      const list = (await res.json()) as { cc: string; rate: number }[];
+      const list = (await res.json()) as { cc: string; rate: number; exchangedate: string }[];
       const map: Record<string, number> = {};
       for (const r of list) map[r.cc] = Number(r.rate);
-      return map;
+      return { date: list[0]?.exchangedate ?? '', rates: map };
     } catch {
       return null;
     }

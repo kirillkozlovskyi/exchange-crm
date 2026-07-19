@@ -25,6 +25,20 @@ export default function RatesAdmin() {
   const [success, setSuccess] = useState<string | null>(null);
   const [publishing, setPublishing] = useState<number | null>(null);
   const [publishMsg, setPublishMsg] = useState<{ pointId: number; text: string; ok: boolean } | null>(null);
+  const [nbu, setNbu] = useState<Record<string, number>>({});
+  const [nbuDate, setNbuDate] = useState<string | null>(null);
+  const [nbuLoading, setNbuLoading] = useState(false);
+
+  const loadNbu = async () => {
+    setNbuLoading(true);
+    try {
+      const { data } = await api.get('/rates/nbu');
+      setNbu(data.rates ?? {});
+      setNbuDate(data.date ?? null);
+    } finally {
+      setNbuLoading(false);
+    }
+  };
 
   const loadAll = async () => {
     const [c, p, r] = await Promise.all([
@@ -49,7 +63,7 @@ export default function RatesAdmin() {
     setPointCurrencies(map);
   };
 
-  useEffect(() => { loadAll(); }, []);
+  useEffect(() => { loadAll(); loadNbu(); }, []);
 
   const activeCurrencies = currencies.filter((c) => c.active);
 
@@ -123,6 +137,17 @@ export default function RatesAdmin() {
 
   return (
     <div className="space-y-4">
+      <div className="flex items-center gap-2">
+        <button
+          onClick={loadNbu}
+          disabled={nbuLoading}
+          className="text-xs px-3 py-1 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          title="Підтягнути свіжі офіційні курси НБУ"
+        >
+          {nbuLoading ? '…' : '🔄 Оновити курси НБУ'}
+        </button>
+        {nbuDate && <span className="text-xs text-gray-400">НБУ на {nbuDate}</span>}
+      </div>
       {points.map((point) => {
         const ptCodes = pointCurrencies[point.id] ?? new Set<string>();
         // Apply global drag order, filtered to this point's active currencies
@@ -175,6 +200,7 @@ export default function RatesAdmin() {
                   <tr className="text-left text-gray-500 border-b text-xs">
                     <th className="pb-2 w-6"></th>
                     <th className="pb-2 w-28">Валюта</th>
+                    <th className="pb-2 w-20">НБУ</th>
                     <th className="pb-2">Купівля</th>
                     <th className="pb-2">Продаж</th>
                     <th className="pb-2 w-32"></th>
@@ -204,6 +230,9 @@ export default function RatesAdmin() {
                             {meta && <span className="text-base leading-none">{meta.flag}</span>}
                             <span className="font-bold text-gray-800">{cur.code}</span>
                           </span>
+                        </td>
+                        <td className="py-2 text-gray-500">
+                          {nbu[cur.code] != null ? nbu[cur.code].toFixed(2) : '—'}
                         </td>
                         <td className="py-2">
                           {ed ? (

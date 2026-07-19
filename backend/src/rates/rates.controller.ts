@@ -1,6 +1,7 @@
 import { Controller, Get, Post, Body, Param, Query, Res, UseGuards, ParseIntPipe } from '@nestjs/common';
 import { Response } from 'express';
 import { RatesService } from './rates.service';
+import { NbuAutoService } from './nbu-auto.service';
 import { parseCardTheme } from '../telegram/rate-card';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -10,11 +11,22 @@ import { CurrentUser } from '../common/decorators/user.decorator';
 @UseGuards(JwtAuthGuard)
 @Controller('rates')
 export class RatesController {
-  constructor(private service: RatesService) {}
+  constructor(
+    private service: RatesService,
+    private nbu: NbuAutoService,
+  ) {}
 
   @Get()
   getAll() {
     return this.service.getAllActive();
+  }
+
+  // Довідкові курси НБУ (для колонки «НБУ» на сторінці курсів).
+  @Get('nbu')
+  async getNbu() {
+    const ref = await this.nbu.getReference();
+    if (!ref) return { date: null, rates: {} };
+    return ref;
   }
 
   @Get('point/:pointId')
