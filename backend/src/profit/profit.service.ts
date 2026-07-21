@@ -19,11 +19,13 @@ type UsdtOpRow = UsdtOp & { createdAt?: Date | string };
 
 /**
  * Прибуток за моделлю «каса в доларах» ($-числовник, WAC): позиція каси по
- * валюті (включно з ГРИВНЕЮ) переноситься між змінами через збережену середню
- * собівартість (DeskCostBasis, людський формат: UAH — ₴/$, інші — $-крос).
+ * валюті (включно з ГРИВНЕЮ) відкривається від збереженої середньої
+ * собівартості (DeskCostBasis, людський формат: UAH — ₴/$, інші — $-крос).
+ * З 19.07.2026 DeskCostBasis задає ВЛАСНИК (форма відкриття/закриття зміни) і
+ * програма її не переписує; WAC-еволюція діє лише всередині зміни (прибуток).
  * Кількість на відкриття зміни беремо з фактичного залишку (startBalance) —
- * щоб позиція не дрейфувала від передач/руху готівки; переноситься лише
- * собівартість. USD — числовник, позиції не має.
+ * щоб позиція не дрейфувала від передач/руху готівки. USD — числовник,
+ * позиції не має.
  */
 @Injectable()
 export class ProfitService {
@@ -421,26 +423,4 @@ export class ProfitService {
     if (ops.length) await this.prisma.$transaction(ops);
   }
 
-  /**
-   * Зберігає (переносить) середню собівартість каси після закриття зміни —
-   * у людському форматі (UAH інвертується у ₴/$). Нульову собівартість не
-   * пишемо: позиція закрита — старий запис лишається як остання відома ціна,
-   * а нуль зробив би наступний продаж «чистим прибутком» на всю суму.
-   */
-  async saveBasis(cashDeskId: number, ending: PositionMap) {
-    const ops = Object.entries(ending)
-      .filter(([cur, p]) => cur !== NUMERAIRE && cur !== 'USDT' && p.avgCost > 0)
-      .map(([currency, p]) =>
-        this.prisma.deskCostBasis.upsert({
-          where: { cashDeskId_currency: { cashDeskId, currency } },
-          create: {
-            cashDeskId,
-            currency,
-            avgCost: currency === 'UAH' ? costToUahBasis(p.avgCost) : p.avgCost,
-          },
-          update: { avgCost: currency === 'UAH' ? costToUahBasis(p.avgCost) : p.avgCost },
-        }),
-      );
-    if (ops.length) await this.prisma.$transaction(ops);
-  }
 }

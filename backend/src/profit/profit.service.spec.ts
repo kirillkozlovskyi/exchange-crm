@@ -83,22 +83,6 @@ describe('ProfitService — перенесена собівартість ($-ч�
     expect(1 / res.ending.UAH.avgCost).toBeCloseTo(45, 6); // база 45 ₴/$
   });
 
-  it('saveBasis: USD не пишеться, UAH інвертується в ₴/$, нулі пропускаються', async () => {
-    const { service, upserts } = build({});
-    await service.saveBasis(1, {
-      EUR: { qty: 0, avgCost: 0 },        // позиція закрита — не зберігати
-      USD: { qty: 100, avgCost: 1 },      // числовник — ніколи не зберігати
-      UAH: { qty: 45000, avgCost: 1 / 44.95 }, // → 44.95 ₴/$
-      PLN: { qty: 500, avgCost: 0.2628 }, // $-крос — як є
-    });
-    const stored = Object.fromEntries(
-      upserts.map((u) => [u.where.cashDeskId_currency.currency, u.create.avgCost]),
-    );
-    expect(Object.keys(stored).sort()).toEqual(['PLN', 'UAH']);
-    expect(stored.UAH).toBeCloseTo(44.95, 6);
-    expect(stored.PLN).toBeCloseTo(0.2628, 6);
-  });
-
   it('setBasis ігнорує USD/USDT, приймає UAH у людському форматі', async () => {
     const { service, upserts } = build({});
     await service.setBasis(1, { UAH: 44.95, EUR: 1.142, USD: 44.5, USDT: 1 });

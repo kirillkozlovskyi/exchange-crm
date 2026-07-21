@@ -42,8 +42,9 @@ export function activeUsdSell(
 
 /**
  * «Каса в доларах» — підсумок каси за принципом власника (дзеркало backend
- * tillUsdValue): USD і USDT — як є; UAH — ÷ сер. курс (₴/$); інші валюти —
- * × їх $-крос-собівартість. basis — людський формат (UAH: 44.95, EUR: 1.1420).
+ * tillUsdValue): долари всіх видів (USD, USDT, USDW, USDG) — «готова валюта»
+ * 1:1 по факту; UAH — ÷ сер. курс (₴/$); інші валюти — × їх $-крос (курс
+ * задає власник). basis — людський формат (UAH: 44.95, EUR: 1.1420).
  * Валюта без бази оцінюється в 0 (чесний нуль, а не вигадана вартість).
  */
 export function tillUsd(
@@ -56,7 +57,7 @@ export function tillUsd(
     const qty = Number(raw);
     if (!Number.isFinite(qty) || qty === 0) continue;
     let usd = 0;
-    if (cur === 'USD' || cur === 'USDT') usd = qty;
+    if (cur.startsWith('USD')) usd = qty;
     else if (cur === 'UAH') usd = basis.UAH > 0 ? qty / basis.UAH : 0;
     else usd = qty * (basis[cur] > 0 ? basis[cur] : 0);
     byCurrency[cur] = usd;

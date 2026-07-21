@@ -186,8 +186,9 @@ describe('Імітація роботи компанії на дві каси (�
     expect(Number(res.factualProfit)).toBeCloseTo(750, 2);
     // Передача не є прибутком, але рухає баланс (нетто −500 USD у A).
     expect(round(res.netTransfers)).toEqual({ USD: -500 });
-    // Сер. курс гривні (44.6) переноситься на наступну зміну; USD без бази.
-    expect(w.basisOf(DESK_A, 'UAH')).toBeCloseTo(S, 6);
+    // Програма базу НЕ пише (курси задає власник) — прибуток вище рахувався
+    // від fallback-бази (поточний S = 44.6); USD (числовник) бази не має.
+    expect(w.basisOf(DESK_A, 'UAH')).toBeUndefined();
     expect(w.basisOf(DESK_A, 'USD')).toBeUndefined();
     profitA1 = Number(res.profit);
   });
@@ -196,8 +197,9 @@ describe('Імітація роботи компанії на дві каси (�
     const last = await w.lastEnd(DESK_A);
     // Система віддає для префілу нової зміни саме фізичний залишок A1.
     expect(round(last.endBalance)).toEqual(cashA.rounded());
-    // І поточну собівартість каси (дефолт поля «сер. курс») — тепер це база гривні.
-    expect(round(last.costBasis)).toEqual({ UAH: S });
+    // Дефолт поля «сер. курс» — курси, введені власником; вона ще нічого не
+    // вводила, і програма сама туди не пише — порожньо.
+    expect(round(last.costBasis)).toEqual({});
   });
 
   it('A2: продаж ПЕРЕНЕСЕНОГО запасу — 0 (заробіток буде на відкупі); нестача касира окремо', async () => {

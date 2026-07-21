@@ -138,8 +138,9 @@ describe('ПОВНА симуляція тижня обмінника (усі т
     expect(Number((ops[1] as any).profit)).toBeCloseTo(0, 6);
     expect(Number((ops[2] as any).profit)).toBe(0);
     expect(res.calcBalance.USD).toBeCloseTo(4000, 2); // 5000 + 2000 − 3000
-    // Сер. курс гривні лишився 44.6 (усі рухи за цим курсом); USD без бази.
-    expect(w.basisOf('UAH')).toBeCloseTo(S, 6);
+    // Програма базу НЕ пише (курси задає власник); без бази двигун бере
+    // fallback — поточний S (44.6), тому відкуп вище реалізувався проти нього.
+    expect(w.basisOf('UAH')).toBeUndefined();
     expect(w.basisOf('USD')).toBeUndefined();
     profitUsdSum += Number(res.profitUsd);
   });
@@ -153,7 +154,7 @@ describe('ПОВНА симуляція тижня обмінника (усі т
 
     expect(Number(res.profit)).toBeCloseTo(0, 2);
     expect(res.calcBalance.USD).toBeCloseTo(2000, 2); // 4000 + 3000 − 5000
-    expect(w.basisOf('UAH')).toBeCloseTo(S, 6);       // виручка за 44.6 не змінила базу
+    expect(w.basisOf('UAH')).toBeUndefined();         // виручка базу не пише
     profitUsdSum += Number(res.profitUsd);
   });
 
@@ -170,7 +171,9 @@ describe('ПОВНА симуляція тижня обмінника (усі т
     expect(Number(res.profit)).toBeCloseTo(0, 1);
     expect(res.calcBalance.USD).toBeCloseTo(2000 - 1143.5, 1);
     expect(res.calcBalance.EUR).toBeCloseTo(3000, 2);
-    expect(w.basisOf('EUR')).toBeCloseTo(1.1435, 3);
+    // Крос у DeskCostBasis не пишеться — наступні зміни візьмуть fallback
+    // buy/S (той самий ≈1.1435), поки власник не введе свій.
+    expect(w.basisOf('EUR')).toBeUndefined();
     expect(res.netCashMovements).toEqual({ UAH: -100_000 });
     profitUsdSum += Number(res.profitUsd);
   });

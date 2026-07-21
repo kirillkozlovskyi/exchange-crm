@@ -5,7 +5,7 @@ import { applyOperationsToBalance, operationsDelta } from '../common/balance.uti
 import { sellRates, valueOf } from '../common/profit.util';
 import { cashMovementsDelta } from '../common/cash-movements.util';
 import { usdtCashDelta, usdtProfit, usdtProfitUsd } from '../common/usdt.util';
-import { tillUsdValue, costToUahBasis, NUMERAIRE } from '../common/wac-profit.util';
+import { tillUsdValue, NUMERAIRE } from '../common/wac-profit.util';
 import { shiftCashBalance, confirmedTransfersNetForDesk } from '../common/shift-ledger.util';
 import { nextDocNumber } from '../common/number-seq.util';
 
@@ -59,8 +59,8 @@ export class ShiftsService {
     cashDeskId: number,
     userId: number,
     startBalance: object,
-    // Початкова собівартість (сер. курс) валют — застосовується лише там, де
-    // собівартості ще нема (перша зміна / після скидання). Опційне.
+    // Сер. курс (курс оцінки каси) по валютах із форми відкриття — власник
+    // вводить щоранку; введені значення перезаписують збережені. Опційне.
     costBasis?: Record<string, number>,
   ) {
     const existing = await this.prisma.shift.findFirst({
@@ -238,17 +238,16 @@ export class ShiftsService {
     const factualProfit = profit + surplusShort;
     const factualProfitUsd = profitUsd + (sClose > 0 ? surplusShort / sClose : 0);
 
-    // Собівартість на закриття — людський формат (UAH ₴/$, інші — $-крос).
-    const costBasisSnapshot = Object.fromEntries(
-      Object.entries(wac.ending)
-        .filter(([cur, p]) => cur !== NUMERAIRE && cur !== 'USDT' && p.avgCost > 0)
-        .map(([cur, p]) => [cur, cur === 'UAH' ? costToUahBasis(p.avgCost) : p.avgCost]),
-    );
-    // «Каса в доларах» за принципом власника — від фактично введеного залишку.
-    // USDT — глобальний банк, не готівка каси, тож у підсумок каси не входить.
+    // Собівартість на закриття — курси ВЛАСНИКА (введені на відкритті/при
+    // перерахунку), а не еволюціонована WAC-собівартість: власниця сама задає
+    // курси оцінки каси, програма їх не перераховує «по поточних».
+    const costBasisSnapshot = await this.profit.getBasis(shift.cashDeskId);
+    if (!(costBasisSnapshot.UAH > 0) && sClose > 0) costBasisSnapshot.UAH = sClose;
+    // «Каса в доларах» за принципом власника — від фактично введеного залишку;
+    // долари всіх видів — 1:1 по факту. USDT — глобальний банк, не готівка каси.
     const till = tillUsdValue(
       (endBalance as Record<string, number>) ?? calcBalance,
-      costBasisSnapshot as Record<string, number>,
+      costBasisSnapshot,
     );
 
     const updated = await this.prisma.shift.update({
@@ -271,9 +270,9 @@ export class ShiftsService {
         costBasis: costBasisSnapshot,
       },
     });
-    // Переносимо собівартість на наступну зміну цієї каси + записуємо
-    // реалізований прибуток кожної операції (фінанси/живий підрахунок).
-    await this.profit.saveBasis(shift.cashDeskId, wac.ending);
+    // Собівартість НЕ переписуємо WAC-ом: курси власника в DeskCostBasis
+    // лишаються як є до її наступної правки (вимога власниці 19.07.2026).
+    // Записуємо реалізований прибуток кожної операції (фінанси/живий підрахунок).
     const opUpdates = wac.ops
       .map((o: any, i: number) =>
         o.id != null ? { id: o.id, profitUsd: wac.perOp[i], profit: perOpUah[i] } : null,

@@ -16,8 +16,8 @@ export default function OpenShiftForm({
   const [balances, setBalances] = useState<Record<string, string>>(
     Object.fromEntries(baseCurrencies.map((c) => [c, '0']))
   );
-  // Початкова собівартість (сер. курс) валют — застосується лише там, де
-  // собівартості ще нема (перша зміна / після скидання). Порожнє — не чіпаємо.
+  // Сер. курс (курс оцінки каси) по валютах — власник вводить щоранку;
+  // дефолт — востаннє введені значення. Порожнє поле — не чіпаємо.
   const [costBasis, setCostBasis] = useState<Record<string, string>>({});
   const [prevInfo, setPrevInfo] = useState<{ number: string; closedAt: string } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -62,11 +62,14 @@ export default function OpenShiftForm({
       const startBalance = Object.fromEntries(
         Object.entries(balances).map(([k, v]) => [k, parseFloat(v) || 0])
       );
-      // Єдине редаговане поле собівартості — сер. курс гривні (₴ за $).
-      // Кроси валют рахуються автоматично від нього (buy(cur) ÷ сер. курс).
+      // Сер. курс вводиться для гривні та всіх недоларових валют — курси
+      // оцінки каси задає власник щоранку. Долари (USD*) — 1:1, без курсу.
       const basis: Record<string, number> = {};
-      const uah = parseFloat(costBasis.UAH ?? '');
-      if (uah > 0) basis.UAH = uah;
+      for (const [cur, raw] of Object.entries(costBasis)) {
+        if (cur.startsWith('USD')) continue;
+        const v = parseFloat(raw);
+        if (v > 0) basis[cur] = v;
+      }
       await onOpen(startBalance, Object.keys(basis).length ? basis : undefined);
     } catch (e: any) {
       setError(e.response?.data?.message || 'Помилка відкриття зміни');
@@ -108,28 +111,27 @@ export default function OpenShiftForm({
                 onChange={(e) => setBalances((b) => ({ ...b, [cur]: e.target.value }))}
                 className="flex-1 border border-gray-300 rounded px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
-              {cur === 'UAH' ? (
+              {!cur.startsWith('USD') ? (
                 <input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step={cur === 'UAH' ? '0.01' : '0.0001'}
                   placeholder="—"
-                  value={costBasis.UAH ?? ''}
-                  onChange={(e) => setCostBasis((b) => ({ ...b, UAH: e.target.value }))}
+                  value={costBasis[cur] ?? ''}
+                  onChange={(e) => setCostBasis((b) => ({ ...b, [cur]: e.target.value }))}
                   className="w-28 border border-gray-300 rounded px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               ) : (
-                <span className="w-28" />
+                <span className="w-28 text-right text-xs text-gray-400 self-center">1:1</span>
               )}
             </div>
           ))}
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          <b>Сер. курс</b> — середній курс проданого долара (₴ за 1 $, напр. 44.95):
-          каса міряється в доларах, і прибуток рахується від цього курсу. Вартість
-          валют у доларах рахується автоматично (курс купівлі ÷ сер. курс, напр. EUR
-          51.30/44.90 = 1.1420). За замовчуванням підставлено поточний (перенесений);
-          змінюйте лише за потреби — напр. після скидання.
+          <b>Сер. курс</b> — курс оцінки каси, задається на ранок: гривня — ₴ за 1 $
+          (напр. 44.95), інші валюти — вартість одиниці в доларах (напр. EUR 1.1420,
+          PLN 0.2610). Долари всіх видів (USD, білий, ветошь) рахуються по факту 1:1
+          без курсу. За замовчуванням підставлено востаннє введені значення.
         </p>
         {error && <p className="text-red-500 text-sm mt-3">{error}</p>}
         <button

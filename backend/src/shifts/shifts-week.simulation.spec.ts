@@ -4,11 +4,12 @@ import { ProfitService } from '../profit/profit.service';
 /**
  * Симуляція ТИЖНЯ роботи однієї каси з закриттям кожної зміни ($-числовник).
  *
- * Навіщо: прибуток рахується за моделлю «каса в доларах» із ПЕРЕХІДНОЮ
- * собівартістю (сер. курс гривні + $-кроси валют) — помилки в перенесенні
- * basis/залишку між змінами не видно в юніт-тестах однієї зміни. Тут стан
- * переноситься як у проді: endBalance закритої зміни → startBalance наступної,
- * DeskCostBasis → відкриваюча собівартість.
+ * Навіщо: прибуток рахується за моделлю «каса в доларах» від собівартості,
+ * яку ЗАДАЄ ВЛАСНИК (DeskCostBasis; з 19.07.2026 програма її НЕ переписує при
+ * закритті) — помилки в перенесенні залишку/бази між змінами не видно в
+ * юніт-тестах однієї зміни. Тут стан переноситься як у проді: endBalance
+ * закритої зміни → startBalance наступної, DeskCostBasis — курси власника
+ * (ownerSet імітує ранкове введення), fallback без бази — поточний S.
  *
  * Ключові властивості моделі (рішення власника 2026-07-17):
  *   • продаж USD прибутку НЕ дає — він формує базу гривні (сер. курс);
@@ -102,12 +103,14 @@ function makeWorld(rates: { currency: string; buy: number; sell: number }[]) {
   return {
     runDay, buy, sell,
     basisOf: (cur: string) => basis.get(cur),
+    // Імітація ранкового введення сер. курсу власником (форма відкриття зміни).
+    ownerSet: (cur: string, v: number) => basis.set(cur, v),
     setTransfers: (rows: any[]) => { transfers = rows; },
     lastOps: () => shift.operations as any[],
   };
 }
 
-describe('Симуляція тижня роботи каси ($-числовник, перехідна собівартість)', () => {
+describe('Симуляція тижня роботи каси ($-числовник, курси власника)', () => {
   const world = makeWorld([
     { currency: 'USD', buy: 44.5, sell: 45.0 },
     { currency: 'EUR', buy: 51.3, sell: 51.6 },
@@ -129,21 +132,25 @@ describe('Симуляція тижня роботи каси ($-числовн�
     const opProfits = world.lastOps().map((o) => o.profit);
     expect(opProfits[0]).toBeCloseTo(0, 6);
     expect(opProfits[1]).toBeCloseTo(400, 2);
-    // Сер. курс гривні = курс фактичного продажу; USD (числовник) бази не має.
-    expect(world.basisOf('UAH')).toBeCloseTo(45.0, 6);
+    // Програма базу НЕ пише (курси задає власник); без бази оцінка йде від
+    // поточного S — тому прибуток вище порахувався проти 45.
+    expect(world.basisOf('UAH')).toBeUndefined();
     expect(world.basisOf('USD')).toBeUndefined();
+    // Ранок наступного дня: власниця вводить сер. курс гривні 45 ₴/$.
+    world.ownerSet('UAH', 45.0);
     weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
 
-  it('Вт: сер. курс переноситься — відкуп наступного дня реалізує проти НЬОГО', async () => {
+  it('Вт: відкуп реалізує проти введеного власницею сер. курсу', async () => {
     const res: any = await world.runDay({
       startBalance: { USD: 2000, UAH: 400 },
       operations: [world.sell('USD', 500, 45.0), world.buy('USD', 500, 44.55)],
       endBalance: { USD: 2000, UAH: 625 },
     });
-    // Відкуп 500 по 44.55 проти перенесеної бази 45: 500 − 22275/45 = 5 $ (225 ₴).
+    // Відкуп 500 по 44.55 проти бази власниці 45: 500 − 22275/45 = 5 $ (225 ₴).
     expect(Number(res.profitUsd)).toBeCloseTo(5, 4);
     expect(Number(res.profit)).toBeCloseTo(225, 2);
+    // Курс власниці не переписано торгівлею.
     expect(world.basisOf('UAH')).toBeCloseTo(45.0, 6);
     weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
@@ -157,9 +164,11 @@ describe('Симуляція тижня роботи каси ($-числовн�
     });
     expect(Number(res.profit)).toBeCloseTo(0, 6);      // купівля товару — ще не заробіток
     expect(res.calcBalance).toEqual({ USD: 2000, UAH: 9325, EUR: 1000 });
-    expect(world.basisOf('EUR')).toBeCloseTo(1.14, 6); // $-крос — число власника
-    expect(world.basisOf('UAH')).toBeCloseTo(45.0, 6); // підкріплення не зламало базу
+    expect(world.basisOf('EUR')).toBeUndefined();      // програма крос не пише
+    expect(world.basisOf('UAH')).toBeCloseTo(45.0, 6); // курс власниці не чіпано
     expect(res.netCashMovements).toEqual({ UAH: 60000 });
+    // Ранок: власниця вводить $-крос євро 1.14 (51.30/45).
+    world.ownerSet('EUR', 1.14);
     weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });
 
@@ -174,7 +183,7 @@ describe('Симуляція тижня роботи каси ($-числовн�
     expect(Number(res.profit)).toBeCloseTo(800, 2);
     expect(res.profitByCurrency.EUR).toBeCloseTo(300, 2);
     expect(res.profitByCurrency.USD).toBeCloseTo(500, 2);
-    // Позиція EUR закрита — крос лишається як остання відома ціна.
+    // Крос власниці лишився недоторканим після розпродажу позиції.
     expect(world.basisOf('EUR')).toBeCloseTo(1.14, 6);
     weekUah.push(Number(res.profit)); weekUsd.push(Number(res.profitUsd));
   });

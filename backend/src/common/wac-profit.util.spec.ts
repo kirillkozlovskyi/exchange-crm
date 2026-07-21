@@ -181,6 +181,19 @@ describe('tillUsdValue: «каса в доларах» за принципом �
     expect(total).toBeCloseTo(49835.93, 1); // власниця округлила кожен рядок → 49 837
   });
 
+  it('долари всіх видів (USDW «білий», USDG «ветошь») — «готова валюта» 1:1 по факту, собівартість ігнорується', () => {
+    // Вимога власниці (19.07.2026): «долл он пусть считает без пересчетов и
+    // себестоимости, просто его наличие» — інакше каса розходиться з її
+    // ручним перерахунком на сотні доларів.
+    const { byCurrency, total } = tillUsdValue(
+      { USD: 18700, USDW: 937, USDG: 2622, UAH: 44950 },
+      { UAH: 44.95, USDG: 0.893, USDW: 0.99 },
+    );
+    expect(byCurrency.USDW).toBe(937);
+    expect(byCurrency.USDG).toBe(2622);
+    expect(total).toBeCloseTo(18700 + 937 + 2622 + 1000, 6);
+  });
+
   it('валюта без бази оцінюється в 0, а не у вигадану вартість', () => {
     const { byCurrency, total } = tillUsdValue({ GBP: 500, USD: 100 }, {});
     expect(byCurrency.GBP).toBe(0);

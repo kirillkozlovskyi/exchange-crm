@@ -265,8 +265,9 @@ export function wacRealized(opening: PositionMap, ops: WacOperation[], sUsd: num
 
 /**
  * «Каса в доларах» — підсумок каси за принципом власника:
- *   USD і USDT — як є (1:1); UAH — ÷ сер. курс (₴/$);
- *   інші валюти — × їх $-крос-собівартість.
+ *   долари всіх видів (USD, USDT, USDW «білий», USDG «ветошь») — «готова
+ *   валюта», по факту 1:1 без собівартості; UAH — ÷ сер. курс (₴/$);
+ *   інші валюти — × їх $-крос (курс задає власник на відкритті зміни).
  * basis — у ЛЮДСЬКОМУ форматі (UAH: ₴ за $, напр. 44.95; інші: $ за одиницю).
  * Валюта без бази оцінюється в 0 (краще чесний нуль, ніж вигадана вартість).
  */
@@ -280,7 +281,7 @@ export function tillUsdValue(
     const qty = Number(raw);
     if (!Number.isFinite(qty) || qty === 0) continue;
     let usd = 0;
-    if (cur === NUMERAIRE || cur === 'USDT') usd = qty;
+    if (cur.startsWith('USD')) usd = qty;
     else if (cur === 'UAH') usd = basis.UAH > 0 ? qty / basis.UAH : 0;
     else usd = qty * (basis[cur] > 0 ? basis[cur] : 0);
     byCurrency[cur] = usd;
