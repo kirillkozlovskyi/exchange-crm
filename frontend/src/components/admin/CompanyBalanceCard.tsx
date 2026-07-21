@@ -58,9 +58,9 @@ export default function CompanyBalanceCard({ refreshKey = 0 }: { refreshKey?: nu
             ))}
             <tr className="border-t-2">
               <td className="py-1.5 px-3 font-semibold text-teal-700">USDT</td>
-              <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{company.usdt.global.toFixed(4)}</td>
-              <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{company.usdt.points.toFixed(4)}</td>
-              <td className="py-1.5 px-3 text-right tabular-nums font-bold text-teal-700">{company.usdt.total.toFixed(4)}</td>
+              <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{fmtNum(company.usdt.global, 4)}</td>
+              <td className="py-1.5 px-3 text-right tabular-nums text-gray-500">{fmtNum(company.usdt.points, 4)}</td>
+              <td className="py-1.5 px-3 text-right tabular-nums font-bold text-teal-700">{fmtNum(company.usdt.total, 4)}</td>
             </tr>
             {company.usdTotal && (
               <tr className="border-t-2 bg-blue-50/50">

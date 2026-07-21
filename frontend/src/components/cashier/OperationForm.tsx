@@ -581,8 +581,8 @@ export default function OperationForm({
           'border-green-200 bg-green-50 text-green-700'
         }`}>
           {changeAmt === null ? '—' :
-           changeAmt < -0.005 ? `⚠ ${Math.abs(changeAmt).toFixed(2)}` :
-           changeAmt.toFixed(2)}
+           changeAmt < -0.005 ? `⚠ ${fmtMoney(Math.abs(changeAmt))}` :
+           fmtMoney(changeAmt)}
         </div>
       </div>
       {changeAmt !== null && changeAmt < -0.005 && (

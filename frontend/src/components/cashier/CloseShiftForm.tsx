@@ -6,7 +6,7 @@ import { netTransfers, type TransferRow } from '../../lib/transfers';
 import { cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 import { usdtCashDelta, usdtProfit, usdtProfitUsd, type UsdtOpRow } from '../../lib/usdt';
 import { shiftCashBalance } from '../../lib/shift-balance';
-import { fmtMoney, fmtNum, fmtRate } from '../../lib/format';
+import { fmtMoney, fmtNum, fmtRate, fmtInt } from '../../lib/format';
 
 type Operation = {
   id: number;
@@ -386,10 +386,10 @@ export default function CloseShiftForm({
       return `
       <tr>
         <td class="b">${cur}</td>
-        <td class="num">${start}</td>
-        <td class="num">${expected}</td>
-        <td class="num">${actual}</td>
-        <td class="num${diff !== 0 ? ' warn' : ''}">${diff !== 0 ? (diff > 0 ? '+' : '') + diff : '—'}</td>
+        <td class="num">${fmtInt(start)}</td>
+        <td class="num">${fmtInt(expected)}</td>
+        <td class="num">${fmtInt(actual)}</td>
+        <td class="num${diff !== 0 ? ' warn' : ''}">${diff !== 0 ? (diff > 0 ? '+' : '') + fmtInt(diff) : '—'}</td>
       </tr>`;
     }).join('');
 
@@ -598,8 +598,8 @@ export default function CloseShiftForm({
                 return (
                   <tr key={cur} className={`border-b last:border-0 ${hasDiff ? 'bg-red-50' : ''}`}>
                     <td className="py-2.5 font-bold text-gray-800">{cur}</td>
-                    <td className="py-2.5 text-right text-gray-500">{start}</td>
-                    <td className="py-2.5 text-right font-medium text-blue-700">{expected}</td>
+                    <td className="py-2.5 text-right text-gray-500">{fmtInt(start)}</td>
+                    <td className="py-2.5 text-right font-medium text-blue-700">{fmtInt(expected)}</td>
                     <td className="py-2.5 text-right">
                       <input
                         type="number"
@@ -614,7 +614,7 @@ export default function CloseShiftForm({
                     <td className={`py-2.5 text-right font-semibold ${
                       !hasDiff ? 'text-gray-300' : diff > 0 ? 'text-green-600' : 'text-red-600'
                     }`}>
-                      {hasDiff ? (diff > 0 ? '+' : '') + diff : '—'}
+                      {hasDiff ? (diff > 0 ? '+' : '') + fmtInt(diff) : '—'}
                     </td>
                   </tr>
                 );

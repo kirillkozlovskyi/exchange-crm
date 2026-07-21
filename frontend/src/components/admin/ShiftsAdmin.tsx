@@ -187,8 +187,8 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
       const a = actual ? Math.round(num(actual[c])) : null;
       if (!o && !e && !(a ?? 0)) return '';
       const diff = a != null ? a - e : null;
-      return `<tr><td class="b">${c}</td><td class="num">${o}</td><td class="num">${e}</td>` +
-        (closed ? `<td class="num">${a}</td><td class="num${diff ? ' warn' : ''}">${diff ? (diff > 0 ? '+' : '') + diff : '—'}</td>` : '') +
+      return `<tr><td class="b">${c}</td><td class="num">${fmt(o)}</td><td class="num">${fmt(e)}</td>` +
+        (closed ? `<td class="num">${fmt(a)}</td><td class="num${diff ? ' warn' : ''}">${diff ? (diff > 0 ? '+' : '') + fmt(diff) : '—'}</td>` : '') +
         `</tr>`;
     }).join('');
 

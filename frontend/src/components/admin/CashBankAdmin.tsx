@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
-import { fmtMoney } from '../../lib/format';
+import { fmtMoney, fmtNum } from '../../lib/format';
 import { format } from 'date-fns';
 import CompanyBalanceCard from './CompanyBalanceCard';
 import UsdtBankSection from './UsdtBankSection';
@@ -92,7 +92,7 @@ export default function CashBankAdmin() {
             {/* USDT — частина банку, візуально відділено */}
             <div className="border border-teal-200 bg-teal-50 rounded-lg px-4 py-2 min-w-[120px]">
               <div className="text-xs text-teal-500">₮ USDT <span className="text-teal-400">(гаманець)</span></div>
-              <div className="font-bold text-teal-700 text-lg tabular-nums">{balances.usdt.toFixed(4)}</div>
+              <div className="font-bold text-teal-700 text-lg tabular-nums">{fmtNum(balances.usdt, 4)}</div>
             </div>
           </div>
         )}

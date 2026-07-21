@@ -96,7 +96,7 @@ export default function ProfitChart({ days = 14 }: { days?: number }) {
                 {i === maxIdx && Math.abs(b.v) > 0 && (
                   <text x={b.x + b.w / 2} y={b.v >= 0 ? b.y - 4 : b.y + b.h + 11}
                     textAnchor="middle" fontSize="10" fill="#374151" fontWeight="600">
-                    {b.v >= 0 ? '+' : '−'}{Math.abs(b.v) >= 1000 ? (Math.abs(b.v) / 1000).toFixed(1) + 'k' : Math.abs(b.v).toFixed(0)}
+                    {b.v >= 0 ? '+' : '−'}{Math.abs(b.v) >= 1000 ? (Math.abs(b.v) / 1000).toFixed(1) + 'k' : fmtNum(Math.abs(b.v), 0)}
                   </text>
                 )}
                 {/* підписи днів — кожен другий */}

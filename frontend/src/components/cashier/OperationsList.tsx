@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import api from '../../api/axios';
-import { fmtNum, fmtMoney, fmtInt } from '../../lib/format';
+import { fmtNum, fmtMoney } from '../../lib/format';
 import { format } from 'date-fns';
 import { useAuth } from '../../context/AuthContext';
 import OperationEditModal from './OperationEditModal';
@@ -225,9 +225,9 @@ function OpRow({
           </button>
         )}
       </td>
-      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{fmtInt(f.gaveAmt)}</td>
+      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{fmtMoney(f.gaveAmt)}</td>
       <td className="py-1.5 px-1"><CurCell cur={f.gaveCur} /></td>
-      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{fmtInt(f.gotAmt)}</td>
+      <td className={`py-1.5 px-1 text-right font-semibold tabular-nums ${numStr}`}>{fmtMoney(f.gotAmt)}</td>
       <td className="py-1.5 px-1"><CurCell cur={f.gotCur} /></td>
       <td className={`py-1.5 px-1 text-right text-xs whitespace-nowrap font-medium ${isCustom ? 'text-orange-500' : 'text-gray-500'}`} title={ratePair}>
         {isCustom && '✱'}{opRate.toFixed(2)}

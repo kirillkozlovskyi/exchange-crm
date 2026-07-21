@@ -30,7 +30,7 @@ export default function TransferPanel({
   const [success, setSuccess] = useState('');
 
   // Модалка відмови
-  const [rejectTarget, setRejectTarget] = useState<{ id: number; amount: string; currency: string } | null>(null);
+  const [rejectTarget, setRejectTarget] = useState<{ id: number; amount: number; currency: string } | null>(null);
   const [rejectNote, setRejectNote] = useState('');
   const [rejectLoading, setRejectLoading] = useState(false);
 
@@ -119,7 +119,7 @@ export default function TransferPanel({
   };
 
   const openRejectModal = (t: any) => {
-    setRejectTarget({ id: t.id, amount: Number(t.amount).toFixed(2), currency: t.currency });
+    setRejectTarget({ id: t.id, amount: Number(t.amount), currency: t.currency });
     setRejectNote('');
   };
 
@@ -143,7 +143,7 @@ export default function TransferPanel({
           <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-6 space-y-4">
             <h3 className="font-bold text-gray-800 text-lg">Відхилити передачу</h3>
             <p className="text-sm text-gray-600">
-              Передача <span className="font-semibold">{rejectTarget.amount} {rejectTarget.currency}</span> буде відхилена.
+              Передача <span className="font-semibold">{fmtNum(rejectTarget.amount)} {rejectTarget.currency}</span> буде відхилена.
               Відправник отримає сповіщення.
             </p>
             <div>

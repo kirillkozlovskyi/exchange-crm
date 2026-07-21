@@ -6,7 +6,7 @@ import { format } from 'date-fns';
 import OperationForm from '../components/cashier/OperationForm';
 import OperationsList from '../components/cashier/OperationsList';
 import TransferPanel from '../components/cashier/TransferPanel';
-import { fmtInt, fmtMoney } from '../lib/format';
+import { fmtMoney } from '../lib/format';
 import OpenShiftForm from '../components/cashier/OpenShiftForm';
 import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
@@ -760,14 +760,14 @@ export default function CashierPage() {
                     <div className="flex items-center py-1 px-1">
                       <span className="text-lg w-7 text-center"><Flag currency="UAH" /></span>
                       <span className="font-bold text-lg flex-1 text-gray-800">UAH</span>
-                      <span className="text-xl font-bold text-blue-800">{fmtInt(currentBalance['UAH'])}</span>
+                      <span className="text-xl font-bold text-blue-800">{fmtMoney(currentBalance['UAH'])}</span>
                     </div>
                   )}
                   {Object.entries(currentBalance).filter(([c]) => c !== 'UAH').map(([cur, amt]) => (
                     <div key={cur} className="flex items-center py-1 px-1">
                       <span className="text-lg w-7 text-center"><Flag currency={cur} /></span>
                       <span className="font-bold text-lg flex-1 text-gray-800">{cur}</span>
-                      <span className={`text-xl font-bold ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{fmtInt(amt)}</span>
+                      <span className={`text-xl font-bold ${Number(amt) < 0 ? 'text-red-600' : 'text-blue-800'}`}>{fmtMoney(amt)}</span>
                     </div>
                   ))}
                 </div>
@@ -778,7 +778,7 @@ export default function CashierPage() {
                     <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Прибуток каси</span>
                     <span
                       className={`text-right text-xl font-bold ${liveProfit.totalUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}
-                      title={`Торговий: ${liveProfit.trading.toFixed(2)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${liveProfit.usdt.toFixed(2)} ₴` : ''}`}
+                      title={`Торговий: ${fmtMoney(liveProfit.trading)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${fmtMoney(liveProfit.usdt)} ₴` : ''}`}
                     >
                       {liveProfit.totalUsd >= 0 ? '+' : ''}{fmtMoney(liveProfit.totalUsd)} $
                       <div className="text-xs font-medium text-gray-400">
@@ -1064,7 +1064,7 @@ function CashMovementModal({
   const parsed = parseFloat(amount) || 0;
   // Перевірка залишку лише для інкасації (OUT).
   const warning = !isIn && parsed > have
-    ? `Недостатньо ${currency}: в касі ${have.toFixed(2)}, інкасуєте ${parsed.toFixed(2)}`
+    ? `Недостатньо ${currency}: в касі ${fmtMoney(have)}, інкасуєте ${fmtMoney(parsed)}`
     : '';
 
   const handleSave = async () => {
@@ -1116,7 +1116,7 @@ function CashMovementModal({
                 className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring} disabled:bg-gray-100 disabled:text-gray-400`}
               >
                 {currencies.map((c) => (
-                  <option key={c} value={c}>{c} (в касі {fmtInt(balance[c] ?? 0)})</option>
+                  <option key={c} value={c}>{c} (в касі {fmtMoney(balance[c] ?? 0)})</option>
                 ))}
               </select>
             </div>
@@ -1202,7 +1202,7 @@ function CashMovementModal({
                       }`}>
                         {m.direction === 'IN' ? 'Підкр.' : 'Інкас.'}
                       </span>
-                      <span className="font-semibold text-gray-800">{Number(m.amount).toFixed(2)} {m.currency}</span>
+                      <span className="font-semibold text-gray-800">{fmtMoney(m.amount)} {m.currency}</span>
                       {(m.source || m.note) && (
                         <span className="text-gray-400 italic">{[m.source, m.note].filter(Boolean).join(' · ')}</span>
                       )}
@@ -1324,16 +1324,16 @@ function ReconcileModal({
                   <td className="py-1 px-2 font-bold text-gray-800">
                     <span className="inline-flex items-center gap-2"><Flag currency={r.cur} /> {r.cur}</span>
                   </td>
-                  <td className="py-1 px-2 text-right text-gray-500 tabular-nums">{r.start.toFixed(2)}</td>
+                  <td className="py-1 px-2 text-right text-gray-500 tabular-nums">{fmtMoney(r.start)}</td>
                   {history.map((h) => {
                     const v = h.actual?.[r.cur];
                     return (
                       <td key={h.id} className="py-1 px-2 text-right text-gray-600 tabular-nums">
-                        {v === undefined ? '—' : Number(v).toFixed(2)}
+                        {v === undefined ? '—' : fmtMoney(v)}
                       </td>
                     );
                   })}
-                  <td className="py-1 px-2 text-right font-medium text-blue-700 tabular-nums">{r.expected.toFixed(2)}</td>
+                  <td className="py-1 px-2 text-right font-medium text-blue-700 tabular-nums">{fmtMoney(r.expected)}</td>
                   <td className="py-1 px-2 text-right">
                     <input
                       type="number"
@@ -1349,7 +1349,7 @@ function ReconcileModal({
                   <td className={`py-1 px-2 text-right font-semibold tabular-nums ${
                     !r.entered ? 'text-gray-300' : r.hasDiff ? (r.diff > 0 ? 'text-green-600' : 'text-red-600') : 'text-green-600'
                   }`}>
-                    {!r.entered ? '—' : r.hasDiff ? (r.diff > 0 ? '+' : '') + r.diff.toFixed(2) : '✓'}
+                    {!r.entered ? '—' : r.hasDiff ? (r.diff > 0 ? '+' : '') + fmtMoney(r.diff) : '✓'}
                   </td>
                 </tr>
               ))}
@@ -1361,7 +1361,7 @@ function ReconcileModal({
           {checked.length > 0 && (
             mismatches.length > 0 ? (
               <div className="bg-red-50 border border-red-200 rounded px-3 py-2 text-sm text-red-700">
-                ⚠️ Розбіжності у {mismatches.length} {mismatches.length === 1 ? 'валюті' : 'валютах'}: {mismatches.map((m) => `${m.cur} ${m.diff > 0 ? '+' : ''}${m.diff.toFixed(2)}`).join(', ')}
+                ⚠️ Розбіжності у {mismatches.length} {mismatches.length === 1 ? 'валюті' : 'валютах'}: {mismatches.map((m) => `${m.cur} ${m.diff > 0 ? '+' : ''}${fmtMoney(m.diff)}`).join(', ')}
               </div>
             ) : (
               <div className="bg-green-50 border border-green-200 rounded px-3 py-2 text-sm text-green-700">
