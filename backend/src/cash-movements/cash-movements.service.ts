@@ -39,6 +39,10 @@ export class CashMovementsService {
       source?: string;
       counterparty?: string; // 'BANK' | 'EXTERNAL' — контрагент руху
       note?: string;
+      // Джерело «Кешбек/Витрата»: одночасно зі списанням готівки заводить
+      // Expense (щоб не забувати другий документ — інкасація+витрата окремо
+      // ламали касу, коли хтось ставив лише витрату без інкасації).
+      expenseCategory?: string;
     },
     userId: number,
   ) {
@@ -51,9 +55,17 @@ export class CashMovementsService {
     if (!dto.currency) throw new BadRequestException('Не вказано валюту');
     if (!(amount > 0)) throw new BadRequestException('Сума має бути більшою за 0');
 
+    const expenseCategory = dto.expenseCategory?.trim();
+    if (expenseCategory) {
+      if (direction !== 'OUT')
+        throw new BadRequestException('Витрата з каси можлива лише разом з інкасацією (OUT)');
+      if (dto.currency !== 'UAH')
+        throw new BadRequestException('Витрата обліковується лише в гривні');
+    }
+
     const shift = await this.prisma.shift.findUnique({
       where: { id: dto.shiftId },
-      include: { operations: true, cashMovements: true, usdtOperations: true },
+      include: { operations: true, cashMovements: true, usdtOperations: true, cashDesk: true },
     });
     if (!shift) throw new NotFoundException('Зміну не знайдено');
     if (shift.status !== 'OPEN')
@@ -81,9 +93,9 @@ export class CashMovementsService {
 
     const number = await this.generateNumber(direction);
 
-    // Рух банку (контрагент BANK) і рух готівки каси — ОДНА транзакція: якщо
-    // створення CashMovement впаде (напр., гонка нумерації), рух банку
-    // відкотиться разом із ним, і баланс компанії не розʼїдеться.
+    // Рух банку (контрагент BANK), рух готівки каси і супутня витрата — ОДНА
+    // транзакція: якщо щось впаде (напр., гонка нумерації), усе відкотиться
+    // разом, і каса/фінанси не розʼїдуться.
     return this.prisma.$transaction(async (tx) => {
       if (counterparty === 'BANK') {
         await this.cashBank.applyForCashMovement(
@@ -99,7 +111,7 @@ export class CashMovementsService {
         );
       }
 
-      return tx.cashMovement.create({
+      const movement = await tx.cashMovement.create({
         data: {
           number,
           direction,
@@ -114,6 +126,19 @@ export class CashMovementsService {
         },
         include: { createdBy: { select: { name: true } } },
       });
+
+      if (expenseCategory) {
+        await tx.expense.create({
+          data: {
+            amount,
+            category: expenseCategory,
+            note: dto.note?.trim() || null,
+            exchangePointId: shift.cashDesk.exchangePointId,
+          },
+        });
+      }
+
+      return movement;
     });
   }
 

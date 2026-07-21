@@ -224,6 +224,20 @@ export class SettingsController {
     return this.settingsService.setUsdtQuickAmounts(body.amounts).then(() => body.amounts);
   }
 
+  // Формат чисел (роздільник тисяч + копійки) — читають усі ролі, міняє адмін.
+  @Get('number-format')
+  getNumberFormat() {
+    return this.settingsService.getNumberFormat();
+  }
+
+  @Put('number-format')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  async setNumberFormat(@Body() body: { thousands?: 'comma' | 'space'; decimals?: boolean }) {
+    await this.settingsService.setNumberFormat(body);
+    return this.settingsService.getNumberFormat();
+  }
+
   @Get('org-name')
   getOrgName() {
     return this.settingsService.getOrgName().then((name) => ({ name }));

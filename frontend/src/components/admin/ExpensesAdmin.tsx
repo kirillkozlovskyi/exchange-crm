@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import api from '../../api/axios';
 import { format } from 'date-fns';
+import { fmtMoney as fmt } from '../../lib/format';
 
 const CATEGORIES = ['Оренда', 'Зарплата', 'Комунальні', 'Податки', 'Обладнання', 'Інше'];
-const fmt = (v: any) => Number(v ?? 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export default function ExpensesAdmin() {
   const [points, setPoints] = useState<any[]>([]);

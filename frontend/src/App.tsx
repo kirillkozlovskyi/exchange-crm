@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ShiftHeaderProvider } from './context/ShiftHeaderContext';
+import { NumberFormatProvider } from './context/NumberFormatContext';
 import LoginPage from './pages/LoginPage';
 import CashierPage from './pages/CashierPage';
 import AdminPage from './pages/AdminPage';
@@ -28,27 +29,29 @@ function HomeRedirect() {
 export default function App() {
   return (
     <AuthProvider>
-      <ShiftHeaderProvider>
-        <BrowserRouter>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-              <Route index element={<HomeRedirect />} />
-              <Route path="cashier" element={
-                <ProtectedRoute roles={['CASHIER']}>
-                  <CashierPage />
-                </ProtectedRoute>
-              } />
-              <Route path="admin/*" element={
-                <ProtectedRoute roles={['ADMIN']}>
-                  <AdminPage />
-                </ProtectedRoute>
-              } />
-              <Route path="profile" element={<ProfilePage />} />
-            </Route>
-          </Routes>
-        </BrowserRouter>
-      </ShiftHeaderProvider>
+      <NumberFormatProvider>
+        <ShiftHeaderProvider>
+          <BrowserRouter>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+                <Route index element={<HomeRedirect />} />
+                <Route path="cashier" element={
+                  <ProtectedRoute roles={['CASHIER']}>
+                    <CashierPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="admin/*" element={
+                  <ProtectedRoute roles={['ADMIN']}>
+                    <AdminPage />
+                  </ProtectedRoute>
+                } />
+                <Route path="profile" element={<ProfilePage />} />
+              </Route>
+            </Routes>
+          </BrowserRouter>
+        </ShiftHeaderProvider>
+      </NumberFormatProvider>
     </AuthProvider>
   );
 }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../../api/axios';
-import { fmtNum } from '../../lib/format';
+import { fmtNum, fmtMoney, fmtRate } from '../../lib/format';
 import { format } from 'date-fns';
 
 type Edit = {
@@ -140,16 +140,15 @@ export default function OperationsAdmin() {
 
   // Друк відфільтрованого списку (А4).
   const printList = () => {
-    const n = (v: any) => Number(v).toFixed(2);
     const totalUah = filtered.reduce((s, o) => s + (o.cancelled ? 0 : Number(o.totalUah)), 0);
     const rows = filtered.map((o) => `
       <tr${o.cancelled ? ' class="canc"' : ''}>
         <td>${format(new Date(o.createdAt), 'dd.MM.yy HH:mm')}</td>
         <td>${o.type === 'BUY' ? 'Купівля' : 'Продаж'}${o.cancelled ? ' (сторно)' : ''}</td>
         <td class="b">${o.currency}</td>
-        <td class="num">${n(o.amount)}</td>
-        <td class="num">${n(o.rate)}</td>
-        <td class="num">${n(o.totalUah)}</td>
+        <td class="num">${fmtMoney(o.amount)}</td>
+        <td class="num">${fmtRate(o.rate, 2)}</td>
+        <td class="num">${fmtMoney(o.totalUah)}</td>
         <td>${o.cashier?.name ?? '—'}</td>
         <td>${o.shift?.cashDesk?.exchangePoint?.name ?? '—'}</td>
       </tr>`).join('');
@@ -172,7 +171,7 @@ export default function OperationsAdmin() {
       <table>
         <thead><tr><th>Дата</th><th>Тип</th><th>Валюта</th><th>Кількість</th><th>Курс</th><th>Сума ₴</th><th>Касир</th><th>Точка</th></tr></thead>
         <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:#888">Немає</td></tr>'}</tbody>
-        <tfoot><tr><td colspan="5">Разом гривнею (без сторно)</td><td class="num">${n(totalUah)}</td><td colspan="2"></td></tr></tfoot>
+        <tfoot><tr><td colspan="5">Разом гривнею (без сторно)</td><td class="num">${fmtMoney(totalUah)}</td><td colspan="2"></td></tr></tfoot>
       </table>
     </body></html>`;
     const iframe = document.createElement('iframe');

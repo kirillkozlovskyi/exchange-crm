@@ -314,6 +314,29 @@ export class SettingsService {
     await this.set('usdt_quick_amounts', JSON.stringify([...amounts].sort((a, b) => a - b)));
   }
 
+  /**
+   * Формат відображення чисел — глобальний, на весь застосунок (каса, адмінка,
+   * звіти, Telegram-картки курсів): роздільник тисяч (кома/пробіл) і чи
+   * показувати копійки/центи (два знаки після коми) чи округляти до цілих.
+   */
+  async getNumberFormat(): Promise<{ thousands: 'comma' | 'space'; decimals: boolean }> {
+    const [thousands, decimals] = await Promise.all([
+      this.get('number_format_thousands'),
+      this.get('number_format_decimals'),
+    ]);
+    return {
+      thousands: thousands === 'space' ? 'space' : 'comma',
+      decimals: decimals !== 'false', // default true (показувати копійки)
+    };
+  }
+
+  async setNumberFormat(dto: { thousands?: 'comma' | 'space'; decimals?: boolean }): Promise<void> {
+    if (dto.thousands !== undefined)
+      await this.set('number_format_thousands', dto.thousands === 'space' ? 'space' : 'comma');
+    if (dto.decimals !== undefined)
+      await this.set('number_format_decimals', String(!!dto.decimals));
+  }
+
   // Назва організації (для чеків). Порожньо = не друкувати.
   async getOrgName(): Promise<string> {
     return (await this.get('org_name')) ?? '';

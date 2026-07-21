@@ -954,6 +954,14 @@ type MovementItem = {
 //    «Редагування залишків каси».
 const SOURCE_CATEGORIES = ['Карта', 'Інше'];
 const ADJUST_SOURCE = 'Коригування';
+// Інкасація готівки, яка водночас є витратою: одним документом списує готівку
+// з каси І заводить Expense — щоб не забувати другий документ (раніше витрату
+// ставили без інкасації, і каса «розходилась» з фактом, бо Expense сам по собі
+// готівку каси не рухає). «Кешбек» — окрема категорія (найчастіша), «Витрата» —
+// довільна категорія (оренда/зарплата/тощо), як в адмінському списку витрат.
+const CASHBACK_SOURCE = 'Кешбек';
+const EXPENSE_SOURCE = 'Витрата';
+const EXPENSE_CATEGORIES = ['Оренда', 'Зарплата', 'Комунальні', 'Податки', 'Обладнання', 'Інше'];
 
 // Короткий двотональний сигнал про нову вхідну передачу (WebAudio, без файлів).
 function playTransferBeep() {
@@ -999,6 +1007,7 @@ function CashMovementModal({
   const [amount, setAmount] = useState('');
   const [source, setSource] = useState(SOURCE_CATEGORIES[0]);
   const [note, setNote] = useState('');
+  const [expenseCategory, setExpenseCategory] = useState(EXPENSE_CATEGORIES[0]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   // Баланс карти — показуємо касиру лише якщо ввімкнено в налаштуваннях і обрано «Карта».
@@ -1007,10 +1016,20 @@ function CashMovementModal({
   const [bankEnabled, setBankEnabled] = useState(true);
   // «Коригування» — окремий інструмент вирівнювання каси (не чіпає карту).
   const [adjustEnabled, setAdjustEnabled] = useState(false);
+  const isCashback = source === CASHBACK_SOURCE;
+  const isExpense = source === EXPENSE_SOURCE;
+  const isExpenseFlow = isCashback || isExpense;
   const sources = [
     ...(bankEnabled ? SOURCE_CATEGORIES : SOURCE_CATEGORIES.filter((c) => c !== 'Карта')),
+    // Кешбек/Витрата з каси — лише для інкасації (OUT); підкріплення ними не буває.
+    ...(!isIn ? [CASHBACK_SOURCE, EXPENSE_SOURCE] : []),
     ...(adjustEnabled ? [ADJUST_SOURCE] : []),
   ];
+
+  // Кешбек і витрата обліковуються лише в гривні — примусово перемикаємо валюту.
+  useEffect(() => {
+    if (isExpenseFlow && currency !== 'UAH' && currencies.includes('UAH')) setCurrency('UAH');
+  }, [isExpenseFlow, currency, currencies]);
 
   useEffect(() => {
     api.get('/settings/balance-edit')
@@ -1042,6 +1061,10 @@ function CashMovementModal({
 
   const handleSave = async () => {
     if (!parsed || warning) return;
+    if (isExpense && !expenseCategory.trim()) {
+      setError('Вкажіть категорію витрати');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -1051,6 +1074,7 @@ function CashMovementModal({
         // Контрагент «Карта» рухає глобальний банк готівки; решта — зовнішні мітки.
         counterparty: source === 'Карта' ? 'BANK' : 'EXTERNAL',
         note: note || undefined,
+        expenseCategory: isCashback ? CASHBACK_SOURCE : isExpense ? expenseCategory.trim() : undefined,
       });
       onSaved();
       onClose();
@@ -1080,7 +1104,8 @@ function CashMovementModal({
               <select
                 value={currency}
                 onChange={(e) => setCurrency(e.target.value)}
-                className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring}`}
+                disabled={isExpenseFlow}
+                className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring} disabled:bg-gray-100 disabled:text-gray-400`}
               >
                 {currencies.map((c) => (
                   <option key={c} value={c}>{c} (в касі {fmtInt(balance[c] ?? 0)})</option>
@@ -1116,12 +1141,30 @@ function CashMovementModal({
                 На карті: <span className="font-semibold">{fmtMoney(bankBalances[currency] ?? 0)} {currency}</span>
               </p>
             )}
+            {isExpenseFlow && (
+              <p className="text-xs text-amber-600 mt-1">
+                Готівка списується з каси І одразу створюється витрата (Фінанси) — окремо
+                документ витрати ставити не треба.
+              </p>
+            )}
             {source === ADJUST_SOURCE && (
               <p className="text-xs text-amber-600 mt-1">
                 Вирівнювання перерахунку каси. Карта не змінюється; запис лишиться в журналі.
               </p>
             )}
           </div>
+          {isExpense && (
+            <div>
+              <label className="block text-sm text-gray-600 mb-1">Категорія витрати</label>
+              <select
+                value={expenseCategory}
+                onChange={(e) => setExpenseCategory(e.target.value)}
+                className={`w-full border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${ui.ring}`}
+              >
+                {EXPENSE_CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label className="block text-sm text-gray-600 mb-1">Примітка (необов'язково)</label>
             <input

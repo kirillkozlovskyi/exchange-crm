@@ -7,7 +7,7 @@ import { netTransfers } from '../../lib/transfers';
 import { usdtCashDelta } from '../../lib/usdt';
 import { printReceipt } from '../cashier/OperationsList';
 import { usdtProfit, usdtProfitUsd } from '../../lib/usdt';
-import { fmtMoney } from '../../lib/format';
+import { fmtMoney, fmtNum as fmt, fmtRate } from '../../lib/format';
 
 const STATUS: Record<string, { label: string; cls: string }> = {
   OPEN: { label: 'Відкрита', cls: 'bg-green-100 text-green-700' },
@@ -15,7 +15,6 @@ const STATUS: Record<string, { label: string; cls: string }> = {
 };
 
 const num = (v: any) => Number(v ?? 0);
-const fmt = (v: any) => num(v).toLocaleString('en-US', { maximumFractionDigits: 2 });
 
 function Section({ title, count, actions, children }: { title: string; count?: number; actions?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -142,9 +141,8 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   //        передачі, звірки) — той самий склад даних, що й у JSON-звіті.
   const printShiftReport = (mode: 'short' | 'full' = 'full') => {
     const full = mode === 'full';
-    // Формат 1,000,000.00 (як скрізь у застосунку).
-    const n2 = (v: any, dd = 2) =>
-      Number(v ?? 0).toLocaleString('en-US', { minimumFractionDigits: dd, maximumFractionDigits: dd });
+    // Гроші — через глобальний формат (копійки за опцією); курс/dd=4 — завжди точний.
+    const n2 = (v: any, dd?: number) => (dd ? fmtRate(v, dd) : fmtMoney(v));
     const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
     const tm = (s: string) => format(new Date(s), 'HH:mm');
 

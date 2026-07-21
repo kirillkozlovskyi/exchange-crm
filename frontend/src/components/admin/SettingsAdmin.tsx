@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useNumberFormat } from '../../context/NumberFormatContext';
 
 function Toggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
   return (
@@ -85,6 +86,96 @@ function QuickAmountsSettings({
         </button>
       </div>
       {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
+    </div>
+  );
+}
+
+// ── Формат чисел (глобально на весь застосунок: каса, адмінка, звіти) ────────
+function NumberFormatSettings() {
+  const { refresh } = useNumberFormat();
+  const [thousands, setThousands] = useState<'comma' | 'space'>('comma');
+  const [decimals, setDecimals] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/number-format').then(({ data }) => {
+      setThousands(data.thousands === 'space' ? 'space' : 'comma');
+      setDecimals(data.decimals !== false);
+    }).catch(() => {});
+  }, []);
+
+  const save = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await api.put('/settings/number-format', { thousands, decimals });
+      await refresh(); // застосувати одразу в усьому застосунку, без перезавантаження
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Прев'ю за ЛОКАЛЬНИМ (ще не збереженим) вибором — не чіпає глобальний формат.
+  const preview = (v: number) => {
+    const fixed = decimals ? v.toFixed(2) : String(Math.round(v));
+    const [ip, fp] = fixed.split('.');
+    const sep = thousands === 'space' ? ' ' : ',';
+    return ip.replace(/\B(?=(\d{3})+(?!\d))/g, sep) + (fp ? '.' + fp : '');
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow p-6 space-y-4">
+      <div>
+        <h3 className="font-semibold text-gray-800 text-base">🔢 Формат чисел</h3>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Як показувати суми скрізь у застосунку: каса, адмінка, звіти, друковані чеки.
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <label className="text-sm font-medium text-gray-700">Роздільник тисяч</label>
+        <div className="flex gap-2">
+          <button onClick={() => setThousands('comma')}
+            className={`flex-1 border rounded-lg px-3 py-2 text-sm font-medium transition ${
+              thousands === 'comma' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}>
+            Кома — 1,000,000.00
+          </button>
+          <button onClick={() => setThousands('space')}
+            className={`flex-1 border rounded-lg px-3 py-2 text-sm font-medium transition ${
+              thousands === 'space' ? 'bg-blue-600 text-white border-blue-600' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+            }`}>
+            Пробіл — 1 000 000.00
+          </button>
+        </div>
+      </div>
+
+      <div className="border-t border-gray-100" />
+
+      <div className="flex items-start justify-between gap-4">
+        <div className="space-y-1">
+          <p className="text-sm font-medium text-gray-700">Показувати копійки</p>
+          <p className="text-xs text-gray-400">Два знаки після коми. Вимкнено — суми округлюються до цілих.</p>
+        </div>
+        <Toggle enabled={decimals} onChange={setDecimals} />
+      </div>
+
+      <div className="border-t border-gray-100" />
+
+      <div className="text-sm text-gray-500">
+        Приклад: <span className="font-semibold text-gray-700">{preview(1234567.5)}</span>
+      </div>
+
+      <div className="flex items-center gap-3 pt-1">
+        <button onClick={save} disabled={saving}
+          className="px-4 py-2 bg-blue-700 hover:bg-blue-800 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition">
+          {saving ? 'Збереження...' : 'Зберегти'}
+        </button>
+        {saved && <p className="text-green-600 text-sm">✓ Збережено — застосовано одразу</p>}
+      </div>
     </div>
   );
 }
@@ -564,6 +655,7 @@ export default function OperationsSettings() {
 
   return (
     <div className="space-y-6">
+      <NumberFormatSettings />
       <OrgSettings />
       <QuickAmountsSettings
         endpoint="/settings/quick-amounts"

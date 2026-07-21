@@ -6,7 +6,7 @@ import { netTransfers, type TransferRow } from '../../lib/transfers';
 import { cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 import { usdtCashDelta, usdtProfit, usdtProfitUsd, type UsdtOpRow } from '../../lib/usdt';
 import { shiftCashBalance } from '../../lib/shift-balance';
-import { fmtMoney, fmtNum } from '../../lib/format';
+import { fmtMoney, fmtNum, fmtRate } from '../../lib/format';
 
 type Operation = {
   id: number;
@@ -346,9 +346,8 @@ export default function CloseShiftForm({
 
   // ── Друк звіту по зміні (А4) ─────────────────────────────────────────────
   const printReport = () => {
-    // Формат 1,000,000.00 (як скрізь у застосунку).
-    const n = (v: number, d = 2) =>
-      Number(v).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+    // Гроші — через глобальний формат (копійки за опцією); курс/dd=4 — завжди точний.
+    const n = (v: number, d?: number) => (d ? fmtRate(v, d) : fmtMoney(v));
     const dt = (s: string) => format(new Date(s), 'dd.MM.yyyy HH:mm');
     const tradeRows = tradeStats.map((r) => `
       <tr>
