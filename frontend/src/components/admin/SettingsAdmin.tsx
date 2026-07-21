@@ -180,6 +180,73 @@ function NumberFormatSettings() {
   );
 }
 
+// ── Кастомні призначення інкасації (поверх Карта/Інше/Кешбек/Витрата/Коригування) ──
+function CashMovementSourcesSettings() {
+  const [sources, setSources] = useState<string[]>([]);
+  const [newVal, setNewVal] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api.get('/settings/cash-movement-sources').then(({ data }) => setSources(data)).catch(() => {});
+  }, []);
+
+  const save = async (next: string[]) => {
+    setSaving(true);
+    try {
+      await api.put('/settings/cash-movement-sources', { sources: next });
+      setSources(next);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleAdd = () => {
+    const v = newVal.trim();
+    if (!v || sources.includes(v)) { setNewVal(''); return; }
+    save([...sources, v]);
+    setNewVal('');
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow p-6 space-y-4">
+      <div>
+        <h3 className="font-semibold text-gray-800 text-base">🎯 Призначення інкасації</h3>
+        <p className="text-xs text-gray-400 mt-0.5">
+          Додаткові варіанти в полі «Призначення» при інкасації (окрім вбудованих
+          Карта/Інше/Кешбек/Витрата). Прості мітки — не рухають карту й не заводять витрату.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        {sources.map((s) => (
+          <div key={s} className="flex items-center gap-1 border rounded-lg px-3 py-1.5 bg-indigo-50 border-indigo-200 text-indigo-800">
+            <span className="font-semibold text-sm">{s}</span>
+            <button onClick={() => save(sources.filter((x) => x !== s))}
+              className="hover:text-red-500 transition font-bold text-base leading-none ml-1 text-indigo-300">×</button>
+          </div>
+        ))}
+        {sources.length === 0 && <span className="text-gray-400 text-sm italic">Список порожній</span>}
+      </div>
+
+      <div className="flex gap-2">
+        <input value={newVal}
+          onChange={(e) => setNewVal(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+          placeholder="Напр. Сейф, Начальник"
+          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400" />
+        <button onClick={handleAdd} disabled={saving || !newVal.trim()}
+          className="text-white px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition bg-indigo-600 hover:bg-indigo-700">
+          Додати
+        </button>
+      </div>
+      {saved && <p className="text-green-600 text-sm">✓ Збережено</p>}
+    </div>
+  );
+}
+
 function OrgSettings() {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -669,6 +736,7 @@ export default function OperationsSettings() {
         subtitle="Кнопки −/+ для поля «Сума USDT» у вікні операції каси."
         accent="teal"
       />
+      <CashMovementSourcesSettings />
 
       <div className="bg-white rounded-xl shadow p-6 space-y-5">
         <h3 className="font-semibold text-gray-800 text-base">Правила та дозволи</h3>

@@ -293,6 +293,28 @@ export class SettingsService {
     await this.set('currency_order', JSON.stringify(order));
   }
 
+  /**
+   * Кастомні призначення інкасації (OUT), які адмін додає поверх вбудованих
+   * (Карта/Інше/Кешбек/Витрата/Коригування) — напр. «Сейф», «Начальник».
+   * Прості мітки: не рухають банк і не заводять Expense (на відміну від
+   * Кешбек/Витрата), лише позначають куди пішла готівка.
+   */
+  async getCashMovementSources(): Promise<string[]> {
+    const v = await this.get('cash_movement_sources');
+    if (!v) return [];
+    try {
+      const arr = JSON.parse(v);
+      return Array.isArray(arr) ? arr.map((s) => String(s).trim()).filter(Boolean) : [];
+    } catch {
+      return [];
+    }
+  }
+
+  async setCashMovementSources(sources: string[]): Promise<void> {
+    const clean = [...new Set(sources.map((s) => String(s).trim()).filter(Boolean))];
+    await this.set('cash_movement_sources', JSON.stringify(clean));
+  }
+
   async getQuickAmounts(): Promise<number[]> {
     const v = await this.get('quick_amounts');
     if (!v) return [10, 20, 50, 100, 500];

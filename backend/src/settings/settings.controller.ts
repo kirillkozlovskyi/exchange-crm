@@ -200,6 +200,21 @@ export class SettingsController {
     return this.settingsService.setCurrencyOrder(body.order).then(() => body.order);
   }
 
+  // Кастомні призначення інкасації (Рух готівки → OUT) — читають усі, редагує адмін.
+  @Get('cash-movement-sources')
+  getCashMovementSources() {
+    return this.settingsService.getCashMovementSources();
+  }
+
+  @Put('cash-movement-sources')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  setCashMovementSources(@Body() body: { sources: string[] }) {
+    return this.settingsService.setCashMovementSources(body.sources ?? []).then(() =>
+      this.settingsService.getCashMovementSources(),
+    );
+  }
+
   @Get('quick-amounts')
   getQuickAmounts() {
     return this.settingsService.getQuickAmounts();

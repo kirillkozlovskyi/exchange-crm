@@ -1016,6 +1016,8 @@ function CashMovementModal({
   const [bankEnabled, setBankEnabled] = useState(true);
   // «Коригування» — окремий інструмент вирівнювання каси (не чіпає карту).
   const [adjustEnabled, setAdjustEnabled] = useState(false);
+  // Кастомні призначення інкасації, додані адміном (Налаштування → Каса та операції).
+  const [customSources, setCustomSources] = useState<string[]>([]);
   const isCashback = source === CASHBACK_SOURCE;
   const isExpense = source === EXPENSE_SOURCE;
   const isExpenseFlow = isCashback || isExpense;
@@ -1023,6 +1025,8 @@ function CashMovementModal({
     ...(bankEnabled ? SOURCE_CATEGORIES : SOURCE_CATEGORIES.filter((c) => c !== 'Карта')),
     // Кешбек/Витрата з каси — лише для інкасації (OUT); підкріплення ними не буває.
     ...(!isIn ? [CASHBACK_SOURCE, EXPENSE_SOURCE] : []),
+    // Кастомні призначення адміна — теж лише для інкасації (OUT).
+    ...(!isIn ? customSources : []),
     ...(adjustEnabled ? [ADJUST_SOURCE] : []),
   ];
 
@@ -1040,6 +1044,10 @@ function CashMovementModal({
       setBankEnabled(!!data.enabled);
       if (!data.enabled) setSource('Інше');
     }).catch(() => {});
+
+    api.get('/settings/cash-movement-sources')
+      .then(({ data }) => setCustomSources(Array.isArray(data) ? data : []))
+      .catch(() => {});
 
     api.get('/settings/cashier-see-bank').then(({ data }) => {
       if (data.enabled) {
