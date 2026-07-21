@@ -41,6 +41,10 @@ type MovementRow = CashMovementRow & {
   source?: string | null;
   note?: string | null;
   createdAt?: string;
+  // Кешбек/Витрата: категорія + знімок впливу на прибуток зміни (₴/$, від'ємні).
+  expenseCategory?: string | null;
+  profit?: number | string | null;
+  profitUsd?: number | string | null;
 };
 
 // Передача з полями для показу в блоці «Рух готівки» (math у netTransfers
@@ -111,6 +115,27 @@ export default function CloseShiftForm({
   const usdtNet = useMemo(() => usdtCashDelta(usdtOperations), [usdtOperations]);
   const usdtMargin = useMemo(() => usdtProfit(usdtOperations), [usdtOperations]);
   const usdtMarginUsd = useMemo(() => usdtProfitUsd(usdtOperations), [usdtOperations]);
+
+  // Кешбек/Витрата: готівка йде без зустрічного надходження — збиток зміни
+  // (знімок ₴/$ збережено на CashMovement при створенні), групований по категорії.
+  const expenseByCategory = useMemo(() => {
+    const map: Record<string, { uah: number; usd: number }> = {};
+    for (const m of cashMovements) {
+      if (!m.expenseCategory) continue;
+      const e = (map[m.expenseCategory] ??= { uah: 0, usd: 0 });
+      e.uah += Number(m.profit ?? 0);
+      e.usd += Number(m.profitUsd ?? 0);
+    }
+    return map;
+  }, [cashMovements]);
+  const expenseTotal = useMemo(
+    () => Object.values(expenseByCategory).reduce((s, v) => s + v.uah, 0),
+    [expenseByCategory],
+  );
+  const expenseTotalUsd = useMemo(
+    () => Object.values(expenseByCategory).reduce((s, v) => s + v.usd, 0),
+    [expenseByCategory],
+  );
 
   // ── Залишок до руху готівки (початок + операції) — база для прибутку ───────
   const opsBalance = useMemo(
@@ -196,8 +221,8 @@ export default function CloseShiftForm({
     }
     return { total, totalUsd, byCurrency, byCurrencyUsd };
   }, [shift]);
-  const tradingProfit = realized.total + usdtMargin;
-  const tradingProfitUsd = realized.totalUsd + usdtMarginUsd;
+  const tradingProfit = realized.total + usdtMargin + expenseTotal;
+  const tradingProfitUsd = realized.totalUsd + usdtMarginUsd + expenseTotalUsd;
   const endBalParsed = useMemo(
     () => Object.fromEntries(Object.entries(endBal).map(([k, v]) => [k, parseFloat(v) || 0])),
     [endBal],
@@ -328,8 +353,12 @@ export default function CloseShiftForm({
     if (Math.abs(usdtMargin) >= 0.005) {
       rows.push({ cur: 'USDT', open: 0, close: 0, transfer: 0, movement: 0, profitUah: usdtMargin, profitUsd: usdtMarginUsd });
     }
+    for (const [cat, v] of Object.entries(expenseByCategory)) {
+      if (Math.abs(v.uah) < 0.005) continue;
+      rows.push({ cur: cat, open: 0, close: 0, transfer: 0, movement: 0, profitUah: v.uah, profitUsd: v.usd });
+    }
     return rows;
-  }, [currencies, startBal, calcBalance, net, moveNet, realized, usdtMargin, usdtMarginUsd]);
+  }, [currencies, startBal, calcBalance, net, moveNet, realized, usdtMargin, usdtMarginUsd, expenseByCategory]);
 
   // «Каса в доларах» — підсумок каси за принципом власника: за введеним
   // фактичним залишком і поточною собівартістю (з урахуванням локальних правок).
@@ -467,6 +496,9 @@ export default function CloseShiftForm({
       <div class="totals">
         ${showProfit ? `<div><span>Торговий прибуток</span><span>${tradingProfitUsd >= 0 ? '+' : ''}${n(tradingProfitUsd)} $ (${tradingProfit >= 0 ? '+' : ''}${n(tradingProfit)} ₴)</span></div>` : ''}
         ${showProfit && Math.abs(usdtMargin) >= 0.005 ? `<div><span>у т.ч. маржа USDT</span><span>${usdtMarginUsd >= 0 ? '+' : ''}${n(usdtMarginUsd)} $ (${usdtMargin >= 0 ? '+' : ''}${n(usdtMargin)} ₴)</span></div>` : ''}
+        ${showProfit ? Object.entries(expenseByCategory).filter(([, v]) => Math.abs(v.uah) >= 0.005).map(([cat, v]) =>
+          `<div><span>у т.ч. ${cat}</span><span>${v.usd >= 0 ? '+' : ''}${n(v.usd)} $ (${v.uah >= 0 ? '+' : ''}${n(v.uah)} ₴)</span></div>`
+        ).join('') : ''}
         ${Math.abs(cashDiff) >= 0.01 ? `<div><span>Нестача/надлишок каси</span><span>${cashDiff >= 0 ? '+' : ''}${n(cashDiff)} ₴</span></div>` : ''}
         ${showProfit ? `<div class="line"><span>Фактичний результат</span><span>${factualProfitUsd >= 0 ? '+' : ''}${n(factualProfitUsd)} $ (${factualProfit >= 0 ? '+' : ''}${n(factualProfit)} ₴)</span></div>` : ''}
       </div>
@@ -639,7 +671,7 @@ export default function CloseShiftForm({
               продажу валют проти їх $-собівартості (крос).
               {Math.abs(usdtMargin) >= 0.005 && ' USDT — чиста маржа %.'}
               {hasTransfers && ' Передачі між касами не входять у прибуток.'}
-              {hasMovements && ' Підкріплення/інкасації не входять у прибуток.'}
+              {hasMovements && ' Підкріплення/інкасації не входять у прибуток (крім Кешбек/Витрата — готівка йде без зустрічного надходження, тож це збиток зміни).'}
             </p>
 
             <table className="w-full text-sm">

@@ -7,6 +7,7 @@ import OperationForm from '../components/cashier/OperationForm';
 import OperationsList from '../components/cashier/OperationsList';
 import TransferPanel from '../components/cashier/TransferPanel';
 import { fmtMoney } from '../lib/format';
+import { SOURCE_CATEGORIES, ADJUST_SOURCE, CASHBACK_SOURCE, EXPENSE_SOURCE } from '../lib/cash-movement-sources';
 import OpenShiftForm from '../components/cashier/OpenShiftForm';
 import CloseShiftForm from '../components/cashier/CloseShiftForm';
 import Flag from '../components/Flag';
@@ -386,7 +387,16 @@ export default function CashierPage() {
     const tradingUsd = ops.reduce((s: number, o: any) => s + (o.cancelled ? 0 : Number(o.profitUsd ?? 0)), 0);
     const usdt = usdtProfit(shift?.usdtOperations ?? []);
     const usdtUsd = usdtProfitUsd(shift?.usdtOperations ?? []);
-    return { total: trading + usdt, totalUsd: tradingUsd + usdtUsd, trading, usdt };
+    // Кешбек/Витрата — готівка йде без зустрічного надходження, тож це збиток
+    // зміни (₴/$ від'ємні, знімок збережено на CashMovement при створенні).
+    const movements = shift?.cashMovements ?? [];
+    const expenses = movements.reduce((s: number, m: any) => s + Number(m.profit ?? 0), 0);
+    const expensesUsd = movements.reduce((s: number, m: any) => s + Number(m.profitUsd ?? 0), 0);
+    return {
+      total: trading + usdt + expenses,
+      totalUsd: tradingUsd + usdtUsd + expensesUsd,
+      trading, usdt, expenses, expensesUsd,
+    };
   }, [shift]);
 
   // ── Синхронізація інфо зміни в хедер ─────────────────────────────────────
@@ -778,7 +788,7 @@ export default function CashierPage() {
                     <span className="flex-1 text-xs font-semibold uppercase tracking-wider text-gray-500">Прибуток каси</span>
                     <span
                       className={`text-right text-xl font-bold ${liveProfit.totalUsd >= 0 ? 'text-green-600' : 'text-red-600'}`}
-                      title={`Торговий: ${fmtMoney(liveProfit.trading)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${fmtMoney(liveProfit.usdt)} ₴` : ''}`}
+                      title={`Торговий: ${fmtMoney(liveProfit.trading)} ₴${Math.abs(liveProfit.usdt) >= 0.005 ? ` · USDT: ${fmtMoney(liveProfit.usdt)} ₴` : ''}${Math.abs(liveProfit.expenses) >= 0.005 ? ` · Кешбек/Витрата: ${fmtMoney(liveProfit.expenses)} ₴` : ''}`}
                     >
                       {liveProfit.totalUsd >= 0 ? '+' : ''}{fmtMoney(liveProfit.totalUsd)} $
                       <div className="text-xs font-medium text-gray-400">
@@ -952,15 +962,6 @@ type MovementItem = {
 //  • «Коригування» — вирівнювання перерахунку каси (копійки/округлення). Карту не
 //    чіпає, лишає слід у журналі. Доступне, лише якщо адмін дозволив
 //    «Редагування залишків каси».
-const SOURCE_CATEGORIES = ['Карта', 'Інше'];
-const ADJUST_SOURCE = 'Коригування';
-// Інкасація готівки, яка водночас є витратою: одним документом списує готівку
-// з каси І заводить Expense — щоб не забувати другий документ (раніше витрату
-// ставили без інкасації, і каса «розходилась» з фактом, бо Expense сам по собі
-// готівку каси не рухає). «Кешбек» — окрема категорія (найчастіша), «Витрата» —
-// довільна категорія (оренда/зарплата/тощо), як в адмінському списку витрат.
-const CASHBACK_SOURCE = 'Кешбек';
-const EXPENSE_SOURCE = 'Витрата';
 const EXPENSE_CATEGORIES = ['Оренда', 'Зарплата', 'Комунальні', 'Податки', 'Обладнання', 'Інше'];
 
 // Короткий двотональний сигнал про нову вхідну передачу (WebAudio, без файлів).
@@ -1095,7 +1096,7 @@ function CashMovementModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-xl flex flex-col max-h-[90vh]" onClick={(e) => e.stopPropagation()}>
         <div className="p-5 pb-3 border-b border-gray-100">
           <div className={`text-sm font-semibold ${ui.head} uppercase tracking-wider`}>{title}</div>
           <p className="text-sm text-gray-500 mt-1">
@@ -1106,8 +1107,8 @@ function CashMovementModal({
         </div>
 
         <div className="p-5 space-y-3 overflow-y-auto">
-          <div className="flex gap-2">
-            <div className="flex-1">
+          <div className="flex gap-3">
+            <div className="flex-[3] min-w-0">
               <label className="block text-sm text-gray-600 mb-1">Валюта</label>
               <select
                 value={currency}
@@ -1120,7 +1121,7 @@ function CashMovementModal({
                 ))}
               </select>
             </div>
-            <div className="flex-1">
+            <div className="flex-[2] min-w-0">
               <label className="block text-sm text-gray-600 mb-1">Сума</label>
               <input
                 type="number"

@@ -311,7 +311,16 @@ export class SettingsService {
   }
 
   async setCashMovementSources(sources: string[]): Promise<void> {
-    const clean = [...new Set(sources.map((s) => String(s).trim()).filter(Boolean))];
+    // Вбудовані (Карта/Інше/Кешбек/Витрата/Коригування) не дублюємо кастомними —
+    // вони вже мають спеціальну поведінку в коді (дзеркало frontend/src/lib/cash-movement-sources.ts).
+    const builtin = new Set(['карта', 'інше', 'кешбек', 'витрата', 'коригування']);
+    const clean = [
+      ...new Set(
+        sources
+          .map((s) => String(s).trim())
+          .filter((s) => s && !builtin.has(s.toLowerCase())),
+      ),
+    ];
     await this.set('cash_movement_sources', JSON.stringify(clean));
   }
 

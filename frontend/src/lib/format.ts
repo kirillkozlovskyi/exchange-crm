@@ -2,6 +2,10 @@
  * Форматування чисел — глобальна опція адміна (Налаштування): роздільник
  * тисяч (кома/пробіл) і чи показувати копійки. За замовчуванням — кома,
  * копійки показуються (як було раніше: 1,000,000.00).
+ *
+ * Копійки/десяткові ЗАВЖДИ показуються рівно `digits` знаків, коли увімкнено
+ * (без «обрізання зайвих нулів») — інакше те саме поле то показує .50, то
+ * ховає .00 залежно від конкретного значення, що виглядає як баг.
  */
 
 export type NumberFormatPrefs = { thousands: 'comma' | 'space'; decimals: boolean };
@@ -21,27 +25,21 @@ function groupThousands(intDigits: string, sep: string): string {
   return intDigits.replace(/\B(?=(\d{3})+(?!\d))/g, sep);
 }
 
-/** minDigits/maxDigits — як у toLocaleString: додаткові нулі понад minDigits обрізаються. */
-function formatNumber(v: number, maxDigits: number, minDigits: number): string {
+function formatNumber(v: number, digits: number): string {
   const n = Number.isFinite(v) ? v : 0;
   const neg = n < 0;
-  let fixed = Math.abs(n).toFixed(maxDigits);
-  if (maxDigits > minDigits) {
-    let [intPart, fracPart = ''] = fixed.split('.');
-    while (fracPart.length > minDigits && fracPart.endsWith('0')) fracPart = fracPart.slice(0, -1);
-    fixed = fracPart.length ? `${intPart}.${fracPart}` : intPart;
-  }
+  const fixed = Math.abs(n).toFixed(digits);
   const [intPart, fracPart] = fixed.split('.');
   const sep = prefs.thousands === 'space' ? ' ' : ',';
   const grouped = groupThousands(intPart, sep);
   return (neg ? '-' : '') + grouped + (fracPart ? '.' + fracPart : '');
 }
 
-/** Число з розділеними розрядами. digits — максимум знаків після коми (0, якщо копійки вимкнено). */
+/** Число з розділеними розрядами. digits — знаків після коми (0, якщо копійки вимкнено). */
 export function fmtNum(v: unknown, digits = 2): string {
   const n = Number(v ?? 0);
   if (!Number.isFinite(n)) return '0';
-  return formatNumber(n, prefs.decimals ? digits : 0, 0);
+  return formatNumber(n, prefs.decimals ? digits : 0);
 }
 
 /** Ціле число з розділеними розрядами (для залишків/сум без копійок). */
@@ -51,10 +49,7 @@ export function fmtInt(v: unknown): string {
 
 /** Гроші: 2 знаки після коми (якщо копійки увімкнено) + розділені розряди. */
 export function fmtMoney(v: unknown): string {
-  const n = Number(v ?? 0);
-  const d = prefs.decimals ? 2 : 0;
-  if (!Number.isFinite(n)) return d ? '0.00' : '0';
-  return formatNumber(n, d, d);
+  return fmtNum(v, 2);
 }
 
 /**
@@ -66,5 +61,5 @@ export function fmtMoney(v: unknown): string {
 export function fmtRate(v: unknown, digits = 4): string {
   const n = Number(v ?? 0);
   if (!Number.isFinite(n)) return (0).toFixed(digits);
-  return formatNumber(n, digits, digits);
+  return formatNumber(n, digits);
 }

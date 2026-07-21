@@ -193,6 +193,12 @@ model CashMovement {
   // (власник/офіс/карман), змінює загальний баланс компанії. NULL = історичні записи.
   counterparty String?
   note        String?
+  // Кешбек/Витрата: паралельно заведений Expense (категорія) + знімок впливу
+  // на прибуток зміни (₴ і $, від'ємні) — готівка йде без зустрічного
+  // надходження, тож це реальний збиток зміни, а не нейтральний рух каси.
+  expenseCategory String?
+  profit          Decimal? @db.Decimal(15, 2)
+  profitUsd       Decimal? @db.Decimal(18, 6)
   createdAt   DateTime              @default(now())
 
   shift       Shift    @relation(fields: [shiftId], references: [id])

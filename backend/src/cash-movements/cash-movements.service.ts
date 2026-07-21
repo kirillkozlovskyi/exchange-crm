@@ -111,6 +111,19 @@ export class CashMovementsService {
         );
       }
 
+      // Кешбек/Витрата: готівка йде БЕЗ зустрічного надходження — реальний
+      // збиток зміни (₴ = -amount; $ — за поточним курсом продажу USD точки).
+      let profit: number | null = null;
+      let profitUsd: number | null = null;
+      if (expenseCategory) {
+        const usdRate = await tx.rate.findFirst({
+          where: { exchangePointId: shift.cashDesk.exchangePointId, currency: 'USD', status: 'ACTIVE' },
+        });
+        const sell = usdRate ? Number(usdRate.sell) : 0;
+        profit = -amount;
+        profitUsd = sell > 0 ? -amount / sell : 0;
+      }
+
       const movement = await tx.cashMovement.create({
         data: {
           number,
@@ -120,6 +133,9 @@ export class CashMovementsService {
           source: dto.source,
           counterparty,
           note: dto.note,
+          expenseCategory: expenseCategory || null,
+          profit,
+          profitUsd,
           shiftId: shift.id,
           cashDeskId: shift.cashDeskId,
           createdById: userId,

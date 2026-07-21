@@ -183,10 +183,15 @@ export class ShiftsService {
     // Прибуток USDT — чиста маржа (%) з факту проти 1:1, окремим рядком «USDT».
     const usdtUah = usdtProfit((shift.usdtOperations as any) ?? []);
     const usdtUsd = usdtProfitUsd((shift.usdtOperations as any) ?? []);
+    // Кешбек/Витрата — готівка йде без зустрічного надходження, тож це збиток
+    // зміни (знімок збережено на CashMovement при створенні); групуємо по категорії.
+    const expenseMovements = (shift.cashMovements ?? []).filter((m: any) => m.expenseCategory);
+    const expenseUah = expenseMovements.reduce((s: number, m: any) => s + Number(m.profit ?? 0), 0);
+    const expenseUsd = expenseMovements.reduce((s: number, m: any) => s + Number(m.profitUsd ?? 0), 0);
     // $-нативні підсумки + гривневі знімки (за курсом моменту кожної операції).
-    const profitUsd = wac.totalRealized + usdtUsd;
+    const profitUsd = wac.totalRealized + usdtUsd + expenseUsd;
     const perOpUah = wac.perOp.map((p, i) => p * wac.sUsdPerOp[i]);
-    const profit = perOpUah.reduce((s, v) => s + v, 0) + usdtUah;
+    const profit = perOpUah.reduce((s, v) => s + v, 0) + usdtUah + expenseUah;
     const profitByCurrencyUsd: Record<string, number> = { ...wac.byCurrency };
     if (Math.abs(usdtUsd) >= 0.005) profitByCurrencyUsd.USDT = usdtUsd;
     const profitByCurrency: Record<string, number> = {};
@@ -195,6 +200,13 @@ export class ShiftsService {
       profitByCurrency[o.currency] = (profitByCurrency[o.currency] ?? 0) + perOpUah[i];
     });
     if (Math.abs(usdtUah) >= 0.005) profitByCurrency.USDT = usdtUah;
+    for (const m of expenseMovements) {
+      const cat = m.expenseCategory as string;
+      const v = Number(m.profit ?? 0);
+      if (Math.abs(v) < 0.005) continue;
+      profitByCurrency[cat] = (profitByCurrency[cat] ?? 0) + v;
+      profitByCurrencyUsd[cat] = (profitByCurrencyUsd[cat] ?? 0) + Number(m.profitUsd ?? 0);
+    }
 
     // Передачі між касами/точками — це рух готівки, а не торговий прибуток.
     // Вилучаємо їх із фактичного залишку, щоб отримана/відправлена валюта не
