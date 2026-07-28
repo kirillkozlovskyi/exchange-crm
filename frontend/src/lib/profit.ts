@@ -47,6 +47,43 @@ export function activeUsdSell(
  * задає власник). basis — людський формат (UAH: 44.95, EUR: 1.1420).
  * Валюта без бази оцінюється в 0 (чесний нуль, а не вигадана вартість).
  */
+type RateRow = { currency: string; buy: number | string; sell: number | string };
+
+/**
+ * Очікуваний сер. курс валюти в людському форматі: UAH — ₴ за 1 $ (курс продажу
+ * USD точки), інші — $-крос від курсу КУПІВЛІ точки. Це орієнтир для підказки та
+ * перевірки вводу, а не значення для збереження: собівартість каси відрізняється
+ * від курсу дня на відсотки, не в рази. 0 — орієнтиру немає (валюти немає в курсах).
+ */
+export function expectedBasis(cur: string, rates: RateRow[], uahBasis?: number): number {
+  if (cur.startsWith('USD')) return 0; // долари всіх видів — 1:1, курсу не мають
+  const usdSell = activeUsdSell(rates);
+  if (cur === 'UAH') return usdSell;
+  // Знаменник кросу — сер. курс гривні (введений), інакше поточний продаж USD.
+  const uahPerUsd = uahBasis && uahBasis > 0 ? uahBasis : usdSell;
+  const buy = Number(rates.find((r) => r.currency === cur)?.buy ?? 0);
+  return buy > 0 && uahPerUsd > 0 ? buy / uahPerUsd : 0;
+}
+
+/**
+ * Перевірка введеного сер. курсу на переплутані одиниці. Причина інциденту
+ * 23–27.07.2026: у поле $-кросу вписували ГРИВНЕВИЙ курс (PLN 11.78 замість
+ * 0.26, CHF 55 замість 1.21) — прибуток рахувався проти собівартості, що в ~45
+ * разів більша за реальну, і продаж 500 злотих давав «збиток» 5 000 $.
+ * Коридор ±30%: реальна собівартість відхиляється від курсу дня на одиниці
+ * відсотків, а помилка в одиницях — у десятки разів. Повертає текст або null.
+ */
+export function basisWarning(cur: string, value: number, expected: number): string | null {
+  if (!(value > 0) || !(expected > 0)) return null;
+  const ratio = value / expected;
+  if (ratio <= 1.3 && ratio >= 0.7) return null;
+  const hint = expected.toFixed(cur === 'UAH' ? 2 : 4);
+  // Класична підміна: вписано ₴-курс замість $-кросу — тоді ratio ≈ ₴ за 1 $.
+  return cur !== 'UAH' && ratio > 20
+    ? `Схоже на гривневий курс. Тут потрібна вартість 1 ${cur} у доларах — приблизно ${hint}`
+    : `Не схоже на правду: очікується приблизно ${hint}`;
+}
+
 export function tillUsd(
   balance: Record<string, number>,
   basis: Record<string, number>,

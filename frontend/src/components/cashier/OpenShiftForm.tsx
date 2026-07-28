@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
 import api from '../../api/axios';
+import { expectedBasis, basisWarning } from '../../lib/profit';
 
 export default function OpenShiftForm({
   rates,
@@ -54,6 +55,16 @@ export default function OpenShiftForm({
 
   const resetZero = () =>
     setBalances(Object.fromEntries(currencies.map((c) => [c, '0'])));
+
+  // Орієнтир сер. курсу рахуємо від уже введеної гривні — інакше знаменником
+  // кросу став би поточний продаж USD, а він може відрізнятись від бази каси.
+  const uahBasis = parseFloat(costBasis.UAH ?? '') || 0;
+  const warnFor = (cur: string) =>
+    basisWarning(cur, parseFloat(costBasis[cur] ?? '') || 0, expectedBasis(cur, rates, uahBasis));
+  const warnings = currencies
+    .filter((c) => !c.startsWith('USD'))
+    .map((cur) => [cur, warnFor(cur)] as const)
+    .filter((x): x is readonly [string, string] => x[1] != null);
 
   const handleSubmit = async () => {
     setLoading(true);
@@ -116,10 +127,20 @@ export default function OpenShiftForm({
                   type="number"
                   min="0"
                   step={cur === 'UAH' ? '0.01' : '0.0001'}
-                  placeholder="—"
+                  // Плейсхолдер — очікуване значення: касир бачить порядок числа
+                  // ще до вводу («≈0.2610»), а не абстрактний прочерк.
+                  placeholder={
+                    expectedBasis(cur, rates, uahBasis) > 0
+                      ? `≈${expectedBasis(cur, rates, uahBasis).toFixed(cur === 'UAH' ? 2 : 4)}`
+                      : '—'
+                  }
                   value={costBasis[cur] ?? ''}
                   onChange={(e) => setCostBasis((b) => ({ ...b, [cur]: e.target.value }))}
-                  className="w-28 border border-gray-300 rounded px-3 py-2 text-right focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-28 border rounded px-3 py-2 text-right focus:outline-none focus:ring-2 ${
+                    warnFor(cur)
+                      ? 'border-red-400 bg-red-50 text-red-700 focus:ring-red-400'
+                      : 'border-gray-300 focus:ring-blue-500'
+                  }`}
                 />
               ) : (
                 <span className="w-28 text-right text-xs text-gray-400 self-center">1:1</span>
@@ -127,6 +148,16 @@ export default function OpenShiftForm({
             </div>
           ))}
         </div>
+        {warnings.length > 0 && (
+          <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+            <p className="text-xs font-semibold text-red-700 mb-1">Перевірте сер. курс:</p>
+            {warnings.map(([cur, msg]) => (
+              <p key={cur} className="text-xs text-red-700">
+                <b>{cur}</b> — {msg}
+              </p>
+            ))}
+          </div>
+        )}
         <p className="text-xs text-gray-400 mt-3">
           <b>Сер. курс</b> — курс оцінки каси, задається на ранок: гривня — ₴ за 1 $
           (напр. 44.95), інші валюти — вартість одиниці в доларах (напр. EUR 1.1420,

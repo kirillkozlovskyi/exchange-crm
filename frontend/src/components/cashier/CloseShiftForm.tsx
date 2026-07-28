@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import { computeCurrentBalance } from '../../lib/balance';
-import { sellRates, valueOf, activeUsdSell, tillUsd } from '../../lib/profit';
+import { sellRates, valueOf, activeUsdSell, tillUsd, expectedBasis, basisWarning } from '../../lib/profit';
 import { netTransfers, type TransferRow } from '../../lib/transfers';
 import { cashMovementsDelta, type CashMovementRow } from '../../lib/cash-movements';
 import { usdtCashDelta, usdtProfit, usdtProfitUsd, type UsdtOpRow } from '../../lib/usdt';
@@ -99,6 +99,11 @@ export default function CloseShiftForm({
     const v = parseFloat(basisEdit[cur]);
     return v > 0 && Math.abs(v - (costBasisLive[cur] ?? 0)) >= 0.00005;
   });
+  // Попередження про переплутані одиниці сер. курсу (₴-курс замість $-кросу).
+  // Знаменник кросу — введена гривня, інакше поточний продаж USD.
+  const uahBasisNow = parseFloat(basisValue('UAH')) || 0;
+  const basisWarnFor = (cur: string) =>
+    basisWarning(cur, parseFloat(basisValue(cur)) || 0, expectedBasis(cur, rates, uahBasisNow));
 
   // Нетто-передачі каси за зміну (отримано − відправлено) по валютах.
   // Це рух готівки між касами, а не прибуток — вилучаємо з фактичного результату.
@@ -178,6 +183,11 @@ export default function CloseShiftForm({
     for (const k of Object.keys(usdtNet)) set.add(k);
     return Array.from(set);
   }, [shift, startBal, net, moveNet, usdtNet]);
+
+  const basisWarnings = currencies
+    .filter((c) => !c.startsWith('USD'))
+    .map((cur) => [cur, basisWarnFor(cur)] as const)
+    .filter((x): x is readonly [string, string] => x[1] != null);
 
   // Фактичний залишок (вводить касир) — prefill з calcBalance, без копійок/центів
   const [endBal, setEndBal] = useState<Record<string, string>>(
@@ -713,9 +723,19 @@ export default function CloseShiftForm({
                         <input
                           type="number"
                           step={r.cur === 'UAH' ? '0.01' : '0.0001'}
+                          placeholder={
+                            expectedBasis(r.cur, rates, uahBasisNow) > 0
+                              ? `≈${expectedBasis(r.cur, rates, uahBasisNow).toFixed(r.cur === 'UAH' ? 2 : 4)}`
+                              : '—'
+                          }
+                          title={basisWarnFor(r.cur) ?? undefined}
                           value={basisValue(r.cur)}
                           onChange={(e) => setBasisEdit((b) => ({ ...b, [r.cur]: e.target.value }))}
-                          className="w-24 border border-gray-200 rounded px-2 py-1 text-right text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                          className={`w-24 border rounded px-2 py-1 text-right focus:outline-none focus:ring-2 ${
+                            basisWarnFor(r.cur)
+                              ? 'border-red-400 bg-red-50 text-red-700 focus:ring-red-400'
+                              : 'border-gray-200 text-gray-600 focus:ring-blue-400'
+                          }`}
                         />
                       ) : (
                         <span className="text-gray-500">
@@ -758,6 +778,18 @@ export default function CloseShiftForm({
               </tfoot>
             </table>
 
+            {onRecalcBasis && basisWarnings.length > 0 && (
+              <div className="mt-3 rounded-lg bg-red-50 border border-red-200 px-3 py-2">
+                <p className="text-xs font-semibold text-red-700 mb-1">
+                  Перевірте сер. курс — прибуток рахується проти цих значень:
+                </p>
+                {basisWarnings.map(([cur, msg]) => (
+                  <p key={cur} className="text-xs text-red-700">
+                    <b>{cur}</b> — {msg}
+                  </p>
+                ))}
+              </div>
+            )}
             {onRecalcBasis && (
               <div className="mt-3 flex items-center gap-3">
                 <button
