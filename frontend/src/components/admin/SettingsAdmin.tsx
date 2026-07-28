@@ -298,7 +298,7 @@ function OrgSettings() {
     <div className="bg-white rounded-xl shadow p-6 space-y-4">
       <div>
         <h3 className="font-semibold text-gray-800 text-base">🏢 Назва організації</h3>
-        <p className="text-xs text-gray-400 mt-0.5">Друкується у шапці чека. Залиште порожнім, щоб не друкувати.</p>
+        <p className="text-xs text-gray-400 mt-0.5">Друкується першим рядком у шапці чека (нижче — назва точки) та у звіті по зміні. Залиште порожнім, щоб не друкувати.</p>
       </div>
       <div className="flex gap-2">
         <input

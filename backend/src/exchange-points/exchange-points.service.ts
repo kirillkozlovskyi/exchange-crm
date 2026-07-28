@@ -1,6 +1,14 @@
 import { Injectable, ConflictException, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
+type PointDto = {
+  name?: string;
+  code?: string;
+  address?: string;
+  receiptName?: string;
+  phone?: string;
+};
+
 @Injectable()
 export class ExchangePointsService {
   constructor(private prisma: PrismaService) {}
@@ -76,16 +84,22 @@ export class ExchangePointsService {
     });
   }
 
-  async create(dto: { name: string; code: string; address?: string }) {
+  async create(dto: PointDto & { name: string; code: string }) {
     const exists = await this.prisma.exchangePoint.findUnique({ where: { code: dto.code } });
     if (exists) throw new ConflictException('Точка з таким кодом вже існує');
     return this.prisma.exchangePoint.create({
-      data: { name: dto.name, code: dto.code.toUpperCase(), address: dto.address?.trim() || null },
+      data: {
+        name: dto.name,
+        code: dto.code.toUpperCase(),
+        address: dto.address?.trim() || null,
+        receiptName: dto.receiptName?.trim() || null,
+        phone: dto.phone?.trim() || null,
+      },
       include: { cashDesks: true },
     });
   }
 
-  async update(id: number, dto: { name?: string; code?: string; address?: string }) {
+  async update(id: number, dto: PointDto) {
     const point = await this.prisma.exchangePoint.findUnique({ where: { id } });
     if (!point) throw new NotFoundException('Точку не знайдено');
 
@@ -100,6 +114,9 @@ export class ExchangePointsService {
         ...(dto.name !== undefined ? { name: dto.name } : {}),
         ...(dto.code !== undefined ? { code: dto.code.toUpperCase() } : {}),
         ...(dto.address !== undefined ? { address: dto.address.trim() || null } : {}),
+        // Порожній рядок = очистити поле (у чеку рядок зникне), undefined = не чіпати.
+        ...(dto.receiptName !== undefined ? { receiptName: dto.receiptName.trim() || null } : {}),
+        ...(dto.phone !== undefined ? { phone: dto.phone.trim() || null } : {}),
       },
       include: { cashDesks: true },
     });

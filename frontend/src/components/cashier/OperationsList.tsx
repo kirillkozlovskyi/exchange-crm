@@ -8,8 +8,17 @@ import CashierProfitModal from './CashierProfitModal';
 import Flag from '../Flag';
 import { WORLD_CURRENCIES } from '../../data/currencyMeta';
 
-// Дані для шапки/підвалу чека (з налаштувань точки та організації).
-export type ReceiptInfo = { orgName?: string; address?: string; deskNo?: number | string };
+// Дані для шапки чека. orgName — назва організації (окремий рядок, глобальне
+// налаштування). Рядок точки — receiptName, якщо заданий, інакше назва точки.
+// Порожні orgName/address/phone рядка в чеку не займають.
+export type ReceiptInfo = {
+  orgName?: string;
+  receiptName?: string;
+  pointName?: string;
+  address?: string;
+  phone?: string;
+  deskNo?: number | string;
+};
 
 type Op = {
   id: number;
@@ -123,7 +132,10 @@ export function printReceipt(op: Op, info: ReceiptInfo = {}) {
   const dt = format(new Date(op.createdAt), 'dd.MM.yyyy HH:mm:ss');
 
   const org = (info.orgName ?? '').trim();
+  // Рядок точки: «Назва в чеку», інакше — звичайна назва точки.
+  const point = (info.receiptName ?? '').trim() || (info.pointName ?? '').trim();
   const addr = (info.address ?? '').trim();
+  const phone = (info.phone ?? '').trim();
   const deskNo = info.deskNo;
 
   const row = (label: string, value: string) =>
@@ -143,8 +155,10 @@ export function printReceipt(op: Op, info: ReceiptInfo = {}) {
     .small { font-size: 11px; }
   </style></head><body>
     ${org ? `<div class="center b">${escHtml(org)}</div>` : ''}
+    ${point ? `<div class="center b">${escHtml(point)}</div>` : ''}
     ${deskNo != null ? `<div class="center b">Операційна каса № ${escHtml(String(deskNo))}</div>` : ''}
     ${addr ? `<div class="center">${escHtml(addr)}</div>` : ''}
+    ${phone ? `<div class="center">тел. ${escHtml(phone)}</div>` : ''}
     <div class="center">ІД ${escHtml(op.number)}</div>
     <div class="center b">ОПЕРАЦІЯ</div>
     <div class="center b">${typeLabel}</div>

@@ -62,6 +62,11 @@ model ExchangePoint {
   name      String
   code      String     @unique // T1, T2, etc.
   address   String?    // адреса точки (для чеків тощо)
+  // Шапка чека. receiptName — назва для друку (напр. «Обмін валют "Курсок"»);
+  // порожня — друкується глобальна назва організації. Порожній phone/address
+  // рядок у чеку не займають.
+  receiptName String?
+  phone       String?
   createdAt DateTime   @default(now())
 
   cashDesks       CashDesk[]

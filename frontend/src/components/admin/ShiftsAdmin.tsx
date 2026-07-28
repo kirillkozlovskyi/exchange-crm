@@ -105,7 +105,10 @@ function ShiftDetail({ shiftId }: { shiftId: number }) {
   // Дані шапки чека для друку окремої операції (як у касира).
   const receipt = {
     orgName,
+    receiptName: d.cashDesk?.exchangePoint?.receiptName ?? '',
+    pointName: d.cashDesk?.exchangePoint?.name ?? '',
     address: d.cashDesk?.exchangePoint?.address ?? '',
+    phone: d.cashDesk?.exchangePoint?.phone ?? '',
     deskNo: d.cashDeskId,
   };
 

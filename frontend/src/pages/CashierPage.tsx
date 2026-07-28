@@ -68,8 +68,8 @@ export default function CashierPage() {
   // Витрати касиру (адмінський дозвіл) + стан модалки.
   const [canExpenses, setCanExpenses] = useState(false);
   const [showExpense, setShowExpense] = useState(false);
-  const [quickAmounts, setQuickAmounts] = useState<number[]>([10, 20, 50, 100, 500]);
   const [orgName, setOrgName] = useState('');
+  const [quickAmounts, setQuickAmounts] = useState<number[]>([10, 20, 50, 100, 500]);
   // Чи показувати касиру прибуток (адмінське налаштування). Поки не завантажено —
   // ховаємо, щоб прибуток не «блимав» тим, кому його приховали.
   const [canSeeProfit, setCanSeeProfit] = useState(false);
@@ -713,7 +713,10 @@ export default function CashierPage() {
                 onRefresh={() => loadShift(selectedDeskId!)}
                 receipt={{
                   orgName,
+                  receiptName: shift?.cashDesk?.exchangePoint?.receiptName ?? '',
+                  pointName: shift?.cashDesk?.exchangePoint?.name ?? '',
                   address: shift?.cashDesk?.exchangePoint?.address ?? '',
+                  phone: shift?.cashDesk?.exchangePoint?.phone ?? '',
                   deskNo: shift?.cashDeskId,
                 }}
               />
@@ -809,7 +812,10 @@ export default function CashierPage() {
               activeCur={activeCur}
               receipt={{
                 orgName,
+                receiptName: shift?.cashDesk?.exchangePoint?.receiptName ?? '',
+                pointName: shift?.cashDesk?.exchangePoint?.name ?? '',
                 address: shift?.cashDesk?.exchangePoint?.address ?? '',
+                phone: shift?.cashDesk?.exchangePoint?.phone ?? '',
                 deskNo: shift?.cashDeskId,
               }}
               onCreated={() => {

@@ -75,6 +75,65 @@ function CashDeskRow({ desk, onUpdate }: { desk: any; onUpdate: () => void }) {
   );
 }
 
+// Рядок «підпис — значення — Ред.» для необов'язкових полів точки (шапка чека).
+// Порожнє значення зберігається як null і в чеку рядок не друкується.
+function PointField({
+  pointId, field, label, value, placeholder, empty, onUpdate,
+}: {
+  pointId: number;
+  field: 'address' | 'receiptName' | 'phone';
+  label: string;
+  value: string;
+  placeholder: string;
+  empty: string;
+  onUpdate: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+  const [saving, setSaving] = useState(false);
+
+  const cancel = () => { setEditing(false); setDraft(value); };
+  const save = async () => {
+    setSaving(true);
+    try {
+      await api.patch(`/exchange-points/${pointId}`, { [field]: draft.trim() });
+      setEditing(false);
+      onUpdate();
+    } catch (err: any) {
+      alert(err.response?.data?.message ?? 'Помилка');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-gray-500 flex-shrink-0 w-28">{label}</span>
+      {editing ? (
+        <>
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            placeholder={placeholder}
+            autoFocus
+            onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') cancel(); }}
+            className="border rounded px-2 py-1 text-sm flex-1 focus:outline-none focus:ring-2 focus:ring-blue-300"
+          />
+          <button onClick={save} disabled={saving} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 disabled:opacity-50">Зберегти</button>
+          <button onClick={cancel} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200">✕</button>
+        </>
+      ) : (
+        <>
+          <span className={`flex-1 text-sm ${value ? 'text-gray-700' : 'text-gray-400 italic'}`}>
+            {value || empty}
+          </span>
+          <button onClick={() => { setDraft(value); setEditing(true); }} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200">Ред.</button>
+        </>
+      )}
+    </div>
+  );
+}
+
 function PointCard({ point, onUpdate }: { point: any; onUpdate: () => void }) {
   const deletePoint = async () => {
     if (!window.confirm(`Видалити точку "${point.name}"? Це також видалить всі каси та дані точки.`)) return;
@@ -89,11 +148,6 @@ function PointCard({ point, onUpdate }: { point: any; onUpdate: () => void }) {
   const [newDeskName, setNewDeskName] = useState('');
   const [addingDesk, setAddingDesk] = useState(false);
   const [open, setOpen] = useState(true);
-
-  // Редагування адреси точки
-  const [editingAddr, setEditingAddr] = useState(false);
-  const [addr, setAddr] = useState(point.address ?? '');
-  const [savingAddr, setSavingAddr] = useState(false);
 
   // Редагування назви точки
   const [editingName, setEditingName] = useState(false);
@@ -120,19 +174,6 @@ function PointCard({ point, onUpdate }: { point: any; onUpdate: () => void }) {
   };
 
   useEffect(() => { loadDesks(); }, []);
-
-  const saveAddress = async () => {
-    setSavingAddr(true);
-    try {
-      await api.patch(`/exchange-points/${point.id}`, { address: addr.trim() });
-      setEditingAddr(false);
-      onUpdate();
-    } catch (err: any) {
-      alert(err.response?.data?.message ?? 'Помилка');
-    } finally {
-      setSavingAddr(false);
-    }
-  };
 
   const addDesk = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -212,30 +253,35 @@ function PointCard({ point, onUpdate }: { point: any; onUpdate: () => void }) {
 
       {open && (
         <div className="px-4 pb-4 pt-2">
-          {/* Адреса точки */}
-          <div className="flex items-center gap-2 mb-3 pb-3 border-b">
-            <span className="text-xs text-gray-500 flex-shrink-0">📍 Адреса:</span>
-            {editingAddr ? (
-              <>
-                <input
-                  value={addr}
-                  onChange={(e) => setAddr(e.target.value)}
-                  placeholder="вул. Хрещатик, 1, Київ"
-                  autoFocus
-                  onKeyDown={(e) => { if (e.key === 'Enter') saveAddress(); if (e.key === 'Escape') { setEditingAddr(false); setAddr(point.address ?? ''); } }}
-                  className="border rounded px-2 py-1 text-sm flex-1 focus:outline-none focus:ring-2 focus:ring-blue-300"
-                />
-                <button onClick={saveAddress} disabled={savingAddr} className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded hover:bg-green-200 disabled:opacity-50">Зберегти</button>
-                <button onClick={() => { setEditingAddr(false); setAddr(point.address ?? ''); }} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200">✕</button>
-              </>
-            ) : (
-              <>
-                <span className={`flex-1 text-sm ${point.address ? 'text-gray-700' : 'text-gray-400 italic'}`}>
-                  {point.address || 'не вказано'}
-                </span>
-                <button onClick={() => setEditingAddr(true)} className="text-xs bg-gray-100 text-gray-600 px-2 py-1 rounded hover:bg-gray-200">Ред.</button>
-              </>
-            )}
+          {/* Шапка чека: назва для друку, адреса, телефон. Порожні поля в чек не йдуть. */}
+          <div className="mb-3 pb-3 border-b space-y-2">
+            <PointField
+              pointId={point.id}
+              field="receiptName"
+              label="🧾 Назва в чеку:"
+              value={point.receiptName ?? ''}
+              placeholder="Обмін валют «Курсок»"
+              empty="не вказано — друкується назва точки"
+              onUpdate={onUpdate}
+            />
+            <PointField
+              pointId={point.id}
+              field="address"
+              label="📍 Адреса:"
+              value={point.address ?? ''}
+              placeholder="вул. Хрещатик, 1, Київ"
+              empty="не вказано — рядок у чеку не друкується"
+              onUpdate={onUpdate}
+            />
+            <PointField
+              pointId={point.id}
+              field="phone"
+              label="☎️ Телефон:"
+              value={point.phone ?? ''}
+              placeholder="+380 67 123 45 67"
+              empty="не вказано — рядок у чеку не друкується"
+              onUpdate={onUpdate}
+            />
           </div>
 
           {/* Список кас */}

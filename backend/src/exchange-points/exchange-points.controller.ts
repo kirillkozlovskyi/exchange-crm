@@ -22,7 +22,7 @@ export class ExchangePointsController {
   @Post()
   @UseGuards(RolesGuard)
   @Roles('ADMIN')
-  create(@Body() dto: { name: string; code: string; address?: string }) {
+  create(@Body() dto: { name: string; code: string; address?: string; receiptName?: string; phone?: string }) {
     return this.service.create(dto);
   }
 
@@ -31,7 +31,7 @@ export class ExchangePointsController {
   @Roles('ADMIN')
   update(
     @Param('id', ParseIntPipe) id: number,
-    @Body() dto: { name?: string; code?: string; address?: string },
+    @Body() dto: { name?: string; code?: string; address?: string; receiptName?: string; phone?: string },
   ) {
     return this.service.update(id, dto);
   }
