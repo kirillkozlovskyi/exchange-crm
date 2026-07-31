@@ -38,8 +38,19 @@ export interface WacOperation {
   cancelled?: boolean;
 }
 
-/** Числовник моделі: єдина валюта без позиції і собівартості. */
+/** Числовник моделі: валюта без позиції і собівартості (база курсів точки). */
 export const NUMERAIRE = 'USD';
+
+/**
+ * Долари ВСІХ видів (USD, USDW «білий», USDG «ветошь», USDT) — числовник:
+ * «готова валюта» 1:1, без позиції і собівартості (те саме правило, що й в
+ * оцінці каси — tillUsdValue). Раніше USDW/USDG вважались товаром із $-кросом,
+ * а собівартості для них взяти не було звідки: власник її не задає (у формі
+ * зміни поля для доларів немає), тож підставлявся КУРС КУПІВЛІ точки. Для
+ * USDG він стояв незміненим з 16.07 (40.00 ₴), і продаж ветоші по 44.85 давав
+ * фантомні +148 $ за день на порожньому місці.
+ */
+export const isNumeraire = (cur: string): boolean => cur.startsWith('USD');
 
 /** Сер. курс гривні: людський формат (₴ за $) → внутрішній ($ за ₴). */
 export const uahBasisToCost = (uahPerUsd: number): number =>
@@ -147,11 +158,11 @@ function opLegs(op: WacOperation, sUsd: number, uahCost: number): OpLeg[] {
   // Крос: віддали cur (amount), придбали payCur (payAmount).
   if (payCur && cur !== 'UAH') {
     if (!(amount > 0) || !(payAmount > 0)) return [];
-    if (cur === NUMERAIRE) {
+    if (isNumeraire(cur)) {
       // Віддали долари → payCur заходить за прямим курсом, без прибутку.
       return [{ cur: payCur, q: +payAmount, price: amount / payAmount, mode: 'trade', attr: payCur }];
     }
-    if (payCur === NUMERAIRE) {
+    if (isNumeraire(payCur)) {
       // Отримали долари → cur реалізує проти кросу за прямим курсом.
       return [{ cur, q: -amount, price: payAmount / amount, mode: 'trade', attr: cur }];
     }
@@ -166,7 +177,7 @@ function opLegs(op: WacOperation, sUsd: number, uahCost: number): OpLeg[] {
   // Старий формат BUY: каса віддала totalUah грн, придбала payCur.
   if (payCur && cur === 'UAH') {
     if (!(payAmount > 0) || !(totalUah > 0)) return [];
-    if (payCur === NUMERAIRE) {
+    if (isNumeraire(payCur)) {
       // Відкуп долара: гривня виходить трейдом → реалізація проти бази.
       return [{ cur: 'UAH', q: -totalUah, price: payAmount / totalUah, mode: 'trade', attr: payCur }];
     }
@@ -179,12 +190,12 @@ function opLegs(op: WacOperation, sUsd: number, uahCost: number): OpLeg[] {
 
   // Пара з гривнею.
   if (cur === 'UAH' || !(amount > 0) || !(totalUah > 0)) return [];
-  if (cur === NUMERAIRE) {
-    // USD ↔ UAH: позицію веде гривня, ціна пряма ($ за ₴ = 1/rate).
+  if (isNumeraire(cur)) {
+    // Долар (будь-якого виду) ↔ UAH: позицію веде гривня, ціна пряма ($ за ₴ = 1/rate).
     const price = amount / totalUah;
     return op.type === 'BUY'
-      ? [{ cur: 'UAH', q: -totalUah, price, mode: 'trade', attr: NUMERAIRE }]  // відкуп: реалізація
-      : [{ cur: 'UAH', q: +totalUah, price, mode: 'trade', attr: NUMERAIRE }]; // продаж: 0, оновлює базу
+      ? [{ cur: 'UAH', q: -totalUah, price, mode: 'trade', attr: cur }]  // відкуп: реалізація
+      : [{ cur: 'UAH', q: +totalUah, price, mode: 'trade', attr: cur }]; // продаж: 0, оновлює базу
   }
   if (op.type === 'BUY') {
     // Купівля валюти за гривню: гривня за базою, валюта = rate × B (напр. 11.80/44.90).
@@ -229,7 +240,7 @@ export function wacRealizedTimeline(opening: PositionMap, items: WacItem[]): Wac
 
   for (const item of items) {
     if (item.kind === 'flow') {
-      if (!item.currency || item.currency === NUMERAIRE || item.currency === 'USDT') continue;
+      if (!item.currency || isNumeraire(item.currency)) continue;
       const p = (pos[item.currency] ??= { qty: 0, avgCost: item.price });
       applyFlow(p, item.qty, item.price);
       continue;
@@ -240,7 +251,7 @@ export function wacRealizedTimeline(opening: PositionMap, items: WacItem[]): Wac
     const uahCost = pos['UAH']?.avgCost ?? 0;
     let opRealized = 0;
     for (const leg of opLegs(op, item.sUsd, uahCost)) {
-      if (leg.cur === NUMERAIRE || leg.cur === 'USDT') continue; // числовник позиції не має
+      if (isNumeraire(leg.cur)) continue; // числовник позиції не має
       const p = (pos[leg.cur] ??= { qty: 0, avgCost: 0 });
       if (leg.mode === 'flow') { applyFlow(p, leg.q, leg.price); continue; }
       const r = applyTrade(p, leg.q, leg.price);

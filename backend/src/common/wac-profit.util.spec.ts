@@ -81,15 +81,37 @@ describe('wac-profit ($-числовник): прибуток на відкуп�
     expect(costToUahBasis(r.ending.UAH.avgCost)).toBeCloseTo(44.9, 6); // база гривні не змінилась
   });
 
-  it('USDW («ветош») — звичайна валюта з $-кросом, USD-числовник її не торкається', () => {
-    const opening: PositionMap = { UAH: { qty: 50000, avgCost: uahBasisToCost(45) } };
+  it('USDW («білий») — долар 1:1: продаж дає 0, прибуток на ВІДКУПІ дешевше (числа власниці 30.07)', () => {
+    // Продали 3300 білих по 44.85 → база гривні 44.85; відкупили 1150 по 44.75.
+    const r = wacRealized({}, [
+      op({ type: 'SELL', currency: 'USDW', amount: 3300, totalUah: 148005 }),
+      op({ type: 'BUY', currency: 'USDW', amount: 1150, totalUah: 51462.5 }),
+    ], 45.05);
+    expect(r.perOp[0]).toBeCloseTo(0, 9);                                    // продаж прибутку не дає
+    expect(r.perOp[1] * 44.85).toBeCloseTo(115, 0);                          // 1150 × 0.10 = 115 ₴
+    expect(r.byCurrency.USDW).toBeCloseTo(r.totalRealized, 9);               // прибуток приписано USDW
+    expect(r.ending.USDW).toBeUndefined();                                   // позиції в доларах немає
+  });
+
+  it('USDG («ветошь») — продаж наявної ветоші НЕ дає прибутку (курс купівлі не є собівартістю)', () => {
+    // Інцидент 30.07.2026: USDG торгувалась як товар із $-кросом, а собівартість
+    // бралась із курсу купівлі точки (40.00 ₴ від 16.07, за яким нічого не купували)
+    // → продаж 1380 ветоші по 44.85 давав фантомні +148 $ (6 682 ₴) за день.
+    const r = wacRealized({}, [
+      op({ type: 'SELL', currency: 'USDG', amount: 700, totalUah: 31395 }),
+      op({ type: 'SELL', currency: 'USDG', amount: 680, totalUah: 30498 }),
+    ], 45.05);
+    expect(r.totalRealized).toBeCloseTo(0, 9);
+    expect(costToUahBasis(r.ending.UAH.avgCost)).toBeCloseTo(44.85, 6);      // гривня зайшла по 44.85
+  });
+
+  it('купівля ветоші дешевше бази гривні — реальний прибуток на відкупі', () => {
+    const opening: PositionMap = { UAH: { qty: 100000, avgCost: uahBasisToCost(45.09) } };
     const r = wacRealized(opening, [
-      op({ type: 'BUY', currency: 'USDW', amount: 400, totalUah: 17800 }),  // купили по 44.50
-      op({ type: 'SELL', currency: 'USDW', amount: 80, totalUah: 3588 }),   // продали по 44.85
-    ], 44.95);
-    expect(r.ending.USDW.avgCost).toBeCloseTo(17800 / 45 / 400, 6);         // ≈ 0.9889 $/USDW
-    expect(r.perOp[1]).toBeCloseTo(80 * (44.85 / 44.95 - 17800 / 45 / 400), 6);
-    expect(r.ending.USD).toBeUndefined();                                    // числовник без позиції
+      op({ type: 'BUY', currency: 'USDG', amount: 100, totalUah: 4400 }),    // ветошь по 44.00
+    ], 45.05);
+    expect(r.perOp[0]).toBeCloseTo(4400 * (1 / 44 - 1 / 45.09), 6);          // ≈ +2.42$
+    expect(r.byCurrency.USDG).toBeCloseTo(r.totalRealized, 9);
   });
 
   it('крос: віддали USD → валюта заходить за прямим курсом, без прибутку (ряд 7)', () => {

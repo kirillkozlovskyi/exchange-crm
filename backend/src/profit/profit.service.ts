@@ -6,6 +6,7 @@ import {
   uahBasisToCost,
   costToUahBasis,
   NUMERAIRE,
+  isNumeraire,
   WacItem,
   PositionMap,
   WacOperation,
@@ -134,7 +135,7 @@ export class ProfitService {
       // Кінцева собівартість каси — повний перезапис у новому форматі.
       await this.prisma.deskCostBasis.deleteMany({ where: { cashDeskId: desk.id } });
       const rows = Object.entries(basis)
-        .filter(([cur, v]) => cur !== NUMERAIRE && cur !== 'USDT' && v > 0)
+        .filter(([cur, v]) => !isNumeraire(cur) && v > 0)
         .map(([currency, v]) => ({ cashDeskId: desk.id, currency, avgCost: v }));
       if (rows.length) await this.prisma.deskCostBasis.createMany({ data: rows });
     }
@@ -185,7 +186,7 @@ export class ProfitService {
   ): Record<string, number> {
     const basis = { ...prev };
     for (const [cur, p] of Object.entries(ending)) {
-      if (cur === NUMERAIRE || cur === 'USDT' || !(p.avgCost > 0)) continue;
+      if (isNumeraire(cur) || !(p.avgCost > 0)) continue;
       basis[cur] = cur === 'UAH' ? costToUahBasis(p.avgCost) : p.avgCost;
     }
     return basis;
@@ -242,9 +243,8 @@ export class ProfitService {
     // гривні по 44.90 → 11.80/44.90); без нього — поточний курс продажу USD.
     const uahPerUsd = basis.UAH > 0 ? basis.UAH : sOpen;
     for (const cur of currencies) {
-      // USD — числовник (позиції не має). USDT — не готівкова позиція каси:
-      // живе в окремому гаманці, торгується лише через вікно USDT.
-      if (!cur || cur === NUMERAIRE || cur === 'USDT') continue;
+      // Долари всіх видів (USD/USDW/USDG/USDT) — числовник, позиції не мають.
+      if (!cur || isNumeraire(cur)) continue;
       const qty = Number(params.startBalance?.[cur] ?? 0);
       let avgCost: number;
       if (cur === 'UAH') {
@@ -302,7 +302,7 @@ export class ProfitService {
   ): Promise<{ at: number; item: WacItem }[]> {
     const out: { at: number; item: WacItem }[] = [];
     const push = (at: Date | string, currency: string, qty: number) => {
-      if (!currency || currency === NUMERAIRE || currency === 'USDT' || !qty) return;
+      if (!currency || isNumeraire(currency) || !qty) return;
       const S = sAt(at);
       const price =
         currency === 'UAH'
@@ -412,7 +412,7 @@ export class ProfitService {
    */
   async setBasis(cashDeskId: number, costBasis: Record<string, number>) {
     const ops = Object.entries(costBasis)
-      .filter(([cur, v]) => cur !== NUMERAIRE && cur !== 'USDT' && Number(v) > 0)
+      .filter(([cur, v]) => !isNumeraire(cur) && Number(v) > 0)
       .map(([currency, v]) =>
         this.prisma.deskCostBasis.upsert({
           where: { cashDeskId_currency: { cashDeskId, currency } },
